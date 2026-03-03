@@ -1,0 +1,41 @@
+{
+  "name": "ensemble-cli",
+  "version": "0.1.0",
+  "description": "Ensemble CLI for logging in, initializing, and pushing/pulling app definitions to the cloud.",
+  "bin": {
+    "ensemble": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "ts-node src/index.ts",
+    "start": "node dist/index.js",
+    "lint": "eslint src tests --ext .ts",
+    "lint:fix": "eslint src tests --ext .ts --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "keywords": [
+    "ensemble",
+    "cli"
+  ],
+  "license": "MIT",
+  "type": "commonjs",
+  "dependencies": {
+    "commander": "^12.1.0",
+    "prompts": "^2.4.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "@types/prompts": "^2.4.9",
+    "@typescript-eslint/eslint-plugin": "^8.15.0",
+    "@typescript-eslint/parser": "^8.15.0",
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^9.1.0",
+    "prettier": "^3.3.3",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.6.3",
+    "vitest": "^3.2.4"
+  }
+}
