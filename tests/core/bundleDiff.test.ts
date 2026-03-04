@@ -171,4 +171,82 @@ describe('buildPushPayload', () => {
       expect(theme.updates.content).toBe('new');
     }
   });
+
+  it('updates defaultLocale when translation default changes', () => {
+    const cloudApp: ApplicationDTO = {
+      id: 'app1',
+      name: 'App',
+      translations: [
+        {
+          id: 'i18n_ar',
+          name: 'ar',
+          content: 'ar: content',
+          type: EnsembleDocumentType.I18n,
+          defaultLocale: false,
+        },
+        {
+          id: 'i18n_en',
+          name: 'en',
+          content: 'en: content',
+          type: EnsembleDocumentType.I18n,
+          defaultLocale: false,
+        },
+      ],
+    };
+    const bundle: ApplicationDTO = {
+      id: 'app1',
+      name: 'App',
+      translations: [
+        {
+          id: 'i18n_ar',
+          name: 'ar',
+          content: 'ar: content',
+          type: EnsembleDocumentType.I18n,
+          defaultLocale: true,
+        },
+        {
+          id: 'i18n_en',
+          name: 'en',
+          content: 'en: content',
+          type: EnsembleDocumentType.I18n,
+          defaultLocale: false,
+        },
+      ],
+    };
+
+    const diff = computeBundleDiff(bundle, cloudApp);
+    const payload = buildPushPayload(bundle, diff, cloudApp, updatedBy);
+    expect(payload.translations).toBeDefined();
+    const updateItem = payload.translations!.find((t) => t.operation === 'update');
+    expect(updateItem).toBeDefined();
+    if (updateItem && updateItem.operation === 'update') {
+      expect(updateItem.id).toBe('i18n_ar');
+      expect(updateItem.updates.defaultLocale).toBe(true);
+    }
+  });
+
+  it('includes createdAt/createdBy/updatedBy for new artifacts', () => {
+    const cloudApp: ApplicationDTO = {
+      id: 'app1',
+      name: 'App',
+      screens: [],
+    };
+    const bundle: ApplicationDTO = {
+      id: 'app1',
+      name: 'App',
+      screens: [screen('s1', 'Home', 'home')],
+    };
+    const diff = computeBundleDiff(bundle, cloudApp);
+    const payload = buildPushPayload(bundle, diff, cloudApp, updatedBy);
+    expect(payload.screens).toBeDefined();
+    const createItem = payload.screens!.find((s) => s.operation === 'create');
+    expect(createItem).toBeDefined();
+    if (createItem && createItem.operation === 'create') {
+      const doc = createItem.document as any;
+      expect(doc.createdAt).toBeDefined();
+      expect(doc.updatedAt).toBeDefined();
+      expect(doc.updatedBy).toEqual(updatedBy);
+      expect(doc.createdBy).toEqual(updatedBy);
+    }
+  });
 });

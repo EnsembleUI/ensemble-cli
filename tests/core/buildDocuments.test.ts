@@ -86,6 +86,24 @@ describe('buildDocumentsFromParsed', () => {
     expect(app.translations![0].defaultLocale).toBe(true);
     expect(app.translations![1].defaultLocale).toBe(false);
   });
+
+  it('respects defaultLanguage when provided', () => {
+    const parsed: ParsedAppFiles = {
+      screens: {},
+      scripts: {},
+      widgets: {},
+      translations: {
+        'en.yaml': 'en: content',
+        'es.yaml': 'es: contenido',
+      },
+    };
+    const app = buildDocumentsFromParsed(parsed, 'app1', 'App', undefined, 'es');
+    expect(app.translations).toHaveLength(2);
+    const en = app.translations!.find((t) => t.name === 'en');
+    const es = app.translations!.find((t) => t.name === 'es');
+    expect(es?.defaultLocale).toBe(true);
+    expect(en?.defaultLocale).toBe(false);
+  });
 });
 
 describe('buildMergedBundle', () => {
@@ -168,6 +186,54 @@ describe('buildMergedBundle', () => {
     expect(about).toBeDefined();
     expect(about!.id).toBeDefined();
     expect(about!.id).not.toBe('s2');
+  });
+
+  it('generates ids for new widgets/scripts but preserves translation and theme ids', () => {
+    const parsed: ParsedAppFiles = {
+      screens: { 'Home.yaml': 'home' },
+      scripts: { 'S1.js': 'console.log(1);' },
+      widgets: { 'W1.yaml': 'widget: w1' },
+      translations: {
+        'en.yaml': 'en: content',
+        'es.yaml': 'es: contenido',
+      },
+      theme: 'colors:\n  primary: blue',
+    };
+    const local = buildDocumentsFromParsed(parsed, 'app1', 'App');
+    const cloud: CloudApp = {
+      id: 'app1',
+      name: 'App',
+      screens: [],
+      widgets: [],
+      scripts: [],
+      translations: [],
+      theme: undefined,
+    };
+
+    const merged = buildMergedBundle(local, cloud, {
+      name: 'CLI',
+      id: 'u1',
+    });
+
+    expect(merged.widgets).toHaveLength(1);
+    expect(merged.scripts).toHaveLength(1);
+    expect(merged.screens).toHaveLength(1);
+    expect(merged.translations).toHaveLength(2);
+    expect(merged.theme).toBeDefined();
+
+    const widget = merged.widgets![0];
+    const script = merged.scripts![0];
+    const screen = merged.screens![0];
+    const en = merged.translations!.find((t) => t.name === 'en');
+    const es = merged.translations!.find((t) => t.name === 'es');
+
+    expect(screen.id).not.toBe('screens/Home.yaml');
+    expect(widget.id).not.toBe('widgets/W1.yaml');
+    expect(script.id).not.toBe('scripts/S1.js');
+
+    expect(en?.id).toBe('i18n_en');
+    expect(es?.id).toBe('i18n_es');
+    expect(merged.theme?.id).toBe('theme');
   });
 
   it('archives cloud items deleted locally', () => {

@@ -1,5 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { checkAppAccess, fetchCloudApp, fetchRootScreenName } from '../../src/cloud/firestoreClient.js';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import {
+  checkAppAccess,
+  fetchCloudApp,
+  fetchRootScreenName,
+  submitCliPush,
+} from '../../src/cloud/firestoreClient.js';
 
 describe('checkAppAccess', () => {
   const originalFetch = globalThis.fetch;
@@ -222,6 +227,94 @@ describe('fetchCloudApp', () => {
     expect(result.screens![0].name).toBe('Home');
     expect(result.screens![0].content).toBe('screen content');
   });
+
+  it('prefers theme doc with id "theme" when multiple themes exist', async () => {
+    const appDoc = {
+      name: 'projects/p/databases/(default)/documents/apps/app-1',
+    };
+
+    const artifacts = [
+      {
+        name: 'projects/p/databases/(default)/documents/apps/app-1/artifacts/randomThemeId',
+        fields: {
+          type: { stringValue: 'theme' },
+          name: { stringValue: 'theme' },
+          content: { stringValue: 'random theme' },
+        },
+      },
+      {
+        name: 'projects/p/databases/(default)/documents/apps/app-1/artifacts/theme',
+        fields: {
+          type: { stringValue: 'theme' },
+          name: { stringValue: 'theme' },
+          content: { stringValue: 'canonical theme' },
+        },
+      },
+    ];
+
+    globalThis.fetch = async (input: RequestInfo | URL) => {
+      const urlStr =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      if (urlStr.includes('/documents/apps/app-1') && !urlStr.includes('/artifacts')) {
+        return new Response(JSON.stringify(appDoc), { status: 200 });
+      }
+      if (urlStr.includes('/artifacts')) {
+        return new Response(JSON.stringify({ documents: artifacts }), { status: 200 });
+      }
+      if (urlStr.includes('internal_artifacts')) {
+        return new Response(JSON.stringify({ documents: [] }), { status: 200 });
+      }
+      return new Response('Not found', { status: 404 });
+    };
+
+    const result = await fetchCloudApp('app-1', 'token');
+    expect(result.theme).toBeDefined();
+    expect(result.theme?.id).toBe('theme');
+    expect(result.theme?.content).toBe('canonical theme');
+  });
+
+  it('handles single random-id theme gracefully', async () => {
+    const appDoc = {
+      name: 'projects/p/databases/(default)/documents/apps/app-1',
+    };
+    const artifacts = [
+      {
+        name: 'projects/p/databases/(default)/documents/apps/app-1/artifacts/randomThemeId',
+        fields: {
+          type: { stringValue: 'theme' },
+          name: { stringValue: 'theme' },
+          content: { stringValue: 'random theme' },
+        },
+      },
+    ];
+
+    globalThis.fetch = async (input: RequestInfo | URL) => {
+      const urlStr =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      if (urlStr.includes('/documents/apps/app-1') && !urlStr.includes('/artifacts')) {
+        return new Response(JSON.stringify(appDoc), { status: 200 });
+      }
+      if (urlStr.includes('/artifacts')) {
+        return new Response(JSON.stringify({ documents: artifacts }), { status: 200 });
+      }
+      if (urlStr.includes('internal_artifacts')) {
+        return new Response(JSON.stringify({ documents: [] }), { status: 200 });
+      }
+      return new Response('Not found', { status: 404 });
+    };
+
+    const result = await fetchCloudApp('app-1', 'token');
+    expect(result.theme).toBeDefined();
+    expect(result.theme?.content).toBe('random theme');
+  });
 });
 
 describe('fetchRootScreenName', () => {
@@ -230,6 +323,77 @@ describe('fetchRootScreenName', () => {
   beforeEach(() => {
     globalThis.fetch = originalFetch;
   });
+
+describe('submitCliPush', () => {
+  const originalFetch = globalThis.fetch;
+
+  beforeEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    vi.restoreAllMocks();
+  });
+
+  it('creates translation with correct id, defaultLocale and user references', async () => {
+    const calls: { url: string; body: any }[] = [];
+
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const urlStr =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      if (init?.method === 'POST' && urlStr.includes('/artifacts')) {
+        calls.push({
+          url: urlStr,
+          body: init.body ? JSON.parse(init.body.toString()) : undefined,
+        });
+        return new Response(JSON.stringify({}), { status: 200 });
+      }
+      // For other calls (screens/widgets/scripts/theme) that won't be used in this test.
+      return new Response(JSON.stringify({}), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const payload = {
+      id: 'app1',
+      name: 'App',
+      updatedAt: new Date().toISOString(),
+      translations: [
+        {
+          operation: 'create' as const,
+          document: {
+            id: 'i18n_en',
+            name: 'en',
+            content: 'en: content',
+            type: 'i18n',
+            defaultLocale: true,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            updatedBy: { name: 'User', email: 'u@test.com', id: 'uid1' },
+            createdBy: { name: 'User', email: 'u@test.com', id: 'uid1' },
+          },
+        },
+      ],
+    };
+
+    await submitCliPush('app1', 'token', payload);
+
+    expect(calls.length).toBe(1);
+    const { url, body } = calls[0]!;
+    expect(url).toContain('/apps/app1/artifacts');
+    expect(url).toContain('documentId=i18n_en');
+    expect(body).toHaveProperty('fields');
+    expect(body.fields.defaultLocale).toEqual({ booleanValue: true });
+
+    const updatedByRef = body.fields.updatedBy.referenceValue as string;
+    const createdByRef = body.fields.createdBy.referenceValue as string;
+    expect(updatedByRef).toContain('/users/uid1');
+    expect(createdByRef).toContain('/users/uid1');
+  });
+});
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
