@@ -191,6 +191,32 @@ describe('push/pull integration (commands)', () => {
     expect(submitCliPush).not.toHaveBeenCalled();
   });
 
+  it('push dry run shows diff but does not submit payload', async () => {
+    // Arrange: create a simple local file and cloud app with no existing artifacts.
+    await fs.writeFile(
+      path.join(projectRoot, 'translations', 'en.yaml'),
+      'en: content',
+      'utf8',
+    );
+
+    (cloudModuleMock.fetchCloudApp as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: 'app1',
+      name: 'App',
+      screens: [] as unknown[],
+      widgets: [] as unknown[],
+      scripts: [] as unknown[],
+      translations: [] as unknown[],
+      theme: undefined,
+    });
+
+    await pushCommand({ verbose: false, yes: false, dryRun: true });
+
+    const { submitCliPush } = cloudModuleMock as {
+      submitCliPush: ReturnType<typeof vi.fn>;
+    };
+    expect(submitCliPush).not.toHaveBeenCalled();
+  });
+
   it('pull writes artifacts and .manifest and is idempotent', async () => {
     const themeContent = 'colors:\n  primary: blue';
 
@@ -308,6 +334,35 @@ describe('push/pull integration (commands)', () => {
     const files = await collectAppFiles(projectRoot);
     // Since screens are disabled via options, pull should not have written any screens.
     expect(Object.keys(files.screens)).toEqual([]);
+  });
+
+  it('pull dry run shows summary but does not modify files', async () => {
+    (cloudModuleMock.fetchCloudApp as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: 'app1',
+      name: 'App',
+      screens: [
+        {
+          id: 'screen-id-1',
+          name: 'Home',
+          content: 'home: content',
+          type: 'screen',
+          isRoot: true,
+        },
+      ] as unknown[],
+      widgets: [] as unknown[],
+      scripts: [] as unknown[],
+      translations: [] as unknown[],
+      theme: undefined,
+    });
+
+    await pullCommand({ verbose: false, yes: true, dryRun: true });
+
+    const files = await collectAppFiles(projectRoot);
+    expect(Object.keys(files.screens)).toEqual([]);
+    expect(Object.keys(files.widgets)).toEqual([]);
+    expect(Object.keys(files.scripts)).toEqual([]);
+    expect(Object.keys(files.translations)).toEqual([]);
+    expect(files.theme).toBeUndefined();
   });
 });
 

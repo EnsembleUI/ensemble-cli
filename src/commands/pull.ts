@@ -14,6 +14,8 @@ export interface PullOptions {
   appKey?: string;
   /** Skip confirmation prompt (e.g. for CI) */
   yes?: boolean;
+  /** Dry run: show what would change but do not modify files */
+  dryRun?: boolean;
 }
 
 async function writeVerbose(
@@ -356,6 +358,12 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
       // eslint-disable-next-line no-console
       console.log(line);
     }
+  }
+
+  if (options.dryRun) {
+    // eslint-disable-next-line no-console
+    console.log('Dry run: no files will be modified.');
+    return;
   }
 
   let confirmed = options.yes ?? false;

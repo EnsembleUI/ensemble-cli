@@ -24,6 +24,8 @@ export interface PushOptions {
   appKey?: string;
   /** Skip confirmation prompt (e.g. for CI) */
   yes?: boolean;
+  /** Dry run: show diff but do not push to cloud */
+  dryRun?: boolean;
 }
 
 async function writeVerbose(
@@ -163,41 +165,47 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
 
     if (changedCount === 0) {
       console.log('Up to date. Nothing to push.');
-    } else {
-      console.log('Changes to be pushed:');
-      for (const line of formatDiffSummary(diff)) {
-        console.log(line);
-      }
-
-      let confirmed = options.yes ?? false;
-      if (!confirmed) {
-        const { proceed } = await prompts({
-          type: 'confirm',
-          name: 'proceed',
-          message: 'Proceed with push?',
-          initial: true,
-        });
-        confirmed = proceed === true;
-      }
-
-      if (!confirmed) {
-        console.log('Push cancelled.');
-        process.exitCode = 130;
-        return;
-      }
-
-      const pushPayload = buildPushPayload(bundle!, diff!, cloudApp, updatedBy);
-      await writeVerbose(
-        root,
-        'ensemble-push-payload.json',
-        pushPayload,
-        options.verbose ?? false,
-      );
-
-      await withSpinner('Pushing changes to cloud...', () =>
-        submitCliPush(appId, idToken, pushPayload),
-      );
-      console.log('Push complete.');
+      return;
     }
+
+    console.log('Changes to be pushed:');
+    for (const line of formatDiffSummary(diff)) {
+      console.log(line);
+    }
+
+    if (options.dryRun) {
+      console.log('Dry run: no changes were pushed.');
+      return;
+    }
+
+    let confirmed = options.yes ?? false;
+    if (!confirmed) {
+      const { proceed } = await prompts({
+        type: 'confirm',
+        name: 'proceed',
+        message: 'Proceed with push?',
+        initial: true,
+      });
+      confirmed = proceed === true;
+    }
+
+    if (!confirmed) {
+      console.log('Push cancelled.');
+      process.exitCode = 130;
+      return;
+    }
+
+    const pushPayload = buildPushPayload(bundle!, diff!, cloudApp, updatedBy);
+    await writeVerbose(
+      root,
+      'ensemble-push-payload.json',
+      pushPayload,
+      options.verbose ?? false,
+    );
+
+    await withSpinner('Pushing changes to cloud...', () =>
+      submitCliPush(appId, idToken, pushPayload),
+    );
+    console.log('Push complete.');
   }
 }
