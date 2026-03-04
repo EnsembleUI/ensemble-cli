@@ -7,6 +7,8 @@ import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest';
 // We will mock these modules to control environment for push/pull.
 let projectRoot: string;
 
+const appOptionsRef = vi.hoisted(() => ({ value: {} as Record<string, unknown> }));
+
 vi.mock('../../src/config/projectConfig.js', () => {
   return {
     resolveAppContext: vi.fn(async (requestedAppKey?: string) => {
@@ -20,7 +22,7 @@ vi.mock('../../src/config/projectConfig.js', () => {
               appId: 'app1',
               name: 'App',
               appHome: 'Home',
-              options: {},
+              options: appOptionsRef.value,
             },
           },
         },
@@ -81,6 +83,7 @@ describe('push/pull integration (commands)', () => {
     // Ensure minimal project structure
     await fs.mkdir(path.join(projectRoot, 'screens'), { recursive: true });
     await fs.mkdir(path.join(projectRoot, 'translations'), { recursive: true });
+    appOptionsRef.value = {};
   });
 
   afterEach(async () => {
@@ -147,6 +150,45 @@ describe('push/pull integration (commands)', () => {
     expect(en!.document.id).toBe('i18n_en');
     expect(ar!.document.defaultLocale).toBe(true);
     expect(en!.document.defaultLocale ?? false).toBe(false);
+  });
+
+  it('push respects app options and does not include disabled screens in diff/payload', async () => {
+    // Disable screens in app options
+    appOptionsRef.value = { screens: false };
+
+    // Cloud app has screens, but they should be ignored due to options.
+    (cloudModuleMock.fetchCloudApp as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: 'app1',
+      name: 'App',
+      screens: [
+        {
+          id: 'screen-id-1',
+          name: 'Home',
+          content: 'home: content',
+          type: 'screen',
+          isRoot: true,
+        },
+        {
+          id: 'screen-id-2',
+          name: 'Test',
+          content: 'test: content',
+          type: 'screen',
+          isRoot: false,
+        },
+      ] as unknown[],
+      widgets: [] as unknown[],
+      scripts: [] as unknown[],
+      translations: [] as unknown[],
+      theme: undefined,
+    });
+
+    await pushCommand({ verbose: false, yes: true });
+
+    const { submitCliPush } = cloudModuleMock as {
+      submitCliPush: ReturnType<typeof vi.fn>;
+    };
+    // With screens disabled, no changes should be pushed even though cloud has screens.
+    expect(submitCliPush).not.toHaveBeenCalled();
   });
 
   it('pull writes artifacts and .manifest and is idempotent', async () => {
@@ -237,6 +279,35 @@ describe('push/pull integration (commands)', () => {
     const fetchSpy = cloudModuleMock.fetchCloudApp as ReturnType<typeof vi.fn>;
     await pullCommand({ verbose: false, yes: true });
     expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('pull respects app options and does not overwrite disabled artifact kinds', async () => {
+    // Disable screens in app options
+    appOptionsRef.value = { screens: false };
+
+    (cloudModuleMock.fetchCloudApp as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: 'app1',
+      name: 'App',
+      screens: [
+        {
+          id: 'screen-id-1',
+          name: 'Home',
+          content: 'home: content',
+          type: 'screen',
+          isRoot: true,
+        },
+      ] as unknown[],
+      widgets: [] as unknown[],
+      scripts: [] as unknown[],
+      translations: [] as unknown[],
+      theme: undefined,
+    });
+
+    await pullCommand({ verbose: false, yes: true });
+
+    const files = await collectAppFiles(projectRoot);
+    // Since screens are disabled via options, pull should not have written any screens.
+    expect(Object.keys(files.screens)).toEqual([]);
   });
 });
 

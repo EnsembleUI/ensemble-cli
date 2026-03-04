@@ -14,6 +14,7 @@ import {
   type BundleDiff,
 } from '../core/bundleDiff.js';
 import { collectAppFiles } from '../core/appCollector.js';
+import { ArtifactProps, type ArtifactProp } from '../core/dto.js';
 import { resolveAppContext } from '../config/projectConfig.js';
 import { getValidAuthSession } from '../auth/session.js';
 import { withSpinner } from '../lib/spinner.js';
@@ -54,6 +55,10 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
   const { config, appKey, appId } = await resolveAppContext(options.appKey);
   const appConfig = config.apps[appKey];
   const appName = (appConfig.name as string | undefined) ?? 'App';
+  const appOptions = (appConfig.options ?? {}) as Record<string, unknown>;
+  const enabledByProp = Object.fromEntries(
+    ArtifactProps.map((prop) => [prop, appOptions[prop] !== false]),
+  ) as Record<ArtifactProp, boolean>;
 
   const session = await getValidAuthSession();
   if (!session.ok) {
@@ -74,7 +79,7 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
     'Collecting app files...',
     async () => {
       const [files, defLang] = await Promise.all([
-        collectAppFiles(root, appConfig.options ?? {}),
+        collectAppFiles(root, appOptions),
         readDefaultLanguage(root),
       ]);
       return [files, defLang] as const;
@@ -115,6 +120,27 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
     await writeVerbose(root, 'ensemble-bundle.json', bundle, options.verbose ?? false);
     diff = computeBundleDiff(bundle, cloudApp);
     await writeVerbose(root, 'ensemble-diff.json', diff, options.verbose ?? false);
+
+    // Respect per-artifact app options: ignore changes for disabled kinds, driven by ArtifactProps.
+    for (const prop of ArtifactProps) {
+      if (enabledByProp[prop]) continue;
+      if (prop === 'theme') {
+        diff = { ...diff, themeChanged: false };
+        continue;
+      }
+      // For array-backed artifact props, clear out changed/new lists.
+      const key = prop as Exclude<ArtifactProp, 'theme'>;
+      const current = diff[key] ?? { changed: [], new: [] };
+      diff = {
+        ...diff,
+        [key]: {
+          ...current,
+          changed: [],
+          new: [],
+        },
+      } as BundleDiff;
+    }
+
     changedCount =
       diff.screens.changed.length +
       diff.screens.new.length +
@@ -123,7 +149,7 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
       diff.scripts.changed.length +
       diff.scripts.new.length +
       (diff.themeChanged ? 1 : 0) +
-        diff.translations.changed.length +
+      diff.translations.changed.length +
       diff.translations.new.length;
 
     if (changedCount === 0) {

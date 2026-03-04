@@ -4,6 +4,7 @@ import prompts from 'prompts';
 
 import { checkAppAccess, fetchCloudApp } from '../cloud/firestoreClient.js';
 import { collectAppFiles } from '../core/appCollector.js';
+import { ArtifactProps, type ArtifactProp } from '../core/dto.js';
 import { resolveAppContext } from '../config/projectConfig.js';
 import { getValidAuthSession } from '../auth/session.js';
 import { withSpinner } from '../lib/spinner.js';
@@ -65,6 +66,26 @@ type RootManifest = Record<string, unknown> & {
   languages?: string[];
 };
 
+const PULL_LABELS = {
+  new: '✨ new',
+  modified: '✏️  modified',
+  removed: '🗑️  removed',
+} as const;
+
+interface ArtifactFsConfig {
+  readonly prop: ArtifactProp;
+  readonly ext?: string;
+  readonly isTheme?: boolean;
+}
+
+const ARTIFACT_FS_CONFIG: ArtifactFsConfig[] = [
+  { prop: 'screens', ext: '.yaml' },
+  { prop: 'widgets', ext: '.yaml' },
+  { prop: 'scripts', ext: '.js' },
+  { prop: 'translations', ext: '.yaml' },
+  { prop: 'theme', isTheme: true },
+];
+
 function buildManifestObject(
   existing: RootManifest,
   cloudApp: Awaited<ReturnType<typeof fetchCloudApp>>,
@@ -122,7 +143,10 @@ async function buildAndWriteManifest(
 export async function pullCommand(options: PullOptions = {}): Promise<void> {
   const { projectRoot, config, appKey, appId } = await resolveAppContext(options.appKey);
   const appConfig = config.apps[appKey];
-  void appConfig; // reserved for future pull options
+  const appOptions = (appConfig.options ?? {}) as Record<string, unknown>;
+  const enabledByProp = Object.fromEntries(
+    ArtifactProps.map((prop) => [prop, appOptions[prop] !== false]),
+  ) as Record<ArtifactProp, boolean>;
 
   const session = await getValidAuthSession();
   if (!session.ok) {
@@ -151,47 +175,45 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
     options.verbose ?? false,
   );
 
-  // Fast-path: detect if pull would be a no-op.
+  // Fast-path: detect if pull would be a no-op, respecting app options.
   const localFiles = await collectAppFiles(projectRoot);
 
-  const expectedScreens: Record<string, string> = {};
-  for (const s of cloudApp.screens ?? []) {
-    if (s.isArchived === true) continue;
-    expectedScreens[safeFileName(s.name, '.yaml')] = s.content ?? '';
-  }
+  const matchesByProp: Partial<Record<ArtifactProp, boolean>> = {};
 
-  const expectedWidgets: Record<string, string> = {};
-  for (const w of cloudApp.widgets ?? []) {
-    if (w.isArchived === true) continue;
-    expectedWidgets[safeFileName(w.name, '.yaml')] = w.content ?? '';
-  }
+  for (const cfg of ARTIFACT_FS_CONFIG) {
+    const { prop, isTheme, ext } = cfg;
+    if (!enabledByProp[prop]) {
+      matchesByProp[prop] = true;
+      continue;
+    }
 
-  const expectedScripts: Record<string, string> = {};
-  for (const s of cloudApp.scripts ?? []) {
-    if (s.isArchived === true) continue;
-    expectedScripts[safeFileName(s.name, '.js')] = s.content ?? '';
-  }
+    if (isTheme) {
+      const expectedThemeContent =
+        cloudApp.theme && cloudApp.theme.isArchived !== true
+          ? cloudApp.theme.content ?? ''
+          : undefined;
+      let themeMatch = true;
+      if (expectedThemeContent === undefined) {
+        themeMatch = localFiles.theme === undefined;
+      } else {
+        themeMatch = localFiles.theme === expectedThemeContent;
+      }
+      matchesByProp[prop] = themeMatch;
+      continue;
+    }
 
-  const expectedTranslations: Record<string, string> = {};
-  for (const t of cloudApp.translations ?? []) {
-    if (t.isArchived === true) continue;
-    expectedTranslations[safeFileName(t.name, '.yaml')] = t.content ?? '';
-  }
-
-  const expectedThemeContent =
-    cloudApp.theme && cloudApp.theme.isArchived !== true
-      ? cloudApp.theme.content ?? ''
-      : undefined;
-
-  const screensMatch = mapsEqual(expectedScreens, localFiles.screens);
-  const widgetsMatch = mapsEqual(expectedWidgets, localFiles.widgets);
-  const scriptsMatch = mapsEqual(expectedScripts, localFiles.scripts);
-  const translationsMatch = mapsEqual(expectedTranslations, localFiles.translations);
-  let themeMatch = false;
-  if (expectedThemeContent === undefined) {
-    themeMatch = localFiles.theme === undefined;
-  } else {
-    themeMatch = localFiles.theme === expectedThemeContent;
+    const expected: Record<string, string> = {};
+    const cloudItems = (cloudApp as Record<string, unknown>)[prop] as
+      | { name: string; content?: string; isArchived?: boolean }[]
+      | undefined;
+    for (const item of cloudItems ?? []) {
+      if (item.isArchived === true) continue;
+      expected[safeFileName(item.name, ext!)] = item.content ?? '';
+    }
+    const actual = (localFiles as unknown as Record<string, unknown>)[
+      prop
+    ] as Record<string, string> | undefined;
+    matchesByProp[prop] = mapsEqual(expected, actual ?? {});
   }
 
   // Manifest no-op check: compare current manifest JSON to what pull would write.
@@ -211,15 +233,100 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
     (manifestRaw === '' && manifestExpectedRaw === JSON.stringify({}, null, 2) + '\n') ||
     manifestRaw === manifestExpectedRaw;
 
-  if (screensMatch && widgetsMatch && scriptsMatch && translationsMatch && themeMatch && manifestMatch) {
+  const allArtifactsMatch = ArtifactProps.every(
+    (prop) => matchesByProp[prop] ?? true,
+  );
+
+  if (allArtifactsMatch && manifestMatch) {
     console.log('Up to date. Nothing to pull.');
     return;
   }
 
-  const warning =
-    'This will REPLACE your local app artifacts with the cloud version.';
+  // Build a human-readable summary of what will change.
+  const summaryLines: string[] = [];
+  const typeLabelByProp: Record<Exclude<ArtifactProp, 'theme'>, string> = {
+    screens: 'screen',
+    widgets: 'widget',
+    scripts: 'script',
+    translations: 'translation',
+  };
 
-  console.warn(warning);
+  for (const cfg of ARTIFACT_FS_CONFIG) {
+    const { prop, isTheme, ext } = cfg;
+    if (!enabledByProp[prop]) continue;
+
+    if (isTheme) {
+      const expectedThemeContent =
+        cloudApp.theme && cloudApp.theme.isArchived !== true
+          ? cloudApp.theme.content ?? ''
+          : undefined;
+      const actualTheme = localFiles.theme;
+      if (expectedThemeContent === actualTheme) continue;
+      if (expectedThemeContent && !actualTheme) {
+        summaryLines.push(
+          `        ${PULL_LABELS.new}  theme - theme.yaml`,
+        );
+      } else if (!expectedThemeContent && actualTheme) {
+        summaryLines.push(
+          `        ${PULL_LABELS.removed}  theme - theme.yaml`,
+        );
+      } else {
+        summaryLines.push(
+          `        ${PULL_LABELS.modified}  theme - theme.yaml`,
+        );
+      }
+      continue;
+    }
+
+    const kind = typeLabelByProp[prop as Exclude<ArtifactProp, 'theme'>];
+    const expected: Record<string, string> = {};
+    const cloudItems = (cloudApp as Record<string, unknown>)[prop] as
+      | { name: string; content?: string; isArchived?: boolean }[]
+      | undefined;
+    for (const item of cloudItems ?? []) {
+      if (item.isArchived === true) continue;
+      expected[safeFileName(item.name, ext!)] = item.content ?? '';
+    }
+    const actual = (localFiles as unknown as Record<string, unknown>)[
+      prop
+    ] as Record<string, string> | undefined;
+    const actualMap = actual ?? {};
+
+    const expectedKeys = new Set(Object.keys(expected));
+    const actualKeys = new Set(Object.keys(actualMap));
+
+    for (const file of expectedKeys) {
+      if (!actualKeys.has(file)) {
+        summaryLines.push(
+          `        ${PULL_LABELS.new}  ${kind} - ${file}`,
+        );
+      }
+    }
+    for (const file of actualKeys) {
+      if (!expectedKeys.has(file)) {
+        summaryLines.push(
+          `        ${PULL_LABELS.removed}  ${kind} - ${file}`,
+        );
+      }
+    }
+    for (const file of expectedKeys) {
+      if (!actualKeys.has(file)) continue;
+      if (expected[file] !== actualMap[file]) {
+        summaryLines.push(
+          `        ${PULL_LABELS.modified}  ${kind} - ${file}`,
+        );
+      }
+    }
+  }
+
+  if (summaryLines.length > 0) {
+    // eslint-disable-next-line no-console
+    console.log('Changes to be pulled:');
+    for (const line of summaryLines) {
+      // eslint-disable-next-line no-console
+      console.log(line);
+    }
+  }
 
   let confirmed = options.yes ?? false;
   if (!confirmed) {
@@ -239,50 +346,32 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
   }
 
   await withSpinner('Writing local files...', async () => {
-    const screensDir = path.join(projectRoot, 'screens');
-    const widgetsDir = path.join(projectRoot, 'widgets');
-    const scriptsDir = path.join(projectRoot, 'scripts');
-    const translationsDir = path.join(projectRoot, 'translations');
+    for (const cfg of ARTIFACT_FS_CONFIG) {
+      const { prop, ext, isTheme } = cfg;
+      if (!enabledByProp[prop]) continue;
 
-    await rmDirIfExists(screensDir);
-    await rmDirIfExists(widgetsDir);
-    await rmDirIfExists(scriptsDir);
-    await rmDirIfExists(translationsDir);
+      if (isTheme) {
+        const themePath = path.join(projectRoot, 'theme.yaml');
+        if (cloudApp.theme && cloudApp.theme.isArchived !== true) {
+          await fs.writeFile(themePath, cloudApp.theme.content ?? '', 'utf8');
+        } else {
+          await fs.rm(themePath, { force: true });
+        }
+        continue;
+      }
 
-    await ensureDir(screensDir);
-    await ensureDir(widgetsDir);
-    await ensureDir(scriptsDir);
-    await ensureDir(translationsDir);
+      const baseDir = path.join(projectRoot, prop);
+      await rmDirIfExists(baseDir);
+      await ensureDir(baseDir);
 
-    for (const screen of cloudApp.screens ?? []) {
-      if (screen.isArchived === true) continue;
-      const filePath = path.join(screensDir, safeFileName(screen.name, '.yaml'));
-      await fs.writeFile(filePath, screen.content ?? '', 'utf8');
-    }
-
-    for (const widget of cloudApp.widgets ?? []) {
-      if (widget.isArchived === true) continue;
-      const filePath = path.join(widgetsDir, safeFileName(widget.name, '.yaml'));
-      await fs.writeFile(filePath, widget.content ?? '', 'utf8');
-    }
-
-    for (const script of cloudApp.scripts ?? []) {
-      if (script.isArchived === true) continue;
-      const filePath = path.join(scriptsDir, safeFileName(script.name, '.js'));
-      await fs.writeFile(filePath, script.content ?? '', 'utf8');
-    }
-
-    for (const tr of cloudApp.translations ?? []) {
-      if (tr.isArchived === true) continue;
-      const filePath = path.join(translationsDir, safeFileName(tr.name, '.yaml'));
-      await fs.writeFile(filePath, tr.content ?? '', 'utf8');
-    }
-
-    const themePath = path.join(projectRoot, 'theme.yaml');
-    if (cloudApp.theme && cloudApp.theme.isArchived !== true) {
-      await fs.writeFile(themePath, cloudApp.theme.content ?? '', 'utf8');
-    } else {
-      await fs.rm(themePath, { force: true });
+      const cloudItems = (cloudApp as Record<string, unknown>)[prop] as
+        | { name: string; content?: string; isArchived?: boolean }[]
+        | undefined;
+      for (const item of cloudItems ?? []) {
+        if (item.isArchived === true) continue;
+        const filePath = path.join(baseDir, safeFileName(item.name, ext!));
+        await fs.writeFile(filePath, item.content ?? '', 'utf8');
+      }
     }
 
     await buildAndWriteManifest(projectRoot, cloudApp);
