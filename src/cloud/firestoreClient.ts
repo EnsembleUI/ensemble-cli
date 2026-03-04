@@ -21,6 +21,14 @@ export interface FirestoreDocument {
   fields?: Record<string, unknown>;
 }
 
+type FirestoreValue =
+  | { stringValue: string }
+  | { booleanValue: boolean }
+  | { timestampValue: string }
+  | { mapValue: { fields: Record<string, FirestoreValue> } };
+
+type FirestoreWriteFields = Record<string, FirestoreValue>;
+
 /** Cloud app in ApplicationDTO shape, aligned with local app structure. */
 export type CloudApp = Pick<
   ApplicationDTO,
@@ -45,6 +53,170 @@ export interface AppInfo {
 export type AppAccessResult =
   | { ok: true; app: AppInfo }
   | { ok: false; reason: 'not_found' | 'no_access' | 'not_logged_in' | 'network_error'; message: string };
+
+type YamlArtifactPushOperation =
+  | {
+      operation: 'create';
+      document: {
+        id: string;
+        name: string;
+        content: string;
+        type: string;
+        isRoot?: boolean;
+        isArchived?: boolean;
+        defaultLocale?: boolean;
+        createdAt?: string;
+        updatedAt?: string;
+        updatedBy?: { name: string; email?: string; id: string };
+        description?: string;
+      };
+    }
+  | {
+      operation: 'update';
+      id: string;
+      history: {
+        content: string;
+        name: string;
+        type: string;
+        isRoot?: boolean;
+        isArchived?: boolean;
+        updatedAt?: string;
+        updatedBy?: { name: string; email?: string; id: string };
+      };
+      updates: {
+        content?: string;
+        name?: string;
+        isRoot?: boolean;
+        isArchived?: boolean;
+        updatedAt?: string;
+        updatedBy?: { name: string; email?: string; id: string };
+      };
+    };
+
+interface PushPayloadShape {
+  id: string;
+  name?: string;
+  updatedAt: string;
+  screens?: YamlArtifactPushOperation[];
+  widgets?: YamlArtifactPushOperation[];
+  scripts?: YamlArtifactPushOperation[];
+  translations?: YamlArtifactPushOperation[];
+  theme?: YamlArtifactPushOperation;
+}
+
+type CreateYamlOp = Extract<YamlArtifactPushOperation, { operation: 'create' }>;
+type UpdateYamlOp = Extract<YamlArtifactPushOperation, { operation: 'update' }>;
+type UpdateHistory = UpdateYamlOp['history'];
+type UpdateUpdates = UpdateYamlOp['updates'];
+
+async function applyYamlOperationsForKind(
+  kind: 'screens' | 'widgets' | 'scripts' | 'translations' | 'theme',
+  appId: string,
+  idToken: string,
+  project: string,
+  ops: YamlArtifactPushOperation[] | undefined,
+): Promise<void> {
+  if (!ops || ops.length === 0) return;
+  const { collection } = artifactCollectionAndType(kind);
+  const baseCollectionUrl = `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents/apps/${appId}/${collection}`;
+
+  for (const op of ops) {
+    if (op.operation === 'create') {
+      const doc = op.document;
+      const fields = encodeYamlDocumentFields(kind, doc);
+      const createUrl = `${baseCollectionUrl}?documentId=${encodeURIComponent(doc.id)}`;
+      const res = await fetch(createUrl, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${idToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ fields }),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(
+          `Failed to create ${kind.slice(0, -1)} "${doc.name}" (${res.status}): ${text.slice(
+            0,
+            200,
+          )}`,
+        );
+      }
+    } else if (op.operation === 'update') {
+      const docId = op.id;
+      const docUrl = `${baseCollectionUrl}/${encodeURIComponent(docId)}`;
+
+      // 1) Write history entry
+      const historyFields = encodeHistoryFields(op.history);
+      const historyUrl = `${docUrl}/history`;
+      const historyRes = await fetch(historyUrl, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${idToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ fields: historyFields }),
+      });
+      if (!historyRes.ok) {
+        const text = await historyRes.text();
+        throw new Error(
+          `Failed to write history for ${kind.slice(0, -1)} "${op.history.name}" (${historyRes.status}): ${text.slice(
+            0,
+            200,
+          )}`,
+        );
+      }
+
+      // 2) Patch main document with partial updates
+      const { fields: updateFields, fieldPaths } = encodeUpdateFields(kind, op.updates);
+      if (fieldPaths.length === 0) {
+        continue;
+      }
+      const params = fieldPaths
+        .map((p) => `updateMask.fieldPaths=${encodeURIComponent(p)}`)
+        .join('&');
+      const patchUrl = `${docUrl}?${params}`;
+      const patchRes = await fetch(patchUrl, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${idToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ fields: updateFields }),
+      });
+      if (!patchRes.ok) {
+        const text = await patchRes.text();
+        throw new Error(
+          `Failed to update ${kind.slice(0, -1)} "${op.history.name}" (${patchRes.status}): ${text.slice(
+            0,
+            200,
+          )}`,
+        );
+      }
+    }
+  }
+}
+
+/**
+ * Apply a push payload directly to Firestore, updating YAML artifacts in-place.
+ * This updates screens, widgets, scripts, translations, and theme under the app document.
+ */
+export async function submitCliPush(
+  appId: string,
+  idToken: string,
+  payload: unknown,
+): Promise<void> {
+  const project = process.env.ENSEMBLE_FIREBASE_PROJECT ?? DEFAULT_FIREBASE_PROJECT;
+  const p = payload as PushPayloadShape;
+
+  await applyYamlOperationsForKind('screens', appId, idToken, project, p.screens);
+  await applyYamlOperationsForKind('widgets', appId, idToken, project, p.widgets);
+  await applyYamlOperationsForKind('scripts', appId, idToken, project, p.scripts);
+  await applyYamlOperationsForKind('translations', appId, idToken, project, p.translations);
+  if (p.theme) {
+    await applyYamlOperationsForKind('theme', appId, idToken, project, [p.theme]);
+  }
+}
 
 function parseFirestoreString(field: { stringValue?: string } | undefined): string | undefined {
   return typeof field?.stringValue === 'string' ? field.stringValue : undefined;
@@ -77,8 +249,142 @@ function parseUpdatedBy(
   return undefined;
 }
 
+function encodeUpdatedBy(
+  updatedBy:
+    | { name: string; email?: string; id: string }
+    | undefined,
+): FirestoreValue | undefined {
+  if (!updatedBy) return undefined;
+  const fields: Record<string, FirestoreValue> = {
+    name: { stringValue: updatedBy.name },
+    id: { stringValue: updatedBy.id },
+  };
+  if (updatedBy.email) {
+    fields.email = { stringValue: updatedBy.email };
+  }
+  return { mapValue: { fields } };
+}
+
 function getDocId(docName: string): string {
   return docName.split('/').pop() ?? docName;
+}
+
+function artifactCollectionAndType(kind: 'screens' | 'widgets' | 'scripts' | 'translations' | 'theme'): {
+  collection: 'artifacts' | 'internal_artifacts';
+  typeValue: string | null;
+} {
+  switch (kind) {
+    case 'widgets':
+      return { collection: 'internal_artifacts', typeValue: 'internal_widget' };
+    case 'scripts':
+      return { collection: 'internal_artifacts', typeValue: 'internal_script' };
+    case 'screens':
+      return { collection: 'artifacts', typeValue: 'screen' };
+    case 'translations':
+      return { collection: 'artifacts', typeValue: 'i18n' };
+    case 'theme':
+      return { collection: 'artifacts', typeValue: 'theme' };
+  }
+}
+
+function encodeYamlDocumentFields(
+  kind: 'screens' | 'widgets' | 'scripts' | 'translations' | 'theme',
+  doc: CreateYamlOp['document'],
+): FirestoreWriteFields {
+  const { typeValue } = artifactCollectionAndType(kind);
+  const fields: FirestoreWriteFields = {
+    name: { stringValue: doc.name },
+    content: { stringValue: doc.content },
+  };
+  if (typeValue) {
+    fields.type = { stringValue: typeValue };
+  }
+  if (typeof doc.description === 'string') {
+    fields.description = { stringValue: doc.description };
+  }
+  if (typeof doc.isRoot === 'boolean') {
+    fields.isRoot = { booleanValue: doc.isRoot };
+  }
+  if (typeof doc.isArchived === 'boolean') {
+    fields.isArchived = { booleanValue: doc.isArchived };
+  }
+  if (typeof doc.defaultLocale === 'boolean') {
+    fields.defaultLocale = { booleanValue: doc.defaultLocale };
+  }
+  if (doc.createdAt) {
+    fields.createdAt = { timestampValue: doc.createdAt };
+  }
+  if (doc.updatedAt) {
+    fields.updatedAt = { timestampValue: doc.updatedAt };
+  }
+  const updatedByVal = encodeUpdatedBy(doc.updatedBy);
+  if (updatedByVal) {
+    fields.updatedBy = updatedByVal;
+  }
+  return fields;
+}
+
+function encodeHistoryFields(history: UpdateHistory): FirestoreWriteFields {
+  const fields: FirestoreWriteFields = {
+    name: { stringValue: history.name },
+    content: { stringValue: history.content },
+    type: { stringValue: history.type },
+  };
+  if (typeof history.isRoot === 'boolean') {
+    fields.isRoot = { booleanValue: history.isRoot };
+  }
+  if (typeof history.isArchived === 'boolean') {
+    fields.isArchived = { booleanValue: history.isArchived };
+  }
+  if (history.updatedAt) {
+    fields.updatedAt = { timestampValue: history.updatedAt };
+  }
+  const updatedByVal = encodeUpdatedBy(history.updatedBy);
+  if (updatedByVal) {
+    fields.updatedBy = updatedByVal;
+  }
+  return fields;
+}
+
+function encodeUpdateFields(
+  kind: 'screens' | 'widgets' | 'scripts' | 'translations' | 'theme',
+  updates: UpdateUpdates,
+): { fields: FirestoreWriteFields; fieldPaths: string[] } {
+  const { typeValue } = artifactCollectionAndType(kind);
+  const fields: FirestoreWriteFields = {};
+  const fieldPaths: string[] = [];
+  if (typeof updates.name === 'string') {
+    fields.name = { stringValue: updates.name };
+    fieldPaths.push('name');
+  }
+  if (typeof updates.content === 'string') {
+    fields.content = { stringValue: updates.content };
+    fieldPaths.push('content');
+  }
+  if (typeof updates.isRoot === 'boolean') {
+    fields.isRoot = { booleanValue: updates.isRoot };
+    fieldPaths.push('isRoot');
+  }
+  if (typeof updates.isArchived === 'boolean') {
+    fields.isArchived = { booleanValue: updates.isArchived };
+    fieldPaths.push('isArchived');
+  }
+  if (updates.updatedAt) {
+    fields.updatedAt = { timestampValue: updates.updatedAt };
+    fieldPaths.push('updatedAt');
+  }
+  if (updates.updatedBy) {
+    const updatedByVal = encodeUpdatedBy(updates.updatedBy);
+    if (updatedByVal) {
+      fields.updatedBy = updatedByVal;
+      fieldPaths.push('updatedBy');
+    }
+  }
+  // Ensure type is set on update if needed (theme / artifacts should already have type, so we skip here).
+  if (typeValue && !fieldPaths.includes('type')) {
+    // no-op: rely on existing type field
+  }
+  return { fields, fieldPaths };
 }
 
 type FirestoreFields = Record<

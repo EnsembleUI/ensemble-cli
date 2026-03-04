@@ -2,7 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import prompts from 'prompts';
 
-import { checkAppAccess, fetchCloudApp } from '../cloud/firestoreClient.js';
+import { checkAppAccess, fetchCloudApp, submitCliPush } from '../cloud/firestoreClient.js';
 import {
   buildDocumentsFromParsed,
   buildMergedBundle,
@@ -131,8 +131,16 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
       }
 
       const pushPayload = buildPushPayload(bundle!, diff!, cloudApp, updatedBy);
-      await writeVerbose(root, 'ensemble-push-payload.json', pushPayload, options.verbose ?? false);
-      // TODO: actual push to cloud
+      await writeVerbose(
+        root,
+        'ensemble-push-payload.json',
+        pushPayload,
+        options.verbose ?? false,
+      );
+
+      await withSpinner('Pushing changes to cloud...', () =>
+        submitCliPush(appId, idToken, pushPayload),
+      );
       console.log('Push complete.');
     }
   }
