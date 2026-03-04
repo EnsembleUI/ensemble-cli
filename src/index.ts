@@ -5,6 +5,7 @@ import { loginCommand } from './commands/login.js';
 import { logoutCommand } from './commands/logout.js';
 import { initCommand } from './commands/init.js';
 import { pushCommand } from './commands/push.js';
+import { addCommand } from './commands/add.js';
 
 const program = new Command();
 
@@ -43,6 +44,26 @@ program
   .option('-y, --yes', 'Skip confirmation prompt')
   .action(async (options: { verbose?: boolean; app?: string; yes?: boolean }) => {
     await pushCommand({ verbose: options.verbose, appKey: options.app, yes: options.yes });
+  });
+
+program
+  .command('add')
+  .description('Add a new screen, widget, script, or translation.')
+  .argument('[kind]', 'Artifact type: screen | widget | script | translation')
+  .argument('[name]', 'Name of the artifact, e.g. "Hello"')
+  .action(async (kind?: string, name?: string) => {
+    let normalizedKind: 'screen' | 'widget' | 'script' | 'translation' | undefined;
+    if (kind) {
+      const k = kind.toLowerCase();
+      if (k === 'screen' || k === 'widget' || k === 'script' || k === 'translation') {
+        normalizedKind = k;
+      } else {
+        throw new Error(
+          `Unknown artifact type "${kind}". Expected one of: screen, widget, script, translation.`,
+        );
+      }
+    }
+    await addCommand(normalizedKind, name);
   });
 
 program.parseAsync(process.argv).catch((err) => {
