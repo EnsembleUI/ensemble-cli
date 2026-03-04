@@ -16,6 +16,145 @@ import { EnsembleDocumentType } from '../core/dto.js';
 const DEFAULT_FIREBASE_PROJECT = 'ensemble-web-studio';
 const DEFAULT_FIRESTORE_CONCURRENCY = 15;
 
+export type FirestoreErrorCode =
+  | 'AUTH_EXPIRED'
+  | 'PERMISSION_DENIED'
+  | 'NOT_FOUND'
+  | 'NETWORK_UNAVAILABLE'
+  | 'QUOTA_EXCEEDED'
+  | 'UNKNOWN';
+
+export class FirestoreClientError extends Error {
+  code: FirestoreErrorCode;
+
+  status?: number;
+
+  hint?: string;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  cause?: any;
+
+  constructor(params: {
+    code: FirestoreErrorCode;
+    message: string;
+    status?: number;
+    hint?: string;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    cause?: any;
+  }) {
+    super(params.message);
+    this.name = 'FirestoreClientError';
+    this.code = params.code;
+    this.status = params.status;
+    this.hint = params.hint;
+    this.cause = params.cause;
+  }
+}
+
+export type FirestoreDebugEvent =
+  | {
+      kind: 'request';
+      method: string;
+      url: string;
+      context: string;
+    }
+  | {
+      kind: 'response';
+      method: string;
+      url: string;
+      status: number;
+      context: string;
+    }
+  | {
+      kind: 'list_documents';
+      collection: string;
+      parentPath: string;
+      count: number;
+    }
+  | {
+      kind: 'push_operation';
+      appId: string;
+      operation: 'create' | 'update';
+      artifactKind: 'screens' | 'widgets' | 'scripts' | 'translations' | 'theme';
+      documentId: string;
+    };
+
+export interface FirestoreClientOptions {
+  debug?: (event: FirestoreDebugEvent) => void;
+}
+
+function logDebug(options: FirestoreClientOptions | undefined, event: FirestoreDebugEvent): void {
+  if (!options?.debug) return;
+  try {
+    options.debug(event);
+  } catch {
+    // Debug logging must never break core behavior.
+  }
+}
+
+function mapStatusToErrorCode(status: number): FirestoreErrorCode {
+  if (status === 401) return 'AUTH_EXPIRED';
+  if (status === 403) return 'PERMISSION_DENIED';
+  if (status === 404) return 'NOT_FOUND';
+  if (status === 429 || status === 503) return 'QUOTA_EXCEEDED';
+  if (status === 0) return 'NETWORK_UNAVAILABLE';
+  return 'UNKNOWN';
+}
+
+function defaultHintForCode(code: FirestoreErrorCode): string | undefined {
+  if (code === 'AUTH_EXPIRED') {
+    return 'Session expired or invalid. Run `ensemble login` and try again.';
+  }
+  if (code === 'PERMISSION_DENIED') {
+    return 'You do not have permission to access this app. Check your account or app sharing settings.';
+  }
+  if (code === 'NETWORK_UNAVAILABLE') {
+    return 'Check your internet connection or proxy settings, then try again.';
+  }
+  if (code === 'QUOTA_EXCEEDED') {
+    return 'You have hit a Firestore quota limit. Try again later or adjust your Firebase project quotas.';
+  }
+  return undefined;
+}
+
+async function toFirestoreError(
+  context: string,
+  res: Response,
+  options?: FirestoreClientOptions,
+): Promise<FirestoreClientError> {
+  const text = await res.text();
+  const code = mapStatusToErrorCode(res.status);
+  const hint = defaultHintForCode(code);
+
+  logDebug(options, {
+    kind: 'response',
+    method: 'UNKNOWN',
+    url: res.url ?? '',
+    status: res.status,
+    context,
+  });
+
+  return new FirestoreClientError({
+    code,
+    status: res.status,
+    message: `Firestore ${context} failed (${res.status})`,
+    hint,
+    cause: text.slice(0, 200),
+  });
+}
+
+function networkError(context: string, err: unknown): FirestoreClientError {
+  const message =
+    err instanceof Error && typeof err.message === 'string'
+      ? err.message
+      : 'Network request failed.';
+  return new FirestoreClientError({
+    code: 'NETWORK_UNAVAILABLE',
+    message: `Firestore ${context} failed: ${message}`,
+    cause: err,
+  });
+}
+
 /** Raw Firestore document from list/get API. */
 export interface FirestoreDocument {
   name: string;
@@ -54,7 +193,14 @@ export interface AppInfo {
 
 export type AppAccessResult =
   | { ok: true; app: AppInfo }
-  | { ok: false; reason: 'not_found' | 'no_access' | 'not_logged_in' | 'network_error'; message: string };
+  | {
+      ok: false;
+      reason: 'not_found' | 'no_access' | 'not_logged_in' | 'network_error';
+      message: string;
+      code?: FirestoreErrorCode;
+      hint?: string;
+      status?: number;
+    };
 
 type YamlArtifactPushOperation =
   | {
@@ -165,6 +311,7 @@ async function applyYamlOperationsForKind(
   idToken: string,
   project: string,
   ops: YamlArtifactPushOperation[] | undefined,
+  options?: FirestoreClientOptions,
 ): Promise<void> {
   if (!ops || ops.length === 0) return;
   const { collection } = artifactCollectionAndType(kind);
@@ -177,6 +324,19 @@ async function applyYamlOperationsForKind(
       const doc = op.document;
       const fields = encodeYamlDocumentFields(kind, doc);
       const createUrl = `${baseCollectionUrl}?documentId=${encodeURIComponent(doc.id)}`;
+      logDebug(options, {
+        kind: 'push_operation',
+        appId,
+        operation: 'create',
+        artifactKind: kind,
+        documentId: doc.id,
+      });
+      logDebug(options, {
+        kind: 'request',
+        method: 'POST',
+        url: createUrl,
+        context: 'submitCliPush/create',
+      });
       const res = await fetch(createUrl, {
         method: 'POST',
         headers: {
@@ -186,12 +346,10 @@ async function applyYamlOperationsForKind(
         body: JSON.stringify({ fields }),
       });
       if (!res.ok) {
-        const text = await res.text();
-        throw new Error(
-          `Failed to create ${kind.slice(0, -1)} "${doc.name}" (${res.status}): ${text.slice(
-            0,
-            200,
-          )}`,
+        throw await toFirestoreError(
+          `create ${kind.slice(0, -1)} "${doc.name}"`,
+          res,
+          options,
         );
       }
     } else if (op.operation === 'update') {
@@ -201,6 +359,19 @@ async function applyYamlOperationsForKind(
       // 1) Write history entry
       const historyFields = encodeHistoryFields(op.history);
       const historyUrl = `${docUrl}/history`;
+      logDebug(options, {
+        kind: 'push_operation',
+        appId,
+        operation: 'update',
+        artifactKind: kind,
+        documentId: docId,
+      });
+      logDebug(options, {
+        kind: 'request',
+        method: 'POST',
+        url: historyUrl,
+        context: 'submitCliPush/writeHistory',
+      });
       const historyRes = await fetch(historyUrl, {
         method: 'POST',
         headers: {
@@ -210,12 +381,10 @@ async function applyYamlOperationsForKind(
         body: JSON.stringify({ fields: historyFields }),
       });
       if (!historyRes.ok) {
-        const text = await historyRes.text();
-        throw new Error(
-          `Failed to write history for ${kind.slice(0, -1)} "${op.history.name}" (${historyRes.status}): ${text.slice(
-            0,
-            200,
-          )}`,
+        throw await toFirestoreError(
+          `write history for ${kind.slice(0, -1)} "${op.history.name}"`,
+          historyRes,
+          options,
         );
       }
 
@@ -228,6 +397,12 @@ async function applyYamlOperationsForKind(
         .map((p) => `updateMask.fieldPaths=${encodeURIComponent(p)}`)
         .join('&');
       const patchUrl = `${docUrl}?${params}`;
+      logDebug(options, {
+        kind: 'request',
+        method: 'PATCH',
+        url: patchUrl,
+        context: 'submitCliPush/patchDocument',
+      });
       const patchRes = await fetch(patchUrl, {
         method: 'PATCH',
         headers: {
@@ -237,12 +412,10 @@ async function applyYamlOperationsForKind(
         body: JSON.stringify({ fields: updateFields }),
       });
       if (!patchRes.ok) {
-        const text = await patchRes.text();
-        throw new Error(
-          `Failed to update ${kind.slice(0, -1)} "${op.history.name}" (${patchRes.status}): ${text.slice(
-            0,
-            200,
-          )}`,
+        throw await toFirestoreError(
+          `update ${kind.slice(0, -1)} "${op.history.name}"`,
+          patchRes,
+          options,
         );
       }
     }
@@ -257,17 +430,18 @@ export async function submitCliPush(
   appId: string,
   idToken: string,
   payload: unknown,
+  options?: FirestoreClientOptions,
 ): Promise<void> {
   const project = process.env.ENSEMBLE_FIREBASE_PROJECT ?? DEFAULT_FIREBASE_PROJECT;
   assertValidPushPayload(payload);
   const p = payload as PushPayloadShape;
 
-  await applyYamlOperationsForKind('screens', appId, idToken, project, p.screens);
-  await applyYamlOperationsForKind('widgets', appId, idToken, project, p.widgets);
-  await applyYamlOperationsForKind('scripts', appId, idToken, project, p.scripts);
-  await applyYamlOperationsForKind('translations', appId, idToken, project, p.translations);
+  await applyYamlOperationsForKind('screens', appId, idToken, project, p.screens, options);
+  await applyYamlOperationsForKind('widgets', appId, idToken, project, p.widgets, options);
+  await applyYamlOperationsForKind('scripts', appId, idToken, project, p.scripts, options);
+  await applyYamlOperationsForKind('translations', appId, idToken, project, p.translations, options);
   if (p.theme) {
-    await applyYamlOperationsForKind('theme', appId, idToken, project, [p.theme]);
+    await applyYamlOperationsForKind('theme', appId, idToken, project, [p.theme], options);
   }
 }
 
@@ -556,11 +730,18 @@ export async function checkAppAccess(
   appId: string,
   idToken: string,
   userId: string,
+  options?: FirestoreClientOptions,
 ): Promise<AppAccessResult> {
   const project = process.env.ENSEMBLE_FIREBASE_PROJECT ?? DEFAULT_FIREBASE_PROJECT;
   const url = `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents/apps/${appId}`;
 
   try {
+    logDebug(options, {
+      kind: 'request',
+      method: 'GET',
+      url,
+      context: 'checkAppAccess',
+    });
     const res = await fetch(url, {
       method: 'GET',
       headers: {
@@ -569,6 +750,13 @@ export async function checkAppAccess(
     });
 
     if (res.ok) {
+      logDebug(options, {
+        kind: 'response',
+        method: 'GET',
+        url,
+        status: res.status,
+        context: 'checkAppAccess',
+      });
       const doc = (await res.json()) as {
         fields?: Record<string, { stringValue?: string; mapValue?: { fields?: Record<string, { stringValue?: string }> } }>;
       };
@@ -581,6 +769,8 @@ export async function checkAppAccess(
           ok: false,
           reason: 'no_access',
           message: `You do not have write or owner access to app "${appId}".`,
+          code: 'PERMISSION_DENIED',
+          hint: defaultHintForCode('PERMISSION_DENIED'),
         };
       }
 
@@ -596,6 +786,8 @@ export async function checkAppAccess(
         ok: false,
         reason: 'not_found',
         message: `App "${appId}" does not exist.`,
+        code: mapStatusToErrorCode(res.status),
+        status: res.status,
       };
     }
 
@@ -604,6 +796,9 @@ export async function checkAppAccess(
         ok: false,
         reason: 'no_access',
         message: `You do not have access to app "${appId}".`,
+        code: mapStatusToErrorCode(res.status),
+        status: res.status,
+        hint: defaultHintForCode('PERMISSION_DENIED'),
       };
     }
 
@@ -612,6 +807,9 @@ export async function checkAppAccess(
         ok: false,
         reason: 'not_logged_in',
         message: 'Session expired or invalid. Run `ensemble login` to sign in again.',
+        code: mapStatusToErrorCode(res.status),
+        status: res.status,
+        hint: defaultHintForCode('AUTH_EXPIRED'),
       };
     }
 
@@ -620,12 +818,17 @@ export async function checkAppAccess(
       ok: false,
       reason: 'network_error',
       message: `Firestore request failed (${res.status}): ${text.slice(0, 200)}`,
+      code: mapStatusToErrorCode(res.status),
+      status: res.status,
     };
   } catch (err) {
+    const mapped = networkError('checkAppAccess', err);
     return {
       ok: false,
       reason: 'network_error',
-      message: err instanceof Error ? err.message : 'Network request failed.',
+      message: mapped.message,
+      code: mapped.code,
+      hint: mapped.hint,
     };
   }
 }
@@ -636,6 +839,7 @@ async function listCollectionDocuments(
   collectionId: string,
   idToken: string,
   filter?: (doc: FirestoreDocument) => boolean,
+  options?: FirestoreClientOptions,
 ): Promise<FirestoreDocument[]> {
   const baseUrl = `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents/${parentPath}/${collectionId}`;
   const docs: FirestoreDocument[] = [];
@@ -645,12 +849,18 @@ async function listCollectionDocuments(
     const url = new URL(baseUrl);
     if (pageToken) url.searchParams.set('pageToken', pageToken);
 
+    logDebug(options, {
+      kind: 'request',
+      method: 'GET',
+      url: url.toString(),
+      context: 'listCollectionDocuments',
+    });
     const res = await fetch(url.toString(), {
       headers: { Authorization: `Bearer ${idToken}` },
     });
 
     if (!res.ok) {
-      throw new Error(`Firestore list failed: ${res.status} ${await res.text()}`);
+      throw await toFirestoreError('list collection documents', res, options);
     }
 
     const body = (await res.json()) as {
@@ -663,6 +873,12 @@ async function listCollectionDocuments(
         docs.push(doc);
       }
     }
+    logDebug(options, {
+      kind: 'list_documents',
+      collection: collectionId,
+      parentPath,
+      count: body.documents?.length ?? 0,
+    });
     pageToken = body.nextPageToken;
   } while (pageToken);
 
@@ -673,10 +889,19 @@ async function fetchAppDocument(
   project: string,
   appId: string,
   idToken: string,
+  options?: FirestoreClientOptions,
 ): Promise<{ id: string; name?: string; createdAt?: string; updatedAt?: string }> {
   const url = `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents/apps/${appId}`;
+  logDebug(options, {
+    kind: 'request',
+    method: 'GET',
+    url,
+    context: 'fetchAppDocument',
+  });
   const res = await fetch(url, { headers: { Authorization: `Bearer ${idToken}` } });
-  if (!res.ok) throw new Error(`Failed to fetch app: ${res.status}`);
+  if (!res.ok) {
+    throw await toFirestoreError('fetch app document', res, options);
+  }
   const doc = (await res.json()) as { name?: string; createTime?: string; updateTime?: string; fields?: FirestoreFields };
   const fields = doc?.fields ?? {};
   return {
@@ -696,17 +921,25 @@ async function fetchAppDocument(
 export async function fetchCloudApp(
   appId: string,
   idToken: string,
+  options?: FirestoreClientOptions,
 ): Promise<CloudApp> {
   const project = process.env.ENSEMBLE_FIREBASE_PROJECT ?? DEFAULT_FIREBASE_PROJECT;
   const parentPath = `apps/${appId}`;
 
   const [appDoc, internalArtifacts, artifacts] = await Promise.all([
-    fetchAppDocument(project, appId, idToken),
-    listCollectionDocuments(project, parentPath, 'internal_artifacts', idToken),
-    listCollectionDocuments(project, parentPath, 'artifacts', idToken, (doc) => {
-      const docId = getDocId(doc.name);
-      return docId !== 'resources';
-    }),
+    fetchAppDocument(project, appId, idToken, options),
+    listCollectionDocuments(project, parentPath, 'internal_artifacts', idToken, undefined, options),
+    listCollectionDocuments(
+      project,
+      parentPath,
+      'artifacts',
+      idToken,
+      (doc) => {
+        const docId = getDocId(doc.name);
+        return docId !== 'resources';
+      },
+      options,
+    ),
   ]);
 
   const widgets: WidgetDTO[] = [];
@@ -764,6 +997,7 @@ export async function fetchCloudApp(
 export async function fetchRootScreenName(
   appId: string,
   idToken: string,
+  options?: FirestoreClientOptions,
 ): Promise<string | undefined> {
   const project = process.env.ENSEMBLE_FIREBASE_PROJECT ?? DEFAULT_FIREBASE_PROJECT;
   const parent = `projects/${project}/databases/(default)/documents/apps/${appId}`;
@@ -795,6 +1029,12 @@ export async function fetchRootScreenName(
     limit: 1,
   };
 
+  logDebug(options, {
+    kind: 'request',
+    method: 'POST',
+    url,
+    context: 'fetchRootScreenName',
+  });
   const res = await fetch(url, {
     method: 'POST',
     headers: {

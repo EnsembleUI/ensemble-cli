@@ -4,6 +4,8 @@ import {
   fetchCloudApp,
   fetchRootScreenName,
   submitCliPush,
+  FirestoreClientError,
+  type FirestoreDebugEvent,
 } from '../../src/cloud/firestoreClient.js';
 
 describe('checkAppAccess', () => {
@@ -459,5 +461,94 @@ describe('submitCliPush', () => {
 
     const result = await fetchRootScreenName('app-1', 'token');
     expect(result).toBeUndefined();
+  });
+});
+
+describe('Firestore client structured errors and debug logging', () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it('submitCliPush throws FirestoreClientError with mapped code on HTTP error', async () => {
+    globalThis.fetch = async () =>
+      new Response('unauthorized', {
+        status: 401,
+        statusText: 'Unauthorized',
+      });
+
+    const payload = {
+      id: 'app1',
+      name: 'App',
+      updatedAt: new Date().toISOString(),
+      translations: [
+        {
+          operation: 'create' as const,
+          document: {
+            id: 'i18n_en',
+            name: 'en',
+            content: 'en: content',
+            type: 'i18n',
+            defaultLocale: true,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            updatedBy: { name: 'User', email: 'u@test.com', id: 'uid1' },
+            createdBy: { name: 'User', email: 'u@test.com', id: 'uid1' },
+          },
+        },
+      ],
+    };
+
+    await expect(
+      submitCliPush('app1', 'token', payload),
+    ).rejects.toBeInstanceOf(FirestoreClientError);
+  });
+
+  it('submitCliPush invokes debug logger when provided', async () => {
+    const events: FirestoreDebugEvent[] = [];
+
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const urlStr =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      if (init?.method === 'POST' && urlStr.includes('/artifacts')) {
+        return new Response(JSON.stringify({}), { status: 200 });
+      }
+      return new Response(JSON.stringify({}), { status: 200 });
+    };
+
+    const payload = {
+      id: 'app1',
+      name: 'App',
+      updatedAt: new Date().toISOString(),
+      translations: [
+        {
+          operation: 'create' as const,
+          document: {
+            id: 'i18n_en',
+            name: 'en',
+            content: 'en: content',
+            type: 'i18n',
+            defaultLocale: true,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            updatedBy: { name: 'User', email: 'u@test.com', id: 'uid1' },
+            createdBy: { name: 'User', email: 'u@test.com', id: 'uid1' },
+          },
+        },
+      ],
+    };
+
+    await submitCliPush('app1', 'token', payload, {
+      debug: (event) => {
+        events.push(event);
+      },
+    });
+
+    expect(events.length).toBeGreaterThan(0);
   });
 });

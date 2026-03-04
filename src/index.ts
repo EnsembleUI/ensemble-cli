@@ -7,13 +7,15 @@ import { initCommand } from './commands/init.js';
 import { pushCommand } from './commands/push.js';
 import { addCommand } from './commands/add.js';
 import { pullCommand } from './commands/pull.js';
+import { printCliError, resolveDebugFlag } from './core/cliError.js';
 
 const program = new Command();
 
 program
   .name('ensemble')
   .description('Ensemble CLI for logging in and configuring Ensemble apps.')
-  .version('0.1.0');
+  .version('0.1.0')
+  .option('--debug', 'Print full debug information and stack traces', false);
 
 program
   .command('login')
@@ -90,7 +92,8 @@ program
   });
 
 program.parseAsync(process.argv).catch((err) => {
-  // eslint-disable-next-line no-console
-  console.error(err instanceof Error ? err.message : err);
+  const globalOptions = program.opts<{ debug?: boolean }>();
+  const debugEnabled = resolveDebugFlag(globalOptions.debug);
+  printCliError(err, { debug: debugEnabled });
   process.exitCode = 1;
 });

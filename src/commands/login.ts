@@ -14,6 +14,7 @@ import {
   isTokenExpired,
   normalizeExpiresAt,
 } from '../auth/token.js';
+import { resolveVerboseFlag } from '../core/cliError.js';
 
 const DEFAULT_AUTH_BASE_URL = 'https://studio.ensembleui.com/sign-in';
 const CALLBACK_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
@@ -53,6 +54,7 @@ export async function loginCommand(options: LoginOptions = {}): Promise<void> {
   const existing = (await readGlobalConfig()) ?? {};
   const baseUrl = process.env.ENSEMBLE_AUTH_BASE_URL ?? DEFAULT_AUTH_BASE_URL;
   const configPath = getGlobalConfigPath();
+  const verbose = resolveVerboseFlag(options.verbose);
 
   const idToken = existing?.user?.idToken;
   if (idToken && !isTokenExpired(idToken)) {
@@ -81,9 +83,9 @@ export async function loginCommand(options: LoginOptions = {}): Promise<void> {
 
     const currentEmail = mergedUser.email;
     console.log(
-      currentEmail ? `You are already logged in as ${currentEmail}` : 'You are already logged in.'
+      currentEmail ? `You are already logged in as ${currentEmail}` : 'You are already logged in.',
     );
-    if (options.verbose) {
+    if (verbose) {
       console.log(`Auth config path: ${configPath}`);
     }
     return;
@@ -206,7 +208,7 @@ export async function loginCommand(options: LoginOptions = {}): Promise<void> {
 
   await writeGlobalConfig(newConfig);
   console.log(email ? `Logged in as ${email}` : 'Logged in successfully.');
-  if (options.verbose) {
+  if (verbose) {
     console.log(`Auth config path: ${configPath}`);
   }
 }

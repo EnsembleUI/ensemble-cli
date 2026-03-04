@@ -40,7 +40,7 @@ describe('getValidAuthSession', () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.reason).toBe('not_logged_in');
-      expect(result.message).toContain('login');
+      expect(result.message).toContain('Run `ensemble login`');
     }
   });
 
@@ -52,7 +52,10 @@ describe('getValidAuthSession', () => {
     const result = await getValidAuthSession();
 
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reason).toBe('not_logged_in');
+    if (!result.ok) {
+      expect(result.reason).toBe('not_logged_in');
+      expect(result.message).toContain('Run `ensemble login`');
+    }
   });
 
   it('returns ok when token is valid and not expired', async () => {
@@ -97,7 +100,30 @@ describe('getValidAuthSession', () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.reason).toBe('expired');
-      expect(result.message).toContain('refresh token');
+      expect(result.message).toContain('Run `ensemble login` again.');
+    }
+  });
+
+  it('returns expired with friendly hint when refresh fails', async () => {
+    const expiredToken = makeJwt({
+      userId: 'u1',
+      exp: Math.floor(Date.now() / 1000) - 3600,
+    });
+    vi.mocked(globalConfig.readGlobalConfig).mockResolvedValue({
+      user: {
+        uid: 'u1',
+        idToken: expiredToken,
+        refreshToken: 'refresh-token',
+      },
+    });
+    delete process.env.ENSEMBLE_FIREBASE_API_KEY;
+
+    const result = await getValidAuthSession();
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe('expired');
+      expect(result.message).toContain('Run `ensemble login` again.');
     }
   });
 

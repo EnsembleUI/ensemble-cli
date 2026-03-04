@@ -2,9 +2,14 @@ import fs from 'fs/promises';
 import path from 'path';
 import prompts from 'prompts';
 
-import { checkAppAccess, fetchCloudApp } from '../cloud/firestoreClient.js';
+import {
+  checkAppAccess,
+  fetchCloudApp,
+  type FirestoreClientOptions,
+} from '../cloud/firestoreClient.js';
 import { collectAppFiles } from '../core/appCollector.js';
 import { ArtifactProps, type ArtifactProp } from '../core/dto.js';
+import { resolveVerboseFlag } from '../core/cliError.js';
 import { resolveAppContext } from '../config/projectConfig.js';
 import { getValidAuthSession } from '../auth/session.js';
 import { withSpinner } from '../lib/spinner.js';
@@ -105,6 +110,24 @@ const PULL_LABELS = {
   removed: '🗑️  removed',
 } as const;
 
+type PullOperation = 'create' | 'update' | 'delete';
+
+interface PullChange {
+  readonly kind: string;
+  readonly file: string;
+  readonly operation: PullOperation;
+}
+
+interface PullSummary {
+  readonly appName: string;
+  readonly environment: string;
+  readonly created: number;
+  readonly updated: number;
+  readonly deleted: number;
+  readonly skipped: number;
+  readonly changes: readonly PullChange[];
+}
+
 interface ArtifactFsConfig {
   readonly prop: ArtifactProp;
   readonly ext?: string;
@@ -118,6 +141,65 @@ const ARTIFACT_FS_CONFIG: ArtifactFsConfig[] = [
   { prop: 'translations', ext: '.yaml' },
   { prop: 'theme', isTheme: true },
 ];
+
+function printPullDryRun(summary: PullSummary): void {
+  const { appName, environment, changes } = summary;
+
+  // eslint-disable-next-line no-console
+  console.log(`Pull plan for ${appName} (${environment})`);
+
+  if (changes.length === 0) {
+    // eslint-disable-next-line no-console
+    console.log('No changes. Local files are already up to date with the cloud app.');
+    // eslint-disable-next-line no-console
+    console.log(
+      'Dry run only: no files were changed. Run `ensemble pull` without `--dry-run` when you are ready to apply remote changes.',
+    );
+    return;
+  }
+
+  // eslint-disable-next-line no-console
+  console.log('The following changes would be applied:');
+  for (const change of changes) {
+    const baseLabel =
+      change.operation === 'create'
+        ? '+ create'
+        : change.operation === 'update'
+          ? '~ overwrite'
+          : '- delete';
+    // eslint-disable-next-line no-console
+    console.log(`  ${baseLabel}  ${change.kind} ${change.file}`);
+  }
+
+  // eslint-disable-next-line no-console
+  console.log(
+    'Dry run only: no files were changed. Run `ensemble pull` without `--dry-run` to apply these changes.',
+  );
+}
+
+function printPullSummary(summary: PullSummary): void {
+  const { appName, environment, created, updated, deleted, skipped } = summary;
+  const total = created + updated + deleted;
+
+  if (total === 0) {
+    // eslint-disable-next-line no-console
+    console.log(
+      `Pulled app ${appName} (${environment}): no file changes were applied (metadata may have been updated).`,
+    );
+  } else {
+    // eslint-disable-next-line no-console
+    console.log(
+      `Pulled app ${appName} (${environment}): applied ${total} change${
+        total === 1 ? '' : 's'
+      } (created: ${created}, updated: ${updated}, deleted: ${deleted}, skipped: ${skipped}).`,
+    );
+  }
+
+  // eslint-disable-next-line no-console
+  console.log(
+    'Next steps: Review the updated files in your editor or version control, then run your tests.',
+  );
+}
 
 function buildManifestObject(
   existing: RootManifest,
@@ -175,7 +257,10 @@ async function buildAndWriteManifest(
 
 export async function pullCommand(options: PullOptions = {}): Promise<void> {
   const { projectRoot, config, appKey, appId } = await resolveAppContext(options.appKey);
+  const verbose = resolveVerboseFlag(options.verbose);
   const appConfig = config.apps[appKey];
+  const appName = (appConfig.name as string | undefined) ?? 'App';
+  const environment = appKey;
   const appOptions = (appConfig.options ?? {}) as Record<string, unknown>;
   const enabledByProp = Object.fromEntries(
     ArtifactProps.map((prop) => [prop, appOptions[prop] !== false]),
@@ -190,8 +275,48 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
   }
   const { idToken, userId } = session;
 
+  const debugEnabled = verbose;
+  const firestoreOptions: FirestoreClientOptions | undefined = debugEnabled
+    ? {
+        debug: (event) => {
+          // eslint-disable-next-line no-console
+          console.log(
+            `[debug:firestore] ${event.kind}`,
+            JSON.stringify(
+              {
+                ...(event.kind === 'request' && {
+                  method: event.method,
+                  url: event.url,
+                  context: event.context,
+                }),
+                ...(event.kind === 'response' && {
+                  method: event.method,
+                  url: event.url,
+                  status: event.status,
+                  context: event.context,
+                }),
+                ...(event.kind === 'list_documents' && {
+                  collection: event.collection,
+                  parentPath: event.parentPath,
+                  count: event.count,
+                }),
+                ...(event.kind === 'push_operation' && {
+                  appId: event.appId,
+                  operation: event.operation,
+                  artifactKind: event.artifactKind,
+                  documentId: event.documentId,
+                }),
+              },
+              null,
+              2,
+            ),
+          );
+        },
+      }
+    : undefined;
+
   const access = await withSpinner('Checking app access...', () =>
-    checkAppAccess(appId, idToken, userId),
+    checkAppAccess(appId, idToken, userId, firestoreOptions),
   );
   if (!access.ok) {
     // eslint-disable-next-line no-console
@@ -201,14 +326,9 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
   }
 
   const cloudApp = await withSpinner('Fetching cloud app...', () =>
-    fetchCloudApp(appId, idToken),
+    fetchCloudApp(appId, idToken, firestoreOptions),
   );
-  await writeVerbose(
-    projectRoot,
-    'ensemble-cloud-app.json',
-    cloudApp,
-    options.verbose ?? false,
-  );
+  await writeVerbose(projectRoot, 'ensemble-cloud-app.json', cloudApp, verbose);
 
   // Fast-path: detect if pull would be a no-op, respecting app options.
   const localFiles = await collectAppFiles(projectRoot);
@@ -275,6 +395,11 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
   }
 
   // Build a human-readable summary of what will change.
+  const changes: PullChange[] = [];
+  let createdCount = 0;
+  let updatedCount = 0;
+  let deletedCount = 0;
+
   const summaryLines: string[] = [];
   const typeLabelByProp: Record<Exclude<ArtifactProp, 'theme'>, string> = {
     screens: 'screen',
@@ -295,14 +420,32 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
       const actualTheme = localFiles.theme;
       if (expectedThemeContent === actualTheme) continue;
       if (expectedThemeContent && !actualTheme) {
+        createdCount += 1;
+        changes.push({
+          kind: 'theme',
+          file: 'theme.yaml',
+          operation: 'create',
+        });
         summaryLines.push(
           `        ${PULL_LABELS.new}  theme - theme.yaml`,
         );
       } else if (!expectedThemeContent && actualTheme) {
+        deletedCount += 1;
+        changes.push({
+          kind: 'theme',
+          file: 'theme.yaml',
+          operation: 'delete',
+        });
         summaryLines.push(
           `        ${PULL_LABELS.removed}  theme - theme.yaml`,
         );
       } else {
+        updatedCount += 1;
+        changes.push({
+          kind: 'theme',
+          file: 'theme.yaml',
+          operation: 'update',
+        });
         summaryLines.push(
           `        ${PULL_LABELS.modified}  theme - theme.yaml`,
         );
@@ -329,6 +472,12 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
 
     for (const file of expectedKeys) {
       if (!actualKeys.has(file)) {
+        createdCount += 1;
+        changes.push({
+          kind,
+          file: path.join(prop, file),
+          operation: 'create',
+        });
         summaryLines.push(
           `        ${PULL_LABELS.new}  ${kind} - ${file}`,
         );
@@ -336,6 +485,12 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
     }
     for (const file of actualKeys) {
       if (!expectedKeys.has(file)) {
+        deletedCount += 1;
+        changes.push({
+          kind,
+          file: path.join(prop, file),
+          operation: 'delete',
+        });
         summaryLines.push(
           `        ${PULL_LABELS.removed}  ${kind} - ${file}`,
         );
@@ -344,6 +499,12 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
     for (const file of expectedKeys) {
       if (!actualKeys.has(file)) continue;
       if (expected[file] !== actualMap[file]) {
+        updatedCount += 1;
+        changes.push({
+          kind,
+          file: path.join(prop, file),
+          operation: 'update',
+        });
         summaryLines.push(
           `        ${PULL_LABELS.modified}  ${kind} - ${file}`,
         );
@@ -351,7 +512,19 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
     }
   }
 
-  if (summaryLines.length > 0) {
+  if (!manifestMatch) {
+    updatedCount += 1;
+    changes.push({
+      kind: 'manifest',
+      file: '.manifest.json',
+      operation: 'update',
+    });
+    summaryLines.push(
+      `        ${PULL_LABELS.modified}  manifest - .manifest.json`,
+    );
+  }
+
+  if (summaryLines.length > 0 && !options.dryRun) {
     // eslint-disable-next-line no-console
     console.log('Changes to be pulled:');
     for (const line of summaryLines) {
@@ -360,10 +533,26 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
     }
   }
 
+  const pullSummary: PullSummary = {
+    appName,
+    environment,
+    created: createdCount,
+    updated: updatedCount,
+    deleted: deletedCount,
+    skipped: 0,
+    changes,
+  };
+
   if (options.dryRun) {
-    // eslint-disable-next-line no-console
-    console.log('Dry run: no files will be modified.');
+    printPullDryRun(pullSummary);
     return;
+  }
+
+  if (updatedCount > 0 || deletedCount > 0) {
+    // eslint-disable-next-line no-console
+    console.log(
+      'If you are unsure, cancel this pull and re-run with `--dry-run` to inspect the plan, or back up your local changes first.',
+    );
   }
 
   let confirmed = options.yes ?? false;
@@ -467,6 +656,6 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
     await buildAndWriteManifest(projectRoot, cloudApp);
   });
 
-  console.log('Pull complete.');
+  printPullSummary(pullSummary);
 }
 

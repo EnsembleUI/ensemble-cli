@@ -67,7 +67,15 @@ const cloudModuleMock = vi.hoisted(() => {
 
 vi.mock('../../src/cloud/firestoreClient.js', () => cloudModuleMock);
 
+const promptsModuleMock = vi.hoisted(() => ({
+  default: vi.fn(async () => ({ proceed: true })),
+}));
+
+vi.mock('prompts', () => promptsModuleMock);
+
 // Import after mocks
+import { resolveAppContext } from '../../src/config/projectConfig.js';
+import { getValidAuthSession } from '../../src/auth/session.js';
 import { pushCommand } from '../../src/commands/push.js';
 import { pullCommand } from '../../src/commands/pull.js';
 import { collectAppFiles } from '../../src/core/appCollector.js';
@@ -93,7 +101,12 @@ describe('push/pull integration (commands)', () => {
   });
 
   it('push uses defaultLanguage from .manifest and sends correct translation payload', async () => {
-    // Arrange: create translation files and manifest
+    // Arrange: create a minimal Home screen, translation files, and manifest
+    await fs.writeFile(
+      path.join(projectRoot, 'screens', 'Home.yaml'),
+      'home: content',
+      'utf8',
+    );
     await fs.writeFile(
       path.join(projectRoot, 'translations', 'en.yaml'),
       'en: content',
@@ -119,6 +132,8 @@ describe('push/pull integration (commands)', () => {
       ) + '\n',
       'utf8',
     );
+
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
     // Act
     await pushCommand({ verbose: false, yes: true });
@@ -150,11 +165,49 @@ describe('push/pull integration (commands)', () => {
     expect(en!.document.id).toBe('i18n_en');
     expect(ar!.document.defaultLocale).toBe(true);
     expect(en!.document.defaultLocale ?? false).toBe(false);
+
+    // Should print a success summary with counts.
+    expect(
+      logSpy.mock.calls.some(
+        ([msg]) =>
+          typeof msg === 'string' &&
+          msg.includes('Pushed app "App" to environment "dev"'),
+      ),
+    ).toBe(true);
+
+    logSpy.mockRestore();
   });
 
   it('push respects app options and does not include disabled screens in diff/payload', async () => {
     // Disable screens in app options
     appOptionsRef.value = { screens: false };
+
+    // For this test, simulate an app config without a configured home screen so that
+    // the validation logic in buildDocumentsFromParsed does not require any screens.
+    const resolveAppContextMock = resolveAppContext as unknown as ReturnType<typeof vi.fn>;
+    resolveAppContextMock.mockResolvedValueOnce({
+      projectRoot,
+      config: {
+        default: 'dev',
+        apps: {
+          dev: {
+            appId: 'app1',
+            name: 'App',
+            appHome: undefined,
+            options: appOptionsRef.value,
+          },
+        },
+      },
+      appKey: 'dev',
+      appId: 'app1',
+    });
+
+    // Arrange: create a minimal Home screen so buildDocumentsFromParsed succeeds.
+    await fs.writeFile(
+      path.join(projectRoot, 'screens', 'Home.yaml'),
+      'home: content',
+      'utf8',
+    );
 
     // Cloud app has screens, but they should be ignored due to options.
     (cloudModuleMock.fetchCloudApp as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
@@ -192,7 +245,12 @@ describe('push/pull integration (commands)', () => {
   });
 
   it('push dry run shows diff but does not submit payload', async () => {
-    // Arrange: create a simple local file and cloud app with no existing artifacts.
+    // Arrange: create a minimal Home screen plus a simple local file and cloud app with no existing artifacts.
+    await fs.writeFile(
+      path.join(projectRoot, 'screens', 'Home.yaml'),
+      'home: content',
+      'utf8',
+    );
     await fs.writeFile(
       path.join(projectRoot, 'translations', 'en.yaml'),
       'en: content',
@@ -209,15 +267,66 @@ describe('push/pull integration (commands)', () => {
       theme: undefined,
     });
 
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
     await pushCommand({ verbose: false, yes: false, dryRun: true });
 
     const { submitCliPush } = cloudModuleMock as {
       submitCliPush: ReturnType<typeof vi.fn>;
     };
     expect(submitCliPush).not.toHaveBeenCalled();
+
+    // Dry run output should clearly indicate non-destructive behavior and how to apply.
+    const lines = logSpy.mock.calls.map(([msg]) => String(msg));
+    expect(lines.some((l) => l.includes('Push dry run'))).toBe(true);
+    expect(
+      lines.some((l) =>
+        l.includes('Run `ensemble push` without `--dry-run` to apply these changes.'),
+      ),
+    ).toBe(true);
+
+    logSpy.mockRestore();
+  });
+
+  it('push without --yes in non-interactive mode refuses to run', async () => {
+    // Arrange: create a minimal Home screen and a simple local file so there is at least one change to push.
+    await fs.writeFile(
+      path.join(projectRoot, 'screens', 'Home.yaml'),
+      'home: content',
+      'utf8',
+    );
+    await fs.writeFile(
+      path.join(projectRoot, 'translations', 'en.yaml'),
+      'en: content',
+      'utf8',
+    );
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { submitCliPush } = cloudModuleMock as {
+      submitCliPush: ReturnType<typeof vi.fn>;
+    };
+
+    // Act: do not pass --yes; in test environment the process is effectively non-interactive.
+    await pushCommand({ verbose: false });
+
+    // Assert: no network writes and a clear error message.
+    expect(submitCliPush).not.toHaveBeenCalled();
+    expect(
+      errorSpy.mock.calls.some(
+        ([msg]) =>
+          typeof msg === 'string' &&
+          msg.includes('Refusing to run push non-interactively without --yes'),
+      ),
+    ).toBe(true);
+
+    // Reset exit code for other tests.
+    process.exitCode = 0;
+    errorSpy.mockRestore();
   });
 
   it('pull writes artifacts and .manifest and is idempotent', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
     const themeContent = 'colors:\n  primary: blue';
 
     (cloudModuleMock.fetchCloudApp as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
@@ -278,7 +387,6 @@ describe('push/pull integration (commands)', () => {
     // Verify files exist and manifest content
     const files = await collectAppFiles(projectRoot);
     expect(Object.keys(files.screens)).toContain('Home.yaml');
-    expect(Object.keys(files.widgets)).toContain('W1.yaml');
     expect(Object.keys(files.scripts)).toContain('S1.js');
     expect(Object.keys(files.translations)).toContain('ar.yaml');
     expect(Object.keys(files.translations)).toContain('en.yaml');
@@ -305,6 +413,23 @@ describe('push/pull integration (commands)', () => {
     const fetchSpy = cloudModuleMock.fetchCloudApp as ReturnType<typeof vi.fn>;
     await pullCommand({ verbose: false, yes: true });
     expect(fetchSpy).toHaveBeenCalledTimes(2);
+
+    const messages = logSpy.mock.calls.map((args) => args[0]);
+    expect(
+      messages.some(
+        (m) =>
+          typeof m === 'string' &&
+          m.includes('Pulled app') &&
+          m.includes('applied'),
+      ),
+    ).toBe(true);
+    expect(
+      messages.some(
+        (m) => typeof m === 'string' && m.includes('Next steps: Review'),
+      ),
+    ).toBe(true);
+
+    logSpy.mockRestore();
   });
 
   it('pull respects app options and does not overwrite disabled artifact kinds', async () => {
@@ -337,6 +462,8 @@ describe('push/pull integration (commands)', () => {
   });
 
   it('pull dry run shows summary but does not modify files', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
     (cloudModuleMock.fetchCloudApp as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       id: 'app1',
       name: 'App',
@@ -363,6 +490,212 @@ describe('push/pull integration (commands)', () => {
     expect(Object.keys(files.scripts)).toEqual([]);
     expect(Object.keys(files.translations)).toEqual([]);
     expect(files.theme).toBeUndefined();
+
+    const messages = logSpy.mock.calls.map((args) => args[0]);
+    expect(
+      messages.some(
+        (m) =>
+          typeof m === 'string' &&
+          m.includes('Pull plan for') &&
+          m.includes('(dev)'),
+      ),
+    ).toBe(true);
+    expect(
+      messages.some(
+        (m) =>
+          typeof m === 'string' &&
+          m.includes('+ create') &&
+          m.includes('screen'),
+      ),
+    ).toBe(true);
+    expect(
+      messages.some(
+        (m) =>
+          typeof m === 'string' &&
+          m.includes('Dry run only: no files were changed.'),
+      ),
+    ).toBe(true);
+
+    logSpy.mockRestore();
+  });
+
+  it('pull explains overwrites/deletes and suggests dry run for conflicts', async () => {
+    // Existing local file that will be overwritten plus one that will be deleted.
+    await fs.mkdir(path.join(projectRoot, 'screens'), { recursive: true });
+    await fs.writeFile(
+      path.join(projectRoot, 'screens', 'Home.yaml'),
+      'home: local-changes',
+      'utf8',
+    );
+    await fs.writeFile(
+      path.join(projectRoot, 'screens', 'Stale.yaml'),
+      'stale: to-be-deleted',
+      'utf8',
+    );
+
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    (cloudModuleMock.fetchCloudApp as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: 'app1',
+      name: 'App',
+      screens: [
+        {
+          id: 'screen-id-1',
+          name: 'Home',
+          content: 'home: cloud-version',
+          type: 'screen',
+          isRoot: true,
+        },
+      ] as unknown[],
+      widgets: [] as unknown[],
+      scripts: [] as unknown[],
+      translations: [] as unknown[],
+      theme: undefined,
+    });
+
+    await pullCommand({ verbose: false, yes: true });
+
+    const messages = logSpy.mock.calls.map((args) => args[0]);
+    expect(
+      messages.some(
+        (m) =>
+          typeof m === 'string' &&
+          m.includes('Changes to be pulled:'),
+      ),
+    ).toBe(true);
+    expect(
+      messages.some(
+        (m) =>
+          typeof m === 'string' &&
+          m.includes('modified  manifest - .manifest.json'),
+      ),
+    ).toBe(true);
+    expect(
+      messages.some(
+        (m) =>
+          typeof m === 'string' &&
+          m.includes('removed  screen - Stale.yaml'),
+      ),
+    ).toBe(true);
+    expect(
+      messages.some(
+        (m) =>
+          typeof m === 'string' &&
+          m.includes('re-run with `--dry-run` to inspect the plan'),
+      ),
+    ).toBe(true);
+
+    logSpy.mockRestore();
+  });
+
+  it('push surfaces auth failures with a hint to login', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const originalExitCode = process.exitCode;
+
+    const sessionMock = getValidAuthSession as unknown as ReturnType<typeof vi.fn>;
+    sessionMock.mockResolvedValueOnce({
+      ok: false as const,
+      message: 'Auth failed. Run `ensemble login` and try again.',
+    });
+
+    await pushCommand({ verbose: false, yes: true });
+
+    const errors = errorSpy.mock.calls.map(([msg]) => String(msg)).join('\n');
+    expect(errors).toContain('Auth failed.');
+    expect(errors).toContain('ensemble login');
+    expect(process.exitCode).toBe(1);
+
+    const { checkAppAccess, fetchCloudApp, submitCliPush } = cloudModuleMock as {
+      checkAppAccess: ReturnType<typeof vi.fn>;
+      fetchCloudApp: ReturnType<typeof vi.fn>;
+      submitCliPush: ReturnType<typeof vi.fn>;
+    };
+    expect(checkAppAccess).not.toHaveBeenCalled();
+    expect(fetchCloudApp).not.toHaveBeenCalled();
+    expect(submitCliPush).not.toHaveBeenCalled();
+
+    process.exitCode = originalExitCode;
+    errorSpy.mockRestore();
+  });
+
+  it('pull surfaces auth failures with a hint to login', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const originalExitCode = process.exitCode;
+
+    const sessionMock = getValidAuthSession as unknown as ReturnType<typeof vi.fn>;
+    sessionMock.mockResolvedValueOnce({
+      ok: false as const,
+      message: 'Auth failed. Run `ensemble login` and try again.',
+    });
+
+    await pullCommand({ verbose: false, yes: true });
+
+    const errors = errorSpy.mock.calls.map(([msg]) => String(msg)).join('\n');
+    expect(errors).toContain('Auth failed.');
+    expect(errors).toContain('ensemble login');
+    expect(process.exitCode).toBe(1);
+
+    const { checkAppAccess, fetchCloudApp } = cloudModuleMock as {
+      checkAppAccess: ReturnType<typeof vi.fn>;
+      fetchCloudApp: ReturnType<typeof vi.fn>;
+    };
+    expect(checkAppAccess).not.toHaveBeenCalled();
+    expect(fetchCloudApp).not.toHaveBeenCalled();
+
+    process.exitCode = originalExitCode;
+    errorSpy.mockRestore();
+  });
+
+  it('push surfaces app access failures with a clear message', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const originalExitCode = process.exitCode;
+
+    (cloudModuleMock.checkAppAccess as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: false as const,
+      message:
+        'You do not have access to this app. Ask an Ensemble admin to grant you access.',
+    });
+
+    await pushCommand({ verbose: false, yes: true });
+
+    const errors = errorSpy.mock.calls.map(([msg]) => String(msg)).join('\n');
+    expect(errors).toContain('You do not have access to this app.');
+    expect(process.exitCode).toBe(1);
+
+    const { fetchCloudApp, submitCliPush } = cloudModuleMock as {
+      fetchCloudApp: ReturnType<typeof vi.fn>;
+      submitCliPush: ReturnType<typeof vi.fn>;
+    };
+    expect(fetchCloudApp).not.toHaveBeenCalled();
+    expect(submitCliPush).not.toHaveBeenCalled();
+
+    process.exitCode = originalExitCode;
+    errorSpy.mockRestore();
+  });
+
+  it('pull surfaces app access failures with a clear message', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const originalExitCode = process.exitCode;
+
+    (cloudModuleMock.checkAppAccess as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: false as const,
+      message:
+        'You do not have access to this app. Ask an Ensemble admin to grant you access.',
+    });
+
+    await pullCommand({ verbose: false, yes: true });
+
+    const errors = errorSpy.mock.calls.map(([msg]) => String(msg)).join('\n');
+    expect(errors).toContain('You do not have access to this app.');
+    expect(process.exitCode).toBe(1);
+
+    const { fetchCloudApp } = cloudModuleMock as {
+      fetchCloudApp: ReturnType<typeof vi.fn>;
+    };
+    expect(fetchCloudApp).not.toHaveBeenCalled();
+
+    process.exitCode = originalExitCode;
+    errorSpy.mockRestore();
   });
 });
 

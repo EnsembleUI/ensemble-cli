@@ -18,6 +18,12 @@ export interface ParsedAppFiles {
 
 export type CollectOptions = Partial<Record<ArtifactProp, boolean>>;
 
+type AppCollectorPhase = 'scanning' | 'reading' | 'completed';
+
+export interface CollectAppFilesHooks {
+  onStatus?: (phase: AppCollectorPhase, details?: Record<string, unknown>) => void;
+}
+
 function shouldInclude(prop: ArtifactProp, options: CollectOptions): boolean {
   const v = options[prop];
   return v !== false;
@@ -58,8 +64,13 @@ async function readTextFile(filePath: string): Promise<string> {
 export async function collectAppFiles(
   rootDir: string,
   collectOptions: CollectOptions = {},
+  hooks: CollectAppFilesHooks = {},
 ): Promise<ParsedAppFiles> {
   const include = (prop: ArtifactProp) => shouldInclude(prop, collectOptions);
+  const { onStatus } = hooks;
+  const reportStatus = (phase: AppCollectorPhase, details?: Record<string, unknown>) => {
+    onStatus?.(phase, details);
+  };
 
   type FileTask =
     | {
@@ -81,6 +92,8 @@ export async function collectAppFiles(
   };
 
   const tasks: FileTask[] = [];
+
+  reportStatus('scanning', { rootDir });
 
   async function walk(dir: string): Promise<void> {
     const entries = await fs.readdir(dir, { withFileTypes: true });
@@ -139,6 +152,11 @@ export async function collectAppFiles(
 
   await walk(rootDir);
 
+  reportStatus('reading', {
+    rootDir,
+    taskCount: tasks.length,
+  });
+
   await processWithConcurrency(tasks, async (task) => {
     const content = await readTextFile(task.fullPath);
     if (task.kind === 'theme') {
@@ -160,6 +178,15 @@ export async function collectAppFiles(
         result.translations[task.key] = content;
         break;
     }
+  });
+
+  reportStatus('completed', {
+    rootDir,
+    screenCount: Object.keys(result.screens).length,
+    scriptCount: Object.keys(result.scripts).length,
+    widgetCount: Object.keys(result.widgets).length,
+    translationCount: Object.keys(result.translations).length,
+    hasTheme: typeof result.theme === 'string',
   });
 
   return result;

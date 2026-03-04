@@ -28,14 +28,33 @@ function pathToName(relativePath: string): string {
   return lastDot > 0 ? base.slice(0, lastDot) : base;
 }
 
+type BuildDocumentsStatusPhase = 'building' | 'validating';
+
+export interface BuildDocumentsOptions {
+  onStatus?: (phase: BuildDocumentsStatusPhase, details?: Record<string, unknown>) => void;
+}
+
 export function buildDocumentsFromParsed(
   parsed: ParsedAppFiles,
   appId: string,
   appName: string,
   appHome?: string,
   defaultLanguage?: string,
+  options: BuildDocumentsOptions = {},
 ): ApplicationDTO {
   const now = new Date().toISOString();
+  const { onStatus } = options;
+  const reportStatus = (phase: BuildDocumentsStatusPhase, details?: Record<string, unknown>) => {
+    onStatus?.(phase, details);
+  };
+
+  reportStatus('building', {
+    screenFileCount: Object.keys(parsed.screens).length,
+    widgetFileCount: Object.keys(parsed.widgets).length,
+    scriptFileCount: Object.keys(parsed.scripts).length,
+    translationFileCount: Object.keys(parsed.translations).length,
+    hasTheme: typeof parsed.theme === 'string',
+  });
 
   const screens: ScreenDTO[] = Object.entries(parsed.screens).map(
     ([relativePath, content]) => {
@@ -104,6 +123,54 @@ export function buildDocumentsFromParsed(
       };
     },
   );
+
+  reportStatus('validating', {
+    screenCount: screens.length,
+    widgetCount: widgets.length,
+    scriptCount: scripts.length,
+    translationCount: translations.length,
+    appHome,
+    defaultLanguage,
+  });
+
+  if (typeof appHome === 'string' && appHome.trim() !== '') {
+    if (screens.length === 0) {
+      throw new Error(
+        [
+          'Configured a home screen in app config, but no screens were found in the app.',
+          'Add at least one screen file under "screens/" (for example "screens/Home.yaml"),',
+          'or remove the "appHome" setting from your Ensemble config.',
+        ].join(' '),
+      );
+    }
+
+    const hasHomeScreen = screens.some((screen) => screen.name === appHome);
+    if (!hasHomeScreen) {
+      throw new Error(
+        [
+          `Configured home screen "${appHome}" was not found among your screens.`,
+          'Create a screen file whose base name matches the home screen',
+          `(for example "screens/${appHome}.yaml") or update "appHome" in your Ensemble config.`,
+        ].join(' '),
+      );
+    }
+  }
+
+  if (typeof defaultLanguage === 'string' && defaultLanguage.trim() !== '') {
+    const hasDefaultLanguage = translations.some(
+      (translation) => translation.name === defaultLanguage,
+    );
+
+    if (!hasDefaultLanguage) {
+      throw new Error(
+        [
+          `Default language "${defaultLanguage}" is configured, but no matching translation was found.`,
+          'Create a translation file whose base name matches the default language',
+          `(for example "translations/${defaultLanguage}.yaml") or update "defaultLanguage" in ".manifest.json".`,
+        ].join(' '),
+      );
+    }
+  }
 
   const application: ApplicationDTO = {
     id: appId,
