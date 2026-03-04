@@ -337,25 +337,39 @@ describe('submitCliPush', () => {
   });
 
   it('creates translation with correct id, defaultLocale and user references', async () => {
-    const calls: { url: string; body: any }[] = [];
+    type CapturedBody = {
+      fields: {
+        defaultLocale?: { booleanValue: boolean };
+        updatedBy?: { referenceValue: string };
+        createdBy?: { referenceValue: string };
+        [key: string]: unknown;
+      };
+      [key: string]: unknown;
+    };
+
+    const calls: { url: string; body: CapturedBody }[] = [];
 
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const urlStr =
-        typeof input === 'string'
-          ? input
-          : input instanceof URL
-            ? input.toString()
+        const urlStr =
+          typeof input === 'string'
+            ? input
+            : input instanceof URL
+              ? input.toString()
             : input.url;
-      if (init?.method === 'POST' && urlStr.includes('/artifacts')) {
-        calls.push({
-          url: urlStr,
-          body: init.body ? JSON.parse(init.body.toString()) : undefined,
-        });
+        if (init?.method === 'POST' && urlStr.includes('/artifacts')) {
+          const parsedBody = init.body
+            ? (JSON.parse(String(init.body)) as CapturedBody)
+            : ({} as CapturedBody);
+          calls.push({
+            url: urlStr,
+            body: parsedBody,
+          });
+          return new Response(JSON.stringify({}), { status: 200 });
+        }
+        // For other calls (screens/widgets/scripts/theme) that won't be used in this test.
         return new Response(JSON.stringify({}), { status: 200 });
-      }
-      // For other calls (screens/widgets/scripts/theme) that won't be used in this test.
-      return new Response(JSON.stringify({}), { status: 200 });
-    }) as unknown as typeof fetch;
+      },
+    ) as unknown as typeof fetch;
 
     const payload = {
       id: 'app1',
@@ -387,9 +401,11 @@ describe('submitCliPush', () => {
     expect(url).toContain('documentId=i18n_en');
     expect(body).toHaveProperty('fields');
     expect(body.fields.defaultLocale).toEqual({ booleanValue: true });
+    expect(body.fields.updatedBy).toBeDefined();
+    expect(body.fields.createdBy).toBeDefined();
 
-    const updatedByRef = body.fields.updatedBy.referenceValue as string;
-    const createdByRef = body.fields.createdBy.referenceValue as string;
+    const updatedByRef = body.fields.updatedBy!.referenceValue as string;
+    const createdByRef = body.fields.createdBy!.referenceValue as string;
     expect(updatedByRef).toContain('/users/uid1');
     expect(createdByRef).toContain('/users/uid1');
   });

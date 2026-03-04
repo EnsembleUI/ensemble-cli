@@ -17,24 +17,37 @@ npm link
 
 ## Commands
 
-| Command | Description |
-|---------|-------------|
-| `ensemble login` | Log in to Ensemble (opens browser) |
-| `ensemble logout` | Log out |
-| `ensemble init` | Initialize or update `ensemble.config.json` in the current project |
-| `ensemble push` | Scan the app directory and prepare data for upload |
+| Command           | Description                                                  |
+|-------------------|--------------------------------------------------------------|
+| `ensemble login`  | Log in to Ensemble (opens browser)                          |
+| `ensemble logout` | Log out and clear local auth session                        |
+| `ensemble init`   | Initialize or update `ensemble.config.json` in the project  |
+| `ensemble push`   | Scan the app directory and push changes to the cloud        |
+| `ensemble pull`   | Pull artifacts from the cloud and overwrite local files     |
+| `ensemble add`    | Add a new screen, widget, script, or translation scaffold   |
 
 ### Options
 
 - **login** — `--verbose` — Print auth config path
 - **push** — `--app <alias>` — App alias (default: `default`)
-- **push** — `--verbose` — Write collected data as JSON files for debugging
+- **push** — `--verbose` — Write collected data and diff/payload JSON files for debugging
+- **push** — `-y, --yes` — Skip confirmation prompt (useful for CI)
+- **pull** — `--app <alias>` — App alias (default: `default`)
+- **pull** — `--verbose` — Write fetched cloud JSON to disk
+- **pull** — `-y, --yes` — Skip confirmation prompt (overwrite without asking)
 
 ## Usage
 
 1. Log in: `ensemble login`
 2. From your project root, run `ensemble init` and link an existing app
 3. Run `ensemble push` to sync your local app (screens, widgets, scripts, etc.) with the cloud
+4. Optionally run `ensemble pull` to refresh local artifacts from the cloud when other collaborators change them
+
+### Exit codes
+
+- `0` — Command completed successfully (including “Up to date. Nothing to push/pull.”).
+- `1` — Error (e.g., not logged in, app not found, or no access).
+- `130` — User cancelled an interactive confirmation (push/pull prompt).
 
 ## Environment Variables
 

@@ -112,6 +112,42 @@ type UpdateYamlOp = Extract<YamlArtifactPushOperation, { operation: 'update' }>;
 type UpdateHistory = UpdateYamlOp['history'];
 type UpdateUpdates = UpdateYamlOp['updates'];
 
+function assertValidPushPayload(payload: unknown): asserts payload is PushPayloadShape {
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('Invalid push payload: expected an object.');
+  }
+  const p = payload as { id?: unknown; updatedAt?: unknown };
+  if (typeof p.id !== 'string' || typeof p.updatedAt !== 'string') {
+    throw new Error('Invalid push payload: missing or invalid "id" or "updatedAt".');
+  }
+}
+
+async function processWithConcurrency<T>(
+  items: readonly T[],
+  worker: (item: T) => Promise<void>,
+  concurrency = 5,
+): Promise<void> {
+  if (items.length === 0) return;
+  const limit = Math.max(1, concurrency);
+  let index = 0;
+  const runners: Promise<void>[] = [];
+  for (let i = 0; i < Math.min(limit, items.length); i++) {
+    runners.push(
+      (async () => {
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+          const currentIndex = index;
+          if (currentIndex >= items.length) break;
+          index = currentIndex + 1;
+          // eslint-disable-next-line no-await-in-loop
+          await worker(items[currentIndex]!);
+        }
+      })(),
+    );
+  }
+  await Promise.all(runners);
+}
+
 async function applyYamlOperationsForKind(
   kind: 'screens' | 'widgets' | 'scripts' | 'translations' | 'theme',
   appId: string,
@@ -123,7 +159,7 @@ async function applyYamlOperationsForKind(
   const { collection } = artifactCollectionAndType(kind);
   const baseCollectionUrl = `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents/apps/${appId}/${collection}`;
 
-  for (const op of ops) {
+  await processWithConcurrency(ops, async (op) => {
     if (op.operation === 'create') {
       const doc = op.document;
       const fields = encodeYamlDocumentFields(kind, doc);
@@ -173,7 +209,7 @@ async function applyYamlOperationsForKind(
       // 2) Patch main document with partial updates
       const { fields: updateFields, fieldPaths } = encodeUpdateFields(kind, op.updates);
       if (fieldPaths.length === 0) {
-        continue;
+        return;
       }
       const params = fieldPaths
         .map((p) => `updateMask.fieldPaths=${encodeURIComponent(p)}`)
@@ -197,7 +233,7 @@ async function applyYamlOperationsForKind(
         );
       }
     }
-  }
+  });
 }
 
 /**
@@ -210,6 +246,7 @@ export async function submitCliPush(
   payload: unknown,
 ): Promise<void> {
   const project = process.env.ENSEMBLE_FIREBASE_PROJECT ?? DEFAULT_FIREBASE_PROJECT;
+  assertValidPushPayload(payload);
   const p = payload as PushPayloadShape;
 
   await applyYamlOperationsForKind('screens', appId, idToken, project, p.screens);

@@ -63,6 +63,7 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
   const session = await getValidAuthSession();
   if (!session.ok) {
     console.error(session.message);
+    process.exitCode = 1;
     return;
   }
   const { idToken, userId } = session;
@@ -72,6 +73,7 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
   );
   if (!access.ok) {
     console.error(access.message);
+    process.exitCode = 1;
     return;
   }
 
@@ -173,6 +175,7 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
 
       if (!confirmed) {
         console.log('Push cancelled.');
+        process.exitCode = 130;
         return;
       }
 

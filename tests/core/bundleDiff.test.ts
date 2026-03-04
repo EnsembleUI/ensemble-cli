@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { computeBundleDiff, buildPushPayload } from '../../src/core/bundleDiff.js';
-import type { ApplicationDTO } from '../../src/core/dto.js';
+import type { ApplicationDTO, ScreenDTO } from '../../src/core/dto.js';
 import { EnsembleDocumentType } from '../../src/core/dto.js';
 
 function screen(id: string, name: string, content: string, isArchived?: boolean) {
@@ -242,7 +242,9 @@ describe('buildPushPayload', () => {
     const createItem = payload.screens!.find((s) => s.operation === 'create');
     expect(createItem).toBeDefined();
     if (createItem && createItem.operation === 'create') {
-      const doc = createItem.document as any;
+      const doc = createItem.document as ScreenDTO & {
+        createdBy?: { name: string; email?: string; id: string };
+      };
       expect(doc.createdAt).toBeDefined();
       expect(doc.updatedAt).toBeDefined();
       expect(doc.updatedBy).toEqual(updatedBy);

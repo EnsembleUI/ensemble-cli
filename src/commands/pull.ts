@@ -152,6 +152,7 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
   if (!session.ok) {
     // eslint-disable-next-line no-console
     console.error(session.message);
+    process.exitCode = 1;
     return;
   }
   const { idToken, userId } = session;
@@ -162,6 +163,7 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
   if (!access.ok) {
     // eslint-disable-next-line no-console
     console.error(access.message);
+    process.exitCode = 1;
     return;
   }
 
@@ -218,20 +220,17 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
 
   // Manifest no-op check: compare current manifest JSON to what pull would write.
   const manifestPath = path.join(projectRoot, '.manifest.json');
-  let manifestRaw = '';
   let manifestExisting: RootManifest = {};
   try {
-    manifestRaw = await fs.readFile(manifestPath, 'utf8');
-    manifestExisting = JSON.parse(manifestRaw) as RootManifest;
+    const raw = await fs.readFile(manifestPath, 'utf8');
+    manifestExisting = JSON.parse(raw) as RootManifest;
   } catch {
-    manifestRaw = '';
     manifestExisting = {};
   }
   const manifestExpectedObj = buildManifestObject(manifestExisting, cloudApp);
   const manifestExpectedRaw = JSON.stringify(manifestExpectedObj, null, 2) + '\n';
-  const manifestMatch =
-    (manifestRaw === '' && manifestExpectedRaw === JSON.stringify({}, null, 2) + '\n') ||
-    manifestRaw === manifestExpectedRaw;
+  const manifestExistingRaw = JSON.stringify(manifestExisting, null, 2) + '\n';
+  const manifestMatch = manifestExistingRaw === manifestExpectedRaw;
 
   const allArtifactsMatch = ArtifactProps.every(
     (prop) => matchesByProp[prop] ?? true,
@@ -342,6 +341,7 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
   if (!confirmed) {
     // eslint-disable-next-line no-console
     console.log('Pull cancelled.');
+    process.exitCode = 130;
     return;
   }
 

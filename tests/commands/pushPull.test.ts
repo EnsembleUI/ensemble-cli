@@ -128,7 +128,7 @@ describe('push/pull integration (commands)', () => {
       submitCliPush: ReturnType<typeof vi.fn>;
     };
     expect(submitCliPush).toHaveBeenCalledTimes(1);
-    const [appId, _idToken, payload] = submitCliPush.mock.calls[0] as [
+    const [appId, , payload] = submitCliPush.mock.calls[0] as [
       string,
       string,
       unknown,
