@@ -9,22 +9,16 @@ import {
   FirestoreClientError,
   type FirestoreClientOptions,
 } from '../cloud/firestoreClient.js';
-import {
-  buildDocumentsFromParsed,
-  buildMergedBundle,
-} from '../core/buildDocuments.js';
-import {
-  computeBundleDiff,
-  buildPushPayload,
-  formatDiffSummary,
-  type BundleDiff,
-} from '../core/bundleDiff.js';
+import { buildDocumentsFromParsed } from '../core/buildDocuments.js';
+import { buildPushPayload, formatDiffSummary, type BundleDiff } from '../core/bundleDiff.js';
 import { collectAppFiles } from '../core/appCollector.js';
 import { ArtifactProps, type ArtifactProp } from '../core/dto.js';
 import { resolveVerboseFlag } from '../core/cliError.js';
 import { resolveAppContext } from '../config/projectConfig.js';
 import { getValidAuthSession } from '../auth/session.js';
 import { withSpinner } from '../lib/spinner.js';
+import { writeVerboseJson } from '../core/debugFiles.js';
+import { computePushPlan, type PushSummary, type PushCounts } from '../core/sync.js';
 
 export interface PushOptions {
   verbose?: boolean;
@@ -35,97 +29,7 @@ export interface PushOptions {
   dryRun?: boolean;
 }
 
-interface PushCounts {
-  created: number;
-  updated: number;
-  deleted: number;
-}
-
-interface PushSummary {
-  appId: string;
-  appName: string;
-  environment: string;
-  counts: PushCounts;
-  byKind: {
-    screens: PushCounts;
-    widgets: PushCounts;
-    scripts: PushCounts;
-    translations: PushCounts;
-    theme: PushCounts;
-  };
-}
-
 const DESTRUCTIVE_CHANGE_PROMPT_THRESHOLD = 25;
-
-function computeKindCounts(items: BundleDiff['screens']): PushCounts {
-  let created = 0;
-  let updated = 0;
-  let deleted = 0;
-
-  created += items.new.length;
-  for (const item of items.changed) {
-    if (item.isArchived) {
-      deleted += 1;
-    } else {
-      updated += 1;
-    }
-  }
-
-  return { created, updated, deleted };
-}
-
-function computePushSummary(
-  appId: string,
-  appName: string,
-  environment: string,
-  diff: BundleDiff,
-): PushSummary {
-  const screens = computeKindCounts(diff.screens);
-  const widgets = computeKindCounts(diff.widgets);
-  const scripts = computeKindCounts(diff.scripts);
-  const translations = computeKindCounts(diff.translations);
-
-  // Theme currently only supports modified (no explicit create/delete in diff),
-  // so treat a changed theme as an update.
-  const theme: PushCounts = diff.themeChanged
-    ? { created: 0, updated: 1, deleted: 0 }
-    : { created: 0, updated: 0, deleted: 0 };
-
-  const counts: PushCounts = {
-    created:
-      screens.created +
-      widgets.created +
-      scripts.created +
-      translations.created +
-      theme.created,
-    updated:
-      screens.updated +
-      widgets.updated +
-      scripts.updated +
-      translations.updated +
-      theme.updated,
-    deleted:
-      screens.deleted +
-      widgets.deleted +
-      scripts.deleted +
-      translations.deleted +
-      theme.deleted,
-  };
-
-  return {
-    appId,
-    appName,
-    environment,
-    counts,
-    byKind: {
-      screens,
-      widgets,
-      scripts,
-      translations,
-      theme,
-    },
-  };
-}
 
 function printPushSummary(summary: PushSummary, options: { verbose?: boolean; isNoop?: boolean }) {
   const { appName, environment, counts } = summary;
@@ -210,25 +114,6 @@ function printPushDryRun(diff: BundleDiff): void {
   console.log(
     '\nRun `ensemble push` without `--dry-run` to apply these changes.',
   );
-}
-
-async function writeVerbose(
-  root: string,
-  filename: string,
-  data: unknown,
-  verbose: boolean,
-): Promise<void> {
-  if (!verbose) return;
-  const filePath = path.join(root, filename);
-  const replacer = (key: string, value: unknown) => {
-    if (key === 'content' && typeof value === 'string') {
-      const limit = 2000;
-      return value.length > limit ? `${value.slice(0, limit)}\n/* ... truncated ... */` : value;
-    }
-    return value;
-  };
-  await fs.writeFile(filePath, JSON.stringify(data, replacer, 2), 'utf8');
-  console.log(`Wrote ${filePath}`);
 }
 
 async function readDefaultLanguage(root: string): Promise<string | undefined> {
@@ -334,7 +219,9 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
     appConfig.appHome as string | undefined,
     defaultLanguage,
   );
-  await writeVerbose(root, 'ensemble-local-app.json', localApp, verbose);
+  await writeVerboseJson(root, 'ensemble-local-app.json', localApp, {
+    verbose,
+  });
 
   let cloudApp: Awaited<ReturnType<typeof fetchCloudApp>> | null = null;
   try {
@@ -361,9 +248,11 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
     process.exitCode = 1;
     return;
   }
-  let bundle: Awaited<ReturnType<typeof buildMergedBundle>> | null = null;
+  let bundle: typeof localApp | null = null;
   if (cloudApp) {
-    await writeVerbose(root, 'ensemble-cloud-app.json', cloudApp, verbose);
+    await writeVerboseJson(root, 'ensemble-cloud-app.json', cloudApp, {
+      verbose,
+    });
   }
 
   if (cloudApp) {
@@ -372,32 +261,24 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
       email: session.email,
       id: session.userId,
     };
-    bundle = buildMergedBundle(localApp, cloudApp, updatedBy);
-    await writeVerbose(root, 'ensemble-bundle.json', bundle, verbose);
-    let diff: BundleDiff | null = computeBundleDiff(bundle, cloudApp);
-    await writeVerbose(root, 'ensemble-diff.json', diff, verbose);
+    const plan = computePushPlan({
+      appId,
+      appName,
+      environment: appKey,
+      localApp,
+      cloudApp,
+      enabledByProp,
+      updatedBy,
+    });
+    bundle = plan.bundle;
+    await writeVerboseJson(root, 'ensemble-bundle.json', bundle, {
+      verbose,
+    });
+    await writeVerboseJson(root, 'ensemble-diff.json', plan.diff, {
+      verbose,
+    });
 
-    // Respect per-artifact app options: ignore changes for disabled kinds, driven by ArtifactProps.
-    for (const prop of ArtifactProps) {
-      if (enabledByProp[prop]) continue;
-      if (prop === 'theme') {
-        diff = { ...diff, themeChanged: false };
-        continue;
-      }
-      // For array-backed artifact props, clear out changed/new lists.
-      const key = prop as Exclude<ArtifactProp, 'theme'>;
-      const current = diff[key] ?? { changed: [], new: [] };
-      diff = {
-        ...diff,
-        [key]: {
-          ...current,
-          changed: [],
-          new: [],
-        },
-      } as BundleDiff;
-    }
-
-    const summary = computePushSummary(appId, appName, appKey, diff);
+    const summary = plan.summary;
     const changedCount =
       summary.counts.created + summary.counts.updated + summary.counts.deleted;
 
@@ -407,12 +288,12 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
     }
 
     if (options.dryRun) {
-      printPushDryRun(diff);
+      printPushDryRun(plan.diff);
       return;
     }
 
     console.log('Changes to be pushed:');
-    for (const line of formatDiffSummary(diff)) {
+    for (const line of formatDiffSummary(plan.diff)) {
       console.log(line);
     }
 
@@ -458,8 +339,10 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
       return;
     }
 
-    const pushPayload = buildPushPayload(bundle!, diff, cloudApp, updatedBy);
-    await writeVerbose(root, 'ensemble-push-payload.json', pushPayload, verbose);
+    const pushPayload = buildPushPayload(bundle!, plan.diff, cloudApp, updatedBy);
+    await writeVerboseJson(root, 'ensemble-push-payload.json', pushPayload, {
+      verbose,
+    });
 
     try {
       await withSpinner('Pushing changes to cloud...', () =>

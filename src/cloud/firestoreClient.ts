@@ -12,6 +12,7 @@ import type {
   TranslationDTO,
 } from '../core/dto.js';
 import { EnsembleDocumentType } from '../core/dto.js';
+import { processWithConcurrency } from '../core/concurrency.js';
 
 const DEFAULT_FIREBASE_PROJECT = 'ensemble-web-studio';
 const DEFAULT_FIRESTORE_CONCURRENCY = 15;
@@ -267,32 +268,6 @@ function assertValidPushPayload(payload: unknown): asserts payload is PushPayloa
   if (typeof p.id !== 'string' || typeof p.updatedAt !== 'string') {
     throw new Error('Invalid push payload: missing or invalid "id" or "updatedAt".');
   }
-}
-
-async function processWithConcurrency<T>(
-  items: readonly T[],
-  worker: (item: T) => Promise<void>,
-  concurrency = 5,
-): Promise<void> {
-  if (items.length === 0) return;
-  const limit = Math.max(1, concurrency);
-  let index = 0;
-  const runners: Promise<void>[] = [];
-  for (let i = 0; i < Math.min(limit, items.length); i++) {
-    runners.push(
-      (async () => {
-        // eslint-disable-next-line no-constant-condition
-        while (true) {
-          const currentIndex = index;
-          if (currentIndex >= items.length) break;
-          index = currentIndex + 1;
-          // eslint-disable-next-line no-await-in-loop
-          await worker(items[currentIndex]!);
-        }
-      })(),
-    );
-  }
-  await Promise.all(runners);
 }
 
 function getFirestoreConcurrency(): number {

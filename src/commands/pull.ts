@@ -13,6 +13,11 @@ import { resolveVerboseFlag } from '../core/cliError.js';
 import { resolveAppContext } from '../config/projectConfig.js';
 import { getValidAuthSession } from '../auth/session.js';
 import { withSpinner } from '../lib/spinner.js';
+import { processWithConcurrency } from '../core/concurrency.js';
+import { safeFileName } from '../core/fileNames.js';
+import { type RootManifest, buildAndWriteManifest } from '../core/manifest.js';
+import { writeVerboseJson } from '../core/debugFiles.js';
+import { ARTIFACT_FS_CONFIG, computePullPlan, type PullSummary } from '../core/sync.js';
 
 export interface PullOptions {
   verbose?: boolean;
@@ -23,124 +28,15 @@ export interface PullOptions {
   dryRun?: boolean;
 }
 
-async function writeVerbose(
-  root: string,
-  filename: string,
-  data: unknown,
-  verbose: boolean,
-): Promise<void> {
-  if (!verbose) return;
-  const filePath = path.join(root, filename);
-  const replacer = (key: string, value: unknown) => {
-    if (key === 'content' && typeof value === 'string') {
-      const limit = 2000;
-      return value.length > limit ? `${value.slice(0, limit)}\n/* ... truncated ... */` : value;
-    }
-    return value;
-  };
-  await fs.writeFile(filePath, JSON.stringify(data, replacer, 2), 'utf8');
-  // eslint-disable-next-line no-console
-  console.log(`Wrote ${filePath}`);
-}
-
 async function ensureDir(dir: string): Promise<void> {
   await fs.mkdir(dir, { recursive: true });
 }
-
-async function processWithConcurrency<T>(
-  items: readonly T[],
-  worker: (item: T) => Promise<void>,
-  concurrency = 16,
-): Promise<void> {
-  if (items.length === 0) return;
-  const limit = Math.max(1, Math.min(concurrency, items.length));
-  let index = 0;
-  const runners: Promise<void>[] = [];
-
-  for (let i = 0; i < limit; i += 1) {
-    runners.push(
-      (async () => {
-        // eslint-disable-next-line no-constant-condition
-        while (true) {
-          const currentIndex = index;
-          if (currentIndex >= items.length) break;
-          index = currentIndex + 1;
-          // eslint-disable-next-line no-await-in-loop
-          await worker(items[currentIndex]!);
-        }
-      })(),
-    );
-  }
-
-  await Promise.all(runners);
-}
-
-function safeFileName(name: string, ext: string): string {
-  // Keep user-provided names as-is as much as possible, but guard against path separators.
-  const base = name.replace(/[\\/]/g, '_');
-  return `${base}${ext}`;
-}
-
-function mapsEqual(
-  expected: Record<string, string>,
-  actual: Record<string, string>,
-): boolean {
-  const expectedKeys = Object.keys(expected).sort();
-  const actualKeys = Object.keys(actual).sort();
-  if (expectedKeys.length !== actualKeys.length) return false;
-  for (let i = 0; i < expectedKeys.length; i++) {
-    if (expectedKeys[i] !== actualKeys[i]) return false;
-    const k = expectedKeys[i]!;
-    if (expected[k] !== actual[k]) return false;
-  }
-  return true;
-}
-
-type RootManifest = Record<string, unknown> & {
-  scripts?: { name: string }[];
-  widgets?: { name: string }[];
-  homeScreenName?: string;
-  defaultLanguage?: string;
-  languages?: string[];
-};
 
 const PULL_LABELS = {
   new: '✨ new',
   modified: '✏️  modified',
   removed: '🗑️  removed',
 } as const;
-
-type PullOperation = 'create' | 'update' | 'delete';
-
-interface PullChange {
-  readonly kind: string;
-  readonly file: string;
-  readonly operation: PullOperation;
-}
-
-interface PullSummary {
-  readonly appName: string;
-  readonly environment: string;
-  readonly created: number;
-  readonly updated: number;
-  readonly deleted: number;
-  readonly skipped: number;
-  readonly changes: readonly PullChange[];
-}
-
-interface ArtifactFsConfig {
-  readonly prop: ArtifactProp;
-  readonly ext?: string;
-  readonly isTheme?: boolean;
-}
-
-const ARTIFACT_FS_CONFIG: ArtifactFsConfig[] = [
-  { prop: 'screens', ext: '.yaml' },
-  { prop: 'widgets', ext: '.yaml' },
-  { prop: 'scripts', ext: '.js' },
-  { prop: 'translations', ext: '.yaml' },
-  { prop: 'theme', isTheme: true },
-];
 
 function printPullDryRun(summary: PullSummary): void {
   const { appName, environment, changes } = summary;
@@ -199,60 +95,6 @@ function printPullSummary(summary: PullSummary): void {
   console.log(
     'Next steps: Review the updated files in your editor or version control, then run your tests.',
   );
-}
-
-function buildManifestObject(
-  existing: RootManifest,
-  cloudApp: Awaited<ReturnType<typeof fetchCloudApp>>,
-): RootManifest {
-  const widgets = (cloudApp.widgets ?? [])
-    .filter((w) => w.isArchived !== true)
-    .map((w) => ({ name: w.name }));
-
-  const scripts = (cloudApp.scripts ?? [])
-    .filter((s) => s.isArchived !== true)
-    .map((s) => ({ name: s.name }));
-
-  const screens = (cloudApp.screens ?? []).filter((s) => s.isArchived !== true);
-  const homeScreenName =
-    screens.find((s) => s.isRoot === true)?.name ??
-    (typeof existing.homeScreenName === 'string' ? existing.homeScreenName : undefined) ??
-    screens[0]?.name;
-
-  const translations = (cloudApp.translations ?? []).filter((t) => t.isArchived !== true);
-  const languages = translations.map((t) => t.name);
-  const defaultLanguage =
-    translations.find((t) => t.defaultLocale === true)?.name ??
-    (typeof existing.defaultLanguage === 'string' ? existing.defaultLanguage : undefined) ??
-    languages[0];
-
-  const merged: RootManifest = {
-    ...existing,
-    widgets,
-    scripts,
-    ...(homeScreenName ? { homeScreenName } : {}),
-    ...(languages.length > 0 ? { languages } : {}),
-    ...(defaultLanguage ? { defaultLanguage } : {}),
-  };
-
-  return merged;
-}
-
-async function buildAndWriteManifest(
-  projectRoot: string,
-  cloudApp: Awaited<ReturnType<typeof fetchCloudApp>>,
-): Promise<void> {
-  const manifestPath = path.join(projectRoot, '.manifest.json');
-  let existing: RootManifest = {};
-  try {
-    const raw = await fs.readFile(manifestPath, 'utf8');
-    existing = JSON.parse(raw) as RootManifest;
-  } catch {
-    existing = {};
-  }
-
-  const merged = buildManifestObject(existing, cloudApp);
-  await fs.writeFile(manifestPath, JSON.stringify(merged, null, 2) + '\n', 'utf8');
 }
 
 export async function pullCommand(options: PullOptions = {}): Promise<void> {
@@ -328,50 +170,11 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
   const cloudApp = await withSpinner('Fetching cloud app...', () =>
     fetchCloudApp(appId, idToken, firestoreOptions),
   );
-  await writeVerbose(projectRoot, 'ensemble-cloud-app.json', cloudApp, verbose);
+  await writeVerboseJson(projectRoot, 'ensemble-cloud-app.json', cloudApp, {
+    verbose,
+  });
 
-  // Fast-path: detect if pull would be a no-op, respecting app options.
   const localFiles = await collectAppFiles(projectRoot);
-
-  const matchesByProp: Partial<Record<ArtifactProp, boolean>> = {};
-
-  for (const cfg of ARTIFACT_FS_CONFIG) {
-    const { prop, isTheme, ext } = cfg;
-    if (!enabledByProp[prop]) {
-      matchesByProp[prop] = true;
-      continue;
-    }
-
-    if (isTheme) {
-      const expectedThemeContent =
-        cloudApp.theme && cloudApp.theme.isArchived !== true
-          ? cloudApp.theme.content ?? ''
-          : undefined;
-      let themeMatch = true;
-      if (expectedThemeContent === undefined) {
-        themeMatch = localFiles.theme === undefined;
-      } else {
-        themeMatch = localFiles.theme === expectedThemeContent;
-      }
-      matchesByProp[prop] = themeMatch;
-      continue;
-    }
-
-    const expected: Record<string, string> = {};
-    const cloudItems = (cloudApp as Record<string, unknown>)[prop] as
-      | { name: string; content?: string; isArchived?: boolean }[]
-      | undefined;
-    for (const item of cloudItems ?? []) {
-      if (item.isArchived === true) continue;
-      expected[safeFileName(item.name, ext!)] = item.content ?? '';
-    }
-    const actual = (localFiles as unknown as Record<string, unknown>)[
-      prop
-    ] as Record<string, string> | undefined;
-    matchesByProp[prop] = mapsEqual(expected, actual ?? {});
-  }
-
-  // Manifest no-op check: compare current manifest JSON to what pull would write.
   const manifestPath = path.join(projectRoot, '.manifest.json');
   let manifestExisting: RootManifest = {};
   try {
@@ -380,175 +183,45 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
   } catch {
     manifestExisting = {};
   }
-  const manifestExpectedObj = buildManifestObject(manifestExisting, cloudApp);
-  const manifestExpectedRaw = JSON.stringify(manifestExpectedObj, null, 2) + '\n';
-  const manifestExistingRaw = JSON.stringify(manifestExisting, null, 2) + '\n';
-  const manifestMatch = manifestExistingRaw === manifestExpectedRaw;
 
-  const allArtifactsMatch = ArtifactProps.every(
-    (prop) => matchesByProp[prop] ?? true,
-  );
+  const plan = computePullPlan({
+    appName,
+    environment,
+    cloudApp,
+    localFiles,
+    manifestExisting,
+    enabledByProp,
+  });
 
-  if (allArtifactsMatch && manifestMatch) {
+  if (plan.allArtifactsMatch && plan.manifestMatch) {
     console.log('Up to date. Nothing to pull.');
     return;
   }
 
-  // Build a human-readable summary of what will change.
-  const changes: PullChange[] = [];
-  let createdCount = 0;
-  let updatedCount = 0;
-  let deletedCount = 0;
+  const pullSummary: PullSummary = plan.summary;
 
-  const summaryLines: string[] = [];
-  const typeLabelByProp: Record<Exclude<ArtifactProp, 'theme'>, string> = {
-    screens: 'screen',
-    widgets: 'widget',
-    scripts: 'script',
-    translations: 'translation',
-  };
-
-  for (const cfg of ARTIFACT_FS_CONFIG) {
-    const { prop, isTheme, ext } = cfg;
-    if (!enabledByProp[prop]) continue;
-
-    if (isTheme) {
-      const expectedThemeContent =
-        cloudApp.theme && cloudApp.theme.isArchived !== true
-          ? cloudApp.theme.content ?? ''
-          : undefined;
-      const actualTheme = localFiles.theme;
-      if (expectedThemeContent === actualTheme) continue;
-      if (expectedThemeContent && !actualTheme) {
-        createdCount += 1;
-        changes.push({
-          kind: 'theme',
-          file: 'theme.yaml',
-          operation: 'create',
-        });
-        summaryLines.push(
-          `        ${PULL_LABELS.new}  theme - theme.yaml`,
-        );
-      } else if (!expectedThemeContent && actualTheme) {
-        deletedCount += 1;
-        changes.push({
-          kind: 'theme',
-          file: 'theme.yaml',
-          operation: 'delete',
-        });
-        summaryLines.push(
-          `        ${PULL_LABELS.removed}  theme - theme.yaml`,
-        );
-      } else {
-        updatedCount += 1;
-        changes.push({
-          kind: 'theme',
-          file: 'theme.yaml',
-          operation: 'update',
-        });
-        summaryLines.push(
-          `        ${PULL_LABELS.modified}  theme - theme.yaml`,
-        );
-      }
-      continue;
-    }
-
-    const kind = typeLabelByProp[prop as Exclude<ArtifactProp, 'theme'>];
-    const expected: Record<string, string> = {};
-    const cloudItems = (cloudApp as Record<string, unknown>)[prop] as
-      | { name: string; content?: string; isArchived?: boolean }[]
-      | undefined;
-    for (const item of cloudItems ?? []) {
-      if (item.isArchived === true) continue;
-      expected[safeFileName(item.name, ext!)] = item.content ?? '';
-    }
-    const actual = (localFiles as unknown as Record<string, unknown>)[
-      prop
-    ] as Record<string, string> | undefined;
-    const actualMap = actual ?? {};
-
-    const expectedKeys = new Set(Object.keys(expected));
-    const actualKeys = new Set(Object.keys(actualMap));
-
-    for (const file of expectedKeys) {
-      if (!actualKeys.has(file)) {
-        createdCount += 1;
-        changes.push({
-          kind,
-          file: path.join(prop, file),
-          operation: 'create',
-        });
-        summaryLines.push(
-          `        ${PULL_LABELS.new}  ${kind} - ${file}`,
-        );
-      }
-    }
-    for (const file of actualKeys) {
-      if (!expectedKeys.has(file)) {
-        deletedCount += 1;
-        changes.push({
-          kind,
-          file: path.join(prop, file),
-          operation: 'delete',
-        });
-        summaryLines.push(
-          `        ${PULL_LABELS.removed}  ${kind} - ${file}`,
-        );
-      }
-    }
-    for (const file of expectedKeys) {
-      if (!actualKeys.has(file)) continue;
-      if (expected[file] !== actualMap[file]) {
-        updatedCount += 1;
-        changes.push({
-          kind,
-          file: path.join(prop, file),
-          operation: 'update',
-        });
-        summaryLines.push(
-          `        ${PULL_LABELS.modified}  ${kind} - ${file}`,
-        );
-      }
-    }
-  }
-
-  if (!manifestMatch) {
-    updatedCount += 1;
-    changes.push({
-      kind: 'manifest',
-      file: '.manifest.json',
-      operation: 'update',
-    });
-    summaryLines.push(
-      `        ${PULL_LABELS.modified}  manifest - .manifest.json`,
-    );
-  }
-
-  if (summaryLines.length > 0 && !options.dryRun) {
+  if (pullSummary.changes.length > 0 && !options.dryRun) {
     // eslint-disable-next-line no-console
     console.log('Changes to be pulled:');
-    for (const line of summaryLines) {
+    for (const change of pullSummary.changes) {
+      const baseLabel =
+        change.operation === 'create'
+          ? PULL_LABELS.new
+          : change.operation === 'update'
+            ? PULL_LABELS.modified
+            : PULL_LABELS.removed;
+      const line = `        ${baseLabel}  ${change.kind} - ${path.basename(change.file)}`;
       // eslint-disable-next-line no-console
       console.log(line);
     }
   }
-
-  const pullSummary: PullSummary = {
-    appName,
-    environment,
-    created: createdCount,
-    updated: updatedCount,
-    deleted: deletedCount,
-    skipped: 0,
-    changes,
-  };
 
   if (options.dryRun) {
     printPullDryRun(pullSummary);
     return;
   }
 
-  if (updatedCount > 0 || deletedCount > 0) {
+  if (pullSummary.updated > 0 || pullSummary.deleted > 0) {
     // eslint-disable-next-line no-console
     console.log(
       'If you are unsure, cancel this pull and re-run with `--dry-run` to inspect the plan, or back up your local changes first.',
