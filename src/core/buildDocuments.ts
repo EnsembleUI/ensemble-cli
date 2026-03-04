@@ -1,3 +1,5 @@
+import crypto from 'crypto';
+
 import type { ParsedAppFiles } from './appCollector.js';
 import type { CloudApp } from '../cloud/firestoreClient.js';
 import {
@@ -164,8 +166,21 @@ function mergeArtifacts<
   }
   for (const local of localItems ?? []) {
     if (!cloudByName.has(local.name)) {
+      const localWithType = local as { type?: EnsembleDocumentType };
+      let id = local.id;
+      if (
+        localWithType.type === EnsembleDocumentType.Screen ||
+        localWithType.type === EnsembleDocumentType.Widget ||
+        localWithType.type === EnsembleDocumentType.Script
+      ) {
+        id = crypto.randomUUID();
+      }
+      // For translations and theme we keep the existing id:
+      // - translations: i18n_{name}
+      // - theme: "theme"
       merged.push({
         ...local,
+        id,
         isArchived: false,
         createdAt: now,
         updatedAt: now,

@@ -25,7 +25,8 @@ type FirestoreValue =
   | { stringValue: string }
   | { booleanValue: boolean }
   | { timestampValue: string }
-  | { mapValue: { fields: Record<string, FirestoreValue> } };
+  | { mapValue: { fields: Record<string, FirestoreValue> } }
+  | { referenceValue: string };
 
 type FirestoreWriteFields = Record<string, FirestoreValue>;
 
@@ -68,6 +69,7 @@ type YamlArtifactPushOperation =
         createdAt?: string;
         updatedAt?: string;
         updatedBy?: { name: string; email?: string; id: string };
+        createdBy?: { name: string; email?: string; id: string };
         description?: string;
       };
     }
@@ -233,15 +235,8 @@ function parseFirestoreBoolean(field: { booleanValue?: boolean } | undefined): b
 }
 
 function parseUpdatedBy(
-  field: { mapValue?: { fields?: Record<string, { stringValue?: string }> }; referenceValue?: string } | undefined
+  field: { referenceValue?: string } | undefined,
 ): { name: string; email?: string; id: string } | undefined {
-  const mapFields = field?.mapValue?.fields;
-  if (mapFields) {
-    const name = parseFirestoreString(mapFields.name);
-    const email = parseFirestoreString(mapFields.email);
-    const id = parseFirestoreString(mapFields.id);
-    if (name && id) return { name, email, id };
-  }
   const ref = field?.referenceValue;
   if (typeof ref === 'string') {
     const id = ref.split('/').pop();
@@ -256,14 +251,10 @@ function encodeUpdatedBy(
     | undefined,
 ): FirestoreValue | undefined {
   if (!updatedBy) return undefined;
-  const fields: Record<string, FirestoreValue> = {
-    name: { stringValue: updatedBy.name },
-    id: { stringValue: updatedBy.id },
+  const project = process.env.ENSEMBLE_FIREBASE_PROJECT ?? DEFAULT_FIREBASE_PROJECT;
+  return {
+    referenceValue: `projects/${project}/databases/(default)/documents/users/${updatedBy.id}`,
   };
-  if (updatedBy.email) {
-    fields.email = { stringValue: updatedBy.email };
-  }
-  return { mapValue: { fields } };
 }
 
 function getDocId(docName: string): string {
@@ -321,6 +312,12 @@ function encodeYamlDocumentFields(
   const updatedByVal = encodeUpdatedBy(doc.updatedBy);
   if (updatedByVal) {
     fields.updatedBy = updatedByVal;
+  }
+   const createdByVal = encodeUpdatedBy(
+    (doc as { createdBy?: { name: string; email?: string; id: string } }).createdBy,
+  );
+  if (createdByVal) {
+    fields.createdBy = createdByVal;
   }
   return fields;
 }
@@ -411,6 +408,7 @@ function firestoreDocToEnsembleBase(doc: FirestoreDocument): {
   isArchived?: boolean;
   createdAt?: string;
   updatedAt?: string;
+  createdBy?: { name: string; email?: string; id: string };
   updatedBy?: { name: string; email?: string; id: string };
 } {
   const fields = (doc.fields ?? {}) as FirestoreFields;
@@ -431,9 +429,19 @@ function firestoreDocToEnsembleBase(doc: FirestoreDocument): {
   const isDraft = parseFirestoreBoolean(fields.isDraft as { booleanValue?: boolean });
   if (isDraft !== undefined) base.isDraft = isDraft;
   const updatedBy = parseUpdatedBy(
-    fields.updatedBy as { mapValue?: { fields?: Record<string, { stringValue?: string }> }; referenceValue?: string }
+    fields.updatedBy as {
+      mapValue?: { fields?: Record<string, { stringValue?: string }> };
+      referenceValue?: string;
+    },
   );
   if (updatedBy) base.updatedBy = updatedBy;
+  const createdBy = parseUpdatedBy(
+    fields.createdBy as {
+      mapValue?: { fields?: Record<string, { stringValue?: string }> };
+      referenceValue?: string;
+    },
+  );
+  if (createdBy) base.createdBy = createdBy;
   return base;
 }
 
@@ -668,7 +676,11 @@ export async function fetchCloudApp(
     const type = parseFirestoreString((doc.fields?.type as { stringValue?: string }) ?? undefined);
     if (type === 'screen') screens.push(toScreenDTO(doc));
     else if (type === 'i18n') i18nDocs.push(doc);
-    else if (docId === 'theme') theme = toThemeDTO(doc);
+    else if (type === 'theme') {
+      if (!theme || docId === 'theme') {
+        theme = toThemeDTO(doc);
+      }
+    }
   }
   const defaultLocaleField = (doc: FirestoreDocument) =>
     parseFirestoreBoolean((doc.fields?.defaultLocale as { booleanValue?: boolean }) ?? undefined);

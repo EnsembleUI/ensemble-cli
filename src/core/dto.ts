@@ -25,6 +25,11 @@ export interface EnsembleDocument {
   readonly isArchived?: boolean;
   readonly createdAt?: string;
   readonly updatedAt?: string;
+  readonly createdBy?: {
+    name: string;
+    email?: string;
+    id: string;
+  };
   readonly updatedBy?: {
     name: string;
     email?: string;

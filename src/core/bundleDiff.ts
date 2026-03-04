@@ -232,15 +232,21 @@ function buildYamlPushItems(
 ): YamlArtifactPushItem[] {
   const items: YamlArtifactPushItem[] = [];
   for (const doc of diff.new) {
+    const baseDoc = doc as ArtifactWithContent & { createdAt?: string };
     items.push({
       operation: 'create',
       document: {
-        ...doc,
-        isRoot: (doc as { isRoot?: boolean }).isRoot ?? false,
-        isArchived: doc.isArchived ?? false,
+        ...(baseDoc as unknown as YamlDocument),
+        isRoot: (baseDoc as { isRoot?: boolean }).isRoot ?? false,
+        isArchived: baseDoc.isArchived ?? false,
+        createdAt: baseDoc.createdAt ?? now,
         updatedAt: now,
         updatedBy,
-      } as YamlDocument,
+        // createdBy is not part of YamlDocument DTO, but Firestore encoder
+        // will look for it via a cast, so we attach it here.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ...( { createdBy: updatedBy } as any ),
+      },
     });
   }
   for (const bundle of diff.changed) {
