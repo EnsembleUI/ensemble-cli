@@ -6,6 +6,7 @@ import { logoutCommand } from './commands/logout.js';
 import { initCommand } from './commands/init.js';
 import { pushCommand } from './commands/push.js';
 import { addCommand } from './commands/add.js';
+import { pullCommand } from './commands/pull.js';
 
 const program = new Command();
 
@@ -44,6 +45,16 @@ program
   .option('-y, --yes', 'Skip confirmation prompt')
   .action(async (options: { verbose?: boolean; app?: string; yes?: boolean }) => {
     await pushCommand({ verbose: options.verbose, appKey: options.app, yes: options.yes });
+  });
+
+program
+  .command('pull')
+  .description('Pull app artifacts from the cloud and overwrite local files.')
+  .option('--app <alias>', 'App alias to use (defaults to "default")')
+  .option('--verbose', 'Write fetched cloud JSON to disk', false)
+  .option('-y, --yes', 'Skip confirmation prompt')
+  .action(async (options: { verbose?: boolean; app?: string; yes?: boolean }) => {
+    await pullCommand({ verbose: options.verbose, appKey: options.app, yes: options.yes });
   });
 
 program
