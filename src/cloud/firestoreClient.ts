@@ -88,6 +88,7 @@ type YamlArtifactPushOperation =
         name?: string;
         isRoot?: boolean;
         isArchived?: boolean;
+        defaultLocale?: boolean;
         updatedAt?: string;
         updatedBy?: { name: string; email?: string; id: string };
       };
@@ -368,6 +369,10 @@ function encodeUpdateFields(
   if (typeof updates.isArchived === 'boolean') {
     fields.isArchived = { booleanValue: updates.isArchived };
     fieldPaths.push('isArchived');
+  }
+  if (typeof updates.defaultLocale === 'boolean') {
+    fields.defaultLocale = { booleanValue: updates.defaultLocale };
+    fieldPaths.push('defaultLocale');
   }
   if (updates.updatedAt) {
     fields.updatedAt = { timestampValue: updates.updatedAt };
@@ -669,8 +674,11 @@ export async function fetchCloudApp(
     parseFirestoreBoolean((doc.fields?.defaultLocale as { booleanValue?: boolean }) ?? undefined);
   for (let i = 0; i < i18nDocs.length; i++) {
     const doc = i18nDocs[i];
-    const isDefault = defaultLocaleField(doc) ?? i === 0;
-    translations.push(toTranslationDTO(doc, isDefault));
+    const isDefault = defaultLocaleField(doc);
+    translations.push(
+      // Only pass true/false when explicitly stored; otherwise leave undefined
+      toTranslationDTO(doc, isDefault === true),
+    );
   }
 
   return {

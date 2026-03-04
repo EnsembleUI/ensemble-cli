@@ -8,7 +8,14 @@ import type {
   TranslationDTO,
 } from './dto.js';
 
-type ArtifactWithContent = { id: string; name: string; content: string; isArchived?: boolean; isRoot?: boolean };
+type ArtifactWithContent = {
+  id: string;
+  name: string;
+  content: string;
+  isArchived?: boolean;
+  isRoot?: boolean;
+  defaultLocale?: boolean;
+};
 
 /** Snapshot of artifact to archive in history sub-collection (for YAML artifacts). */
 export interface HistoryEntry {
@@ -23,7 +30,19 @@ export interface HistoryEntry {
 
 type YamlDocument = ScreenDTO | WidgetDTO | ScriptDTO | ThemeDTO | TranslationDTO;
 
-type YamlUpdates = Partial<Pick<YamlDocument, 'content' | 'name' | 'isRoot' | 'isArchived' | 'updatedAt' | 'updatedBy'>>;
+type YamlUpdates = {
+  content?: string;
+  name?: string;
+  isRoot?: boolean;
+  isArchived?: boolean;
+  updatedAt?: string;
+  updatedBy?: {
+    name: string;
+    email?: string;
+    id: string;
+  };
+  defaultLocale?: boolean;
+};
 
 /** Create: full document for new artifact. Update: history (old→archive) + updates (only changed fields). */
 export type YamlArtifactPushItem =
@@ -77,7 +96,10 @@ function diffArtifacts(
       const archivedChanged =
         bundle.isArchived === true && (cloud as ArtifactWithContent).isArchived !== true;
       const isRootChanged = bundle.isRoot !== (cloud as ArtifactWithContent).isRoot;
-      if (contentChanged || archivedChanged || isRootChanged) {
+      const defaultLocaleChanged =
+        (bundle as { defaultLocale?: boolean }).defaultLocale !==
+        (cloud as { defaultLocale?: boolean }).defaultLocale;
+      if (contentChanged || archivedChanged || isRootChanged || defaultLocaleChanged) {
         changed.push(bundle);
       }
     } else {
@@ -192,6 +214,9 @@ function buildPartialUpdates(
   if (bundle.isRoot !== cloud.isRoot) updates.isRoot = bundle.isRoot;
   if (bundle.isArchived !== cloud.isArchived) updates.isArchived = bundle.isArchived;
   if (bundle.updatedAt !== cloud.updatedAt) updates.updatedAt = bundle.updatedAt;
+  if (bundle.defaultLocale !== (cloud as { defaultLocale?: boolean }).defaultLocale) {
+    updates.defaultLocale = bundle.defaultLocale;
+  }
   if (JSON.stringify(bundle.updatedBy) !== JSON.stringify(cloud.updatedBy)) updates.updatedBy = bundle.updatedBy;
   return updates as YamlUpdates;
 }

@@ -120,7 +120,17 @@ export function buildDocumentsFromParsed(
 
 type UpdatedBy = { name: string; email?: string; id: string };
 
-function mergeArtifacts<T extends { id: string; name: string; content: string; type?: string; isArchived?: boolean; isRoot?: boolean }>(
+function mergeArtifacts<
+  T extends {
+    id: string;
+    name: string;
+    content: string;
+    type?: string;
+    isArchived?: boolean;
+    isRoot?: boolean;
+    defaultLocale?: boolean;
+  },
+>(
   cloudItems: T[] | undefined,
   localItems: T[] | undefined,
   now: string,
@@ -136,13 +146,16 @@ function mergeArtifacts<T extends { id: string; name: string; content: string; t
     cloudByName.add(cloud.name);
     const local = localByName.get(cloud.name);
     const deletedLocally = !local;
-    const localWithRoot = local as { isRoot?: boolean } | undefined;
-    const cloudWithRoot = cloud as { isRoot?: boolean };
+    const localWithRoot = local as { isRoot?: boolean; defaultLocale?: boolean } | undefined;
+    const cloudWithRoot = cloud as { isRoot?: boolean; defaultLocale?: boolean };
     merged.push({
       ...cloud,
       content: local?.content ?? cloud.content,
       isArchived: deletedLocally ? true : (cloud.isArchived ?? false),
       isRoot: deletedLocally ? cloudWithRoot.isRoot : (localWithRoot?.isRoot ?? cloudWithRoot.isRoot),
+      defaultLocale: deletedLocally
+        ? cloudWithRoot.defaultLocale
+        : localWithRoot?.defaultLocale ?? cloudWithRoot.defaultLocale,
       ...(deletedLocally && {
         updatedAt: now,
         updatedBy,
