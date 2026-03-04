@@ -126,7 +126,7 @@ describe('buildMergedBundle', () => {
     expect(merged.screens![0].id).toBe('cloud-s1');
   });
 
-  it('adds new local items with generated ids', () => {
+  it('adds new local items with preserved ids', () => {
     const homeScreen: ScreenDTO = {
       id: 's1',
       name: 'Home',
@@ -167,7 +167,7 @@ describe('buildMergedBundle', () => {
     const about = merged.screens!.find((s) => s.name === 'About');
     expect(about).toBeDefined();
     expect(about!.id).toBeDefined();
-    expect(about!.id).not.toBe('s2');
+    expect(about!.id).toBe('s2');
   });
 
   it('archives cloud items deleted locally', () => {

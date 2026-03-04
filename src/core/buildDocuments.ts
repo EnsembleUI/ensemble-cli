@@ -1,5 +1,3 @@
-import crypto from 'crypto';
-
 import type { ParsedAppFiles } from './appCollector.js';
 import type { CloudApp } from '../cloud/firestoreClient.js';
 import {
@@ -33,6 +31,7 @@ export function buildDocumentsFromParsed(
   appId: string,
   appName: string,
   appHome?: string,
+  defaultLanguage?: string,
 ): ApplicationDTO {
   const now = new Date().toISOString();
 
@@ -86,15 +85,22 @@ export function buildDocumentsFromParsed(
 
   const translationEntries = Object.entries(parsed.translations);
   const translations: TranslationDTO[] = translationEntries.map(
-    ([relativePath, content], index) => ({
-      id: `i18n_${pathToName(relativePath)}`,
-      name: pathToName(relativePath),
-      content,
-      type: EnsembleDocumentType.I18n,
-      defaultLocale: index === 0,
-      createdAt: now,
-      updatedAt: now,
-    }),
+    ([relativePath, content], index) => {
+      const name = pathToName(relativePath);
+      const isDefaultFromManifest =
+        typeof defaultLanguage === 'string' && defaultLanguage.trim() !== ''
+          ? name === defaultLanguage
+          : false;
+      return {
+        id: `i18n_${name}`,
+        name,
+        content,
+        type: EnsembleDocumentType.I18n,
+        defaultLocale: isDefaultFromManifest || (!defaultLanguage && index === 0),
+        createdAt: now,
+        updatedAt: now,
+      };
+    },
   );
 
   const application: ApplicationDTO = {
@@ -110,10 +116,6 @@ export function buildDocumentsFromParsed(
   };
 
   return application;
-}
-
-function generateUUID(): string {
-  return crypto.randomUUID();
 }
 
 type UpdatedBy = { name: string; email?: string; id: string };
@@ -151,7 +153,6 @@ function mergeArtifacts<T extends { id: string; name: string; content: string; t
     if (!cloudByName.has(local.name)) {
       merged.push({
         ...local,
-        id: generateUUID(),
         isArchived: false,
         createdAt: now,
         updatedAt: now,

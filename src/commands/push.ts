@@ -37,6 +37,18 @@ async function writeVerbose(
   console.log(`Wrote ${filePath}`);
 }
 
+async function readDefaultLanguage(root: string): Promise<string | undefined> {
+  const manifestPath = path.join(root, '.manifest.json');
+  try {
+    const raw = await fs.readFile(manifestPath, 'utf8');
+    const parsed = JSON.parse(raw) as { defaultLanguage?: unknown };
+    const value = parsed.defaultLanguage;
+    return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function pushCommand(options: PushOptions = {}): Promise<void> {
   const root = process.cwd();
   const { config, appKey, appId } = await resolveAppContext(options.appKey);
@@ -58,14 +70,22 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
     return;
   }
 
-  const data = await withSpinner('Collecting app files...', () =>
-    collectAppFiles(root, appConfig.options ?? {}),
+  const [data, defaultLanguage] = await withSpinner(
+    'Collecting app files...',
+    async () => {
+      const [files, defLang] = await Promise.all([
+        collectAppFiles(root, appConfig.options ?? {}),
+        readDefaultLanguage(root),
+      ]);
+      return [files, defLang] as const;
+    },
   );
   const localApp = buildDocumentsFromParsed(
     data,
     appId,
     appName,
     appConfig.appHome as string | undefined,
+    defaultLanguage,
   );
   await writeVerbose(root, 'ensemble-local-app.json', localApp, options.verbose ?? false);
 

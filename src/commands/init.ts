@@ -1,3 +1,5 @@
+import fs from 'fs/promises';
+import path from 'path';
 import prompts from 'prompts';
 
 import { checkAppAccess, fetchRootScreenName } from '../cloud/firestoreClient.js';
@@ -52,6 +54,30 @@ export async function initCommand(): Promise<void> {
     description: access.app.description,
     ...(appHome !== undefined && { appHome }),
   });
+
+  if (appHome) {
+    const manifestPath = path.join(process.cwd(), '.manifest.json');
+    let manifest: Record<string, unknown> = {};
+    try {
+      const raw = await fs.readFile(manifestPath, 'utf8');
+      manifest = JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      manifest = {};
+    }
+
+    if (typeof manifest.homeScreenName !== 'string') {
+      manifest.homeScreenName = appHome;
+      await fs.writeFile(
+        manifestPath,
+        JSON.stringify(manifest, null, 2) + '\n',
+        'utf8',
+      );
+      // eslint-disable-next-line no-console
+      console.log(
+        `Updated .manifest.json: homeScreenName set to "${appHome}".`,
+      );
+    }
+  }
   console.log(
     `Initialized Ensemble config and linked alias "${alias}" to app "${appId}". You can now run \`ensemble push --app ${alias}\` or \`ensemble pull --app ${alias}\``
   );
