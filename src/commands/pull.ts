@@ -24,17 +24,48 @@ async function writeVerbose(
 ): Promise<void> {
   if (!verbose) return;
   const filePath = path.join(root, filename);
-  await fs.writeFile(filePath, JSON.stringify(data, null, 2), 'utf8');
+  const replacer = (key: string, value: unknown) => {
+    if (key === 'content' && typeof value === 'string') {
+      const limit = 2000;
+      return value.length > limit ? `${value.slice(0, limit)}\n/* ... truncated ... */` : value;
+    }
+    return value;
+  };
+  await fs.writeFile(filePath, JSON.stringify(data, replacer, 2), 'utf8');
   // eslint-disable-next-line no-console
   console.log(`Wrote ${filePath}`);
 }
 
-async function rmDirIfExists(dir: string): Promise<void> {
-  await fs.rm(dir, { recursive: true, force: true });
-}
-
 async function ensureDir(dir: string): Promise<void> {
   await fs.mkdir(dir, { recursive: true });
+}
+
+async function processWithConcurrency<T>(
+  items: readonly T[],
+  worker: (item: T) => Promise<void>,
+  concurrency = 16,
+): Promise<void> {
+  if (items.length === 0) return;
+  const limit = Math.max(1, Math.min(concurrency, items.length));
+  let index = 0;
+  const runners: Promise<void>[] = [];
+
+  for (let i = 0; i < limit; i += 1) {
+    runners.push(
+      (async () => {
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+          const currentIndex = index;
+          if (currentIndex >= items.length) break;
+          index = currentIndex + 1;
+          // eslint-disable-next-line no-await-in-loop
+          await worker(items[currentIndex]!);
+        }
+      })(),
+    );
+  }
+
+  await Promise.all(runners);
 }
 
 function safeFileName(name: string, ext: string): string {
@@ -346,6 +377,12 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
   }
 
   await withSpinner('Writing local files...', async () => {
+    type WriteTask =
+      | { op: 'write'; filePath: string; content: string }
+      | { op: 'delete'; filePath: string };
+
+    const tasks: WriteTask[] = [];
+
     for (const cfg of ARTIFACT_FS_CONFIG) {
       const { prop, ext, isTheme } = cfg;
       if (!enabledByProp[prop]) continue;
@@ -353,26 +390,71 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
       if (isTheme) {
         const themePath = path.join(projectRoot, 'theme.yaml');
         if (cloudApp.theme && cloudApp.theme.isArchived !== true) {
-          await fs.writeFile(themePath, cloudApp.theme.content ?? '', 'utf8');
+          tasks.push({
+            op: 'write',
+            filePath: themePath,
+            content: cloudApp.theme.content ?? '',
+          });
         } else {
-          await fs.rm(themePath, { force: true });
+          tasks.push({ op: 'delete', filePath: themePath });
         }
         continue;
       }
 
       const baseDir = path.join(projectRoot, prop);
-      await rmDirIfExists(baseDir);
       await ensureDir(baseDir);
 
       const cloudItems = (cloudApp as Record<string, unknown>)[prop] as
         | { name: string; content?: string; isArchived?: boolean }[]
         | undefined;
+
+      const expected: Record<string, string> = {};
       for (const item of cloudItems ?? []) {
         if (item.isArchived === true) continue;
-        const filePath = path.join(baseDir, safeFileName(item.name, ext!));
-        await fs.writeFile(filePath, item.content ?? '', 'utf8');
+        expected[safeFileName(item.name, ext!)] = item.content ?? '';
+      }
+
+      const actual = (localFiles as unknown as Record<string, unknown>)[
+        prop
+      ] as Record<string, string> | undefined;
+      const actualMap = actual ?? {};
+
+      const expectedKeys = new Set(Object.keys(expected));
+      const actualKeys = new Set(Object.keys(actualMap));
+
+      // Writes for new or modified files.
+      for (const file of expectedKeys) {
+        const content = expected[file] ?? '';
+        const filePath = path.join(baseDir, file);
+        if (!actualKeys.has(file) || actualMap[file] !== content) {
+          tasks.push({ op: 'write', filePath, content });
+        }
+      }
+
+      // Deletes for files that no longer exist in cloud.
+      for (const file of actualKeys) {
+        if (!expectedKeys.has(file)) {
+          const filePath = path.join(baseDir, file);
+          tasks.push({ op: 'delete', filePath });
+        }
       }
     }
+
+    let completed = 0;
+    const total = tasks.length;
+
+    await processWithConcurrency(tasks, async (task) => {
+      if (task.op === 'write') {
+        await fs.writeFile(task.filePath, task.content, 'utf8');
+      } else {
+        await fs.rm(task.filePath, { force: true });
+      }
+      completed += 1;
+      if (total > 0 && completed % 25 === 0) {
+        // eslint-disable-next-line no-console
+        console.log(`Writing files... (${completed}/${total})`);
+      }
+    });
 
     await buildAndWriteManifest(projectRoot, cloudApp);
   });

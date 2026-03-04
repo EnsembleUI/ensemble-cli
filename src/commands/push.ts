@@ -34,7 +34,14 @@ async function writeVerbose(
 ): Promise<void> {
   if (!verbose) return;
   const filePath = path.join(root, filename);
-  await fs.writeFile(filePath, JSON.stringify(data, null, 2), 'utf8');
+  const replacer = (key: string, value: unknown) => {
+    if (key === 'content' && typeof value === 'string') {
+      const limit = 2000;
+      return value.length > limit ? `${value.slice(0, limit)}\n/* ... truncated ... */` : value;
+    }
+    return value;
+  };
+  await fs.writeFile(filePath, JSON.stringify(data, replacer, 2), 'utf8');
   console.log(`Wrote ${filePath}`);
 }
 

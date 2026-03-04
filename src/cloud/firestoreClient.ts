@@ -14,6 +14,7 @@ import type {
 import { EnsembleDocumentType } from '../core/dto.js';
 
 const DEFAULT_FIREBASE_PROJECT = 'ensemble-web-studio';
+const DEFAULT_FIRESTORE_CONCURRENCY = 15;
 
 /** Raw Firestore document from list/get API. */
 export interface FirestoreDocument {
@@ -148,6 +149,16 @@ async function processWithConcurrency<T>(
   await Promise.all(runners);
 }
 
+function getFirestoreConcurrency(): number {
+  const raw = process.env.ENSEMBLE_FIRESTORE_CONCURRENCY;
+  if (raw === undefined) return DEFAULT_FIRESTORE_CONCURRENCY;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_FIRESTORE_CONCURRENCY;
+  }
+  return Math.floor(parsed);
+}
+
 async function applyYamlOperationsForKind(
   kind: 'screens' | 'widgets' | 'scripts' | 'translations' | 'theme',
   appId: string,
@@ -158,6 +169,8 @@ async function applyYamlOperationsForKind(
   if (!ops || ops.length === 0) return;
   const { collection } = artifactCollectionAndType(kind);
   const baseCollectionUrl = `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents/apps/${appId}/${collection}`;
+
+  const concurrency = getFirestoreConcurrency();
 
   await processWithConcurrency(ops, async (op) => {
     if (op.operation === 'create') {
@@ -233,7 +246,7 @@ async function applyYamlOperationsForKind(
         );
       }
     }
-  });
+  }, concurrency);
 }
 
 /**
