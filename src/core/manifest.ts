@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 
-import type { fetchCloudApp } from '../cloud/firestoreClient.js';
+import type { CloudApp } from '../cloud/firestoreClient.js';
 
 export type RootManifest = Record<string, unknown> & {
   scripts?: { name: string }[];
@@ -11,10 +11,7 @@ export type RootManifest = Record<string, unknown> & {
   languages?: string[];
 };
 
-export function buildManifestObject(
-  existing: RootManifest,
-  cloudApp: Awaited<ReturnType<typeof fetchCloudApp>>,
-): RootManifest {
+export function buildManifestObject(existing: RootManifest, cloudApp: CloudApp): RootManifest {
   const widgets = (cloudApp.widgets ?? [])
     .filter((w) => w.isArchived !== true)
     .map((w) => ({ name: w.name }));
@@ -50,7 +47,7 @@ export function buildManifestObject(
 
 export async function buildAndWriteManifest(
   projectRoot: string,
-  cloudApp: Awaited<ReturnType<typeof fetchCloudApp>>,
+  cloudApp: CloudApp,
 ): Promise<void> {
   const manifestPath = path.join(projectRoot, '.manifest.json');
   let existing: RootManifest = {};

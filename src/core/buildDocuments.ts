@@ -217,10 +217,12 @@ function mergeArtifacts<
     const deletedLocally = !local;
     const localWithRoot = local as { isRoot?: boolean; defaultLocale?: boolean } | undefined;
     const cloudWithRoot = cloud as { isRoot?: boolean; defaultLocale?: boolean };
+    const localWithArchived = local as { isArchived?: boolean } | undefined;
+
     merged.push({
       ...cloud,
       content: local?.content ?? cloud.content,
-      isArchived: deletedLocally ? true : (cloud.isArchived ?? false),
+      isArchived: deletedLocally ? true : (localWithArchived?.isArchived ?? false),
       isRoot: deletedLocally ? cloudWithRoot.isRoot : (localWithRoot?.isRoot ?? cloudWithRoot.isRoot),
       defaultLocale: deletedLocally
         ? cloudWithRoot.defaultLocale

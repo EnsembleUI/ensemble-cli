@@ -94,7 +94,7 @@ function diffArtifacts(
     if (cloud) {
       const contentChanged = bundle.content !== (cloud as ArtifactWithContent).content;
       const archivedChanged =
-        bundle.isArchived === true && (cloud as ArtifactWithContent).isArchived !== true;
+        (bundle.isArchived ?? false) !== ((cloud as ArtifactWithContent).isArchived ?? false);
       const isRootChanged = bundle.isRoot !== (cloud as ArtifactWithContent).isRoot;
       const defaultLocaleChanged =
         (bundle as { defaultLocale?: boolean }).defaultLocale !==

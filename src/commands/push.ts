@@ -8,17 +8,19 @@ import {
   submitCliPush,
   FirestoreClientError,
   type FirestoreClientOptions,
+  type CloudApp,
 } from '../cloud/firestoreClient.js';
 import { buildDocumentsFromParsed } from '../core/buildDocuments.js';
 import { buildPushPayload, formatDiffSummary, type BundleDiff } from '../core/bundleDiff.js';
 import { collectAppFiles } from '../core/appCollector.js';
-import { ArtifactProps, type ArtifactProp } from '../core/dto.js';
+import { ArtifactProps, type ArtifactProp, type ApplicationDTO } from '../core/dto.js';
 import { resolveVerboseFlag } from '../core/cliError.js';
 import { resolveAppContext } from '../config/projectConfig.js';
 import { getValidAuthSession } from '../auth/session.js';
 import { withSpinner } from '../lib/spinner.js';
 import { writeVerboseJson } from '../core/debugFiles.js';
 import { computePushPlan, type PushSummary, type PushCounts } from '../core/sync.js';
+import { buildAndWriteManifest, type RootManifest } from '../core/manifest.js';
 
 export interface PushOptions {
   verbose?: boolean;
@@ -126,6 +128,76 @@ async function readDefaultLanguage(root: string): Promise<string | undefined> {
   } catch {
     return undefined;
   }
+}
+
+async function readExistingManifest(root: string): Promise<RootManifest | null> {
+  const manifestPath = path.join(root, '.manifest.json');
+  try {
+    const raw = await fs.readFile(manifestPath, 'utf8');
+    return JSON.parse(raw) as RootManifest;
+  } catch {
+    return null;
+  }
+}
+
+function hasManifestRelevantChanges(cloudApp: CloudApp, diff: BundleDiff): boolean {
+  // Any new artifacts in these kinds will affect manifest lists or home screen/languages.
+  if (
+    diff.screens.new.length > 0 ||
+    diff.widgets.new.length > 0 ||
+    diff.scripts.new.length > 0 ||
+    diff.translations.new.length > 0
+  ) {
+    return true;
+  }
+
+  const scriptsCloudById = new Map((cloudApp.scripts ?? []).map((s) => [s.id, s]));
+  const scriptsCloudByName = new Map((cloudApp.scripts ?? []).map((s) => [s.name, s]));
+  for (const changed of diff.scripts.changed) {
+    const cloud = scriptsCloudById.get(changed.id) ?? scriptsCloudByName.get(changed.name);
+    if (!cloud) continue;
+    if ((changed.isArchived ?? false) !== (cloud.isArchived ?? false)) {
+      return true;
+    }
+  }
+
+  const widgetsCloudById = new Map((cloudApp.widgets ?? []).map((w) => [w.id, w]));
+  const widgetsCloudByName = new Map((cloudApp.widgets ?? []).map((w) => [w.name, w]));
+  for (const changed of diff.widgets.changed) {
+    const cloud = widgetsCloudById.get(changed.id) ?? widgetsCloudByName.get(changed.name);
+    if (!cloud) continue;
+    if ((changed.isArchived ?? false) !== (cloud.isArchived ?? false)) {
+      return true;
+    }
+  }
+
+  const translationsCloudById = new Map((cloudApp.translations ?? []).map((t) => [t.id, t]));
+  const translationsCloudByName = new Map((cloudApp.translations ?? []).map((t) => [t.name, t]));
+  for (const changed of diff.translations.changed) {
+    const cloud = translationsCloudById.get(changed.id) ?? translationsCloudByName.get(changed.name);
+    if (!cloud) continue;
+    if ((changed.isArchived ?? false) !== (cloud.isArchived ?? false)) {
+      return true;
+    }
+    if ((changed as { defaultLocale?: boolean }).defaultLocale !== (cloud as { defaultLocale?: boolean }).defaultLocale) {
+      return true;
+    }
+  }
+
+  const screensCloudById = new Map((cloudApp.screens ?? []).map((s) => [s.id, s]));
+  const screensCloudByName = new Map((cloudApp.screens ?? []).map((s) => [s.name, s]));
+  for (const changed of diff.screens.changed) {
+    const cloud = screensCloudById.get(changed.id) ?? screensCloudByName.get(changed.name);
+    if (!cloud) continue;
+    if ((changed.isArchived ?? false) !== (cloud.isArchived ?? false)) {
+      return true;
+    }
+    if ((changed as { isRoot?: boolean }).isRoot !== (cloud as { isRoot?: boolean }).isRoot) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 export async function pushCommand(options: PushOptions = {}): Promise<void> {
@@ -297,6 +369,57 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
       console.log(line);
     }
 
+    // Load existing manifest so we only warn when deletes actually affect it.
+    const existingManifest = await readExistingManifest(root);
+
+    // Detect deletions that are both being deleted in cloud and referenced in .manifest.json.
+    const deletedScriptsAll = plan.diff.scripts.changed
+      .filter((i) => i.isArchived)
+      .map((i) => i.name);
+    const deletedWidgetsAll = plan.diff.widgets.changed
+      .filter((i) => i.isArchived)
+      .map((i) => i.name);
+    const deletedTranslationsAll = plan.diff.translations.changed
+      .filter((i) => i.isArchived)
+      .map((i) => i.name);
+    const deletedScreensAll = plan.diff.screens.changed
+      .filter((i) => i.isArchived)
+      .map((i) => i.name);
+
+    let manifestScriptsToWarn: string[] = [];
+    let manifestWidgetsToWarn: string[] = [];
+    let manifestTranslationsToWarn: string[] = [];
+    let manifestHomeScreensToWarn: string[] = [];
+
+    if (existingManifest) {
+      const manifestScriptNames = new Set(
+        (existingManifest.scripts ?? []).map((s: { name: string }) => s.name),
+      );
+      const manifestWidgetNames = new Set(
+        (existingManifest.widgets ?? []).map((w: { name: string }) => w.name),
+      );
+      const manifestLanguages = new Set<string>(existingManifest.languages ?? []);
+      const manifestDefaultLanguage =
+        typeof existingManifest.defaultLanguage === 'string'
+          ? existingManifest.defaultLanguage
+          : undefined;
+      const manifestHomeScreen =
+        typeof existingManifest.homeScreenName === 'string'
+          ? existingManifest.homeScreenName
+          : undefined;
+
+      manifestScriptsToWarn = deletedScriptsAll.filter((name) => manifestScriptNames.has(name));
+      manifestWidgetsToWarn = deletedWidgetsAll.filter((name) => manifestWidgetNames.has(name));
+      manifestTranslationsToWarn = deletedTranslationsAll.filter(
+        (name) => manifestLanguages.has(name) || name === manifestDefaultLanguage,
+      );
+      manifestHomeScreensToWarn = manifestHomeScreen
+        ? deletedScreensAll.filter((name) => name === manifestHomeScreen)
+        : [];
+    }
+
+    const manifestNeedsRefresh = hasManifestRelevantChanges(cloudApp, plan.diff);
+
     let confirmed = options.yes ?? false;
     const isInteractive = Boolean(process.stdout.isTTY && process.stdin.isTTY);
     const hasDeletes = summary.counts.deleted > 0;
@@ -348,6 +471,27 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
       await withSpinner('Pushing changes to cloud...', () =>
         submitCliPush(appId, idToken, pushPayload, firestoreOptions),
       );
+
+      if (manifestNeedsRefresh && bundle) {
+        // Only refresh manifest when artifact changes can affect its contents,
+        // and build it from the merged bundle we just pushed (no extra network call).
+        try {
+          await withSpinner('Refreshing local manifest...', async () => {
+            await buildAndWriteManifest(root, bundle as CloudApp);
+          });
+        } catch (manifestErr) {
+          if (verbose) {
+            // eslint-disable-next-line no-console
+            console.error(
+              'Push succeeded, but failed to refresh .manifest.json. You can run "ensemble pull" later to regenerate it.',
+            );
+            // eslint-disable-next-line no-console
+            console.error(
+              manifestErr instanceof Error ? manifestErr.message : String(manifestErr),
+            );
+          }
+        }
+      }
     } catch (err) {
       console.error('Push failed.');
       if (err instanceof FirestoreClientError) {
