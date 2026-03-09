@@ -662,11 +662,9 @@ describe('push/pull integration (commands)', () => {
     expect(errors).toContain('You do not have access to this app.');
     expect(process.exitCode).toBe(1);
 
-    const { fetchCloudApp, submitCliPush } = cloudModuleMock as {
-      fetchCloudApp: ReturnType<typeof vi.fn>;
+    const { submitCliPush } = cloudModuleMock as {
       submitCliPush: ReturnType<typeof vi.fn>;
     };
-    expect(fetchCloudApp).not.toHaveBeenCalled();
     expect(submitCliPush).not.toHaveBeenCalled();
 
     process.exitCode = originalExitCode;
@@ -689,10 +687,8 @@ describe('push/pull integration (commands)', () => {
     expect(errors).toContain('You do not have access to this app.');
     expect(process.exitCode).toBe(1);
 
-    const { fetchCloudApp } = cloudModuleMock as {
-      fetchCloudApp: ReturnType<typeof vi.fn>;
-    };
-    expect(fetchCloudApp).not.toHaveBeenCalled();
+    // fetchCloudApp runs in parallel with checkAppAccess, so it may be called
+    // The important assertion is we exit early (process.exitCode 1) and show the message
 
     process.exitCode = originalExitCode;
     errorSpy.mockRestore();

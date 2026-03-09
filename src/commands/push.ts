@@ -13,14 +13,14 @@ import {
 import { buildDocumentsFromParsed } from '../core/buildDocuments.js';
 import { buildPushPayload, formatDiffSummary, type BundleDiff } from '../core/bundleDiff.js';
 import { collectAppFiles } from '../core/appCollector.js';
-import { ArtifactProps, type ArtifactProp, type ApplicationDTO } from '../core/dto.js';
+import { ArtifactProps, type ArtifactProp } from '../core/dto.js';
 import { resolveVerboseFlag } from '../core/cliError.js';
 import { resolveAppContext } from '../config/projectConfig.js';
 import { getValidAuthSession } from '../auth/session.js';
 import { withSpinner } from '../lib/spinner.js';
 import { writeVerboseJson } from '../core/debugFiles.js';
 import { computePushPlan, type PushSummary, type PushCounts } from '../core/sync.js';
-import { buildAndWriteManifest, type RootManifest } from '../core/manifest.js';
+import { buildAndWriteManifest } from '../core/manifest.js';
 
 export interface PushOptions {
   verbose?: boolean;
@@ -127,16 +127,6 @@ async function readDefaultLanguage(root: string): Promise<string | undefined> {
     return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined;
   } catch {
     return undefined;
-  }
-}
-
-async function readExistingManifest(root: string): Promise<RootManifest | null> {
-  const manifestPath = path.join(root, '.manifest.json');
-  try {
-    const raw = await fs.readFile(manifestPath, 'utf8');
-    return JSON.parse(raw) as RootManifest;
-  } catch {
-    return null;
   }
 }
 
@@ -260,9 +250,20 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
       }
     : undefined;
 
-  const access = await withSpinner('Checking app access...', () =>
-    checkAppAccess(appId, idToken, userId, firestoreOptions),
+  const [access, dataWithLang, cloudAppResult] = await withSpinner(
+    'Checking app access, collecting files, and fetching cloud app...',
+    async () => {
+      const [accessRes, filesAndLang, cloudRes] = await Promise.all([
+        checkAppAccess(appId, idToken, userId, firestoreOptions),
+        Promise.all([collectAppFiles(root), readDefaultLanguage(root)]).then(
+          ([files, defLang]) => [files, defLang] as const,
+        ),
+        fetchCloudApp(appId, idToken, firestoreOptions).catch((e: unknown) => e),
+      ]);
+      return [accessRes, filesAndLang, cloudRes] as const;
+    },
   );
+
   if (!access.ok) {
     console.error(access.message);
     if (access.reason === 'not_logged_in') {
@@ -274,16 +275,7 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
     return;
   }
 
-  const [data, defaultLanguage] = await withSpinner(
-    'Collecting app files...',
-    async () => {
-      const [files, defLang] = await Promise.all([
-        collectAppFiles(root),
-        readDefaultLanguage(root),
-      ]);
-      return [files, defLang] as const;
-    },
-  );
+  const [data, defaultLanguage] = dataWithLang;
   const localApp = buildDocumentsFromParsed(
     data,
     appId,
@@ -296,11 +288,8 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
   });
 
   let cloudApp: Awaited<ReturnType<typeof fetchCloudApp>> | null = null;
-  try {
-    cloudApp = await withSpinner('Fetching cloud app...', () =>
-      fetchCloudApp(appId, idToken, firestoreOptions),
-    );
-  } catch (err) {
+  if (cloudAppResult instanceof Error) {
+    const err = cloudAppResult;
     console.error('Failed to fetch app from cloud.');
     if (err instanceof FirestoreClientError) {
       console.error(`${err.message} (${err.code})`);
@@ -312,14 +301,15 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
     }
     if (!(err instanceof FirestoreClientError)) {
       console.error('Check your internet connection or proxy settings, then try again.');
-    } else if (err.code === 'NETWORK_UNAVAILABLE') {
+    } else if (err instanceof FirestoreClientError && err.code === 'NETWORK_UNAVAILABLE') {
       console.error('Check your internet connection or proxy settings, then try again.');
-    } else if (err.code === 'AUTH_EXPIRED') {
+    } else if (err instanceof FirestoreClientError && err.code === 'AUTH_EXPIRED') {
       console.error('Run `ensemble login` and try again.');
     }
     process.exitCode = 1;
     return;
   }
+  cloudApp = cloudAppResult as CloudApp | null;
   let bundle: typeof localApp | null = null;
   if (cloudApp) {
     await writeVerboseJson(root, 'ensemble-cloud-app.json', cloudApp, {
@@ -367,55 +357,6 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
     console.log('Changes to be pushed:');
     for (const line of formatDiffSummary(plan.diff)) {
       console.log(line);
-    }
-
-    // Load existing manifest so we only warn when deletes actually affect it.
-    const existingManifest = await readExistingManifest(root);
-
-    // Detect deletions that are both being deleted in cloud and referenced in .manifest.json.
-    const deletedScriptsAll = plan.diff.scripts.changed
-      .filter((i) => i.isArchived)
-      .map((i) => i.name);
-    const deletedWidgetsAll = plan.diff.widgets.changed
-      .filter((i) => i.isArchived)
-      .map((i) => i.name);
-    const deletedTranslationsAll = plan.diff.translations.changed
-      .filter((i) => i.isArchived)
-      .map((i) => i.name);
-    const deletedScreensAll = plan.diff.screens.changed
-      .filter((i) => i.isArchived)
-      .map((i) => i.name);
-
-    let manifestScriptsToWarn: string[] = [];
-    let manifestWidgetsToWarn: string[] = [];
-    let manifestTranslationsToWarn: string[] = [];
-    let manifestHomeScreensToWarn: string[] = [];
-
-    if (existingManifest) {
-      const manifestScriptNames = new Set(
-        (existingManifest.scripts ?? []).map((s: { name: string }) => s.name),
-      );
-      const manifestWidgetNames = new Set(
-        (existingManifest.widgets ?? []).map((w: { name: string }) => w.name),
-      );
-      const manifestLanguages = new Set<string>(existingManifest.languages ?? []);
-      const manifestDefaultLanguage =
-        typeof existingManifest.defaultLanguage === 'string'
-          ? existingManifest.defaultLanguage
-          : undefined;
-      const manifestHomeScreen =
-        typeof existingManifest.homeScreenName === 'string'
-          ? existingManifest.homeScreenName
-          : undefined;
-
-      manifestScriptsToWarn = deletedScriptsAll.filter((name) => manifestScriptNames.has(name));
-      manifestWidgetsToWarn = deletedWidgetsAll.filter((name) => manifestWidgetNames.has(name));
-      manifestTranslationsToWarn = deletedTranslationsAll.filter(
-        (name) => manifestLanguages.has(name) || name === manifestDefaultLanguage,
-      );
-      manifestHomeScreensToWarn = manifestHomeScreen
-        ? deletedScreensAll.filter((name) => name === manifestHomeScreen)
-        : [];
     }
 
     const manifestNeedsRefresh = hasManifestRelevantChanges(cloudApp, plan.diff);

@@ -11,14 +11,25 @@ export type RootManifest = Record<string, unknown> & {
   languages?: string[];
 };
 
-export function buildManifestObject(existing: RootManifest, cloudApp: CloudApp): RootManifest {
-  const widgets = (cloudApp.widgets ?? [])
-    .filter((w) => w.isArchived !== true)
-    .map((w) => ({ name: w.name }));
+/** Preserve existing manifest entries by name; only add minimal { name } for new ones. */
+function mergeByName<T extends { name: string }>(
+  existing: T[] | undefined,
+  cloudNames: string[],
+): T[] {
+  const existingByName = new Map((existing ?? []).map((e) => [e.name, e]));
+  return cloudNames.map((name) => existingByName.get(name) ?? ({ name } as T));
+}
 
-  const scripts = (cloudApp.scripts ?? [])
+export function buildManifestObject(existing: RootManifest, cloudApp: CloudApp): RootManifest {
+  const cloudWidgetNames = (cloudApp.widgets ?? [])
+    .filter((w) => w.isArchived !== true)
+    .map((w) => w.name);
+  const widgets = mergeByName(existing.widgets, cloudWidgetNames);
+
+  const cloudScriptNames = (cloudApp.scripts ?? [])
     .filter((s) => s.isArchived !== true)
-    .map((s) => ({ name: s.name }));
+    .map((s) => s.name);
+  const scripts = mergeByName(existing.scripts, cloudScriptNames);
 
   const screens = (cloudApp.screens ?? []).filter((s) => s.isArchived !== true);
   const homeScreenName =

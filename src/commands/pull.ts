@@ -5,6 +5,8 @@ import prompts from 'prompts';
 import {
   checkAppAccess,
   fetchCloudApp,
+  FirestoreClientError,
+  type CloudApp,
   type FirestoreClientOptions,
 } from '../cloud/firestoreClient.js';
 import { collectAppFiles } from '../core/appCollector.js';
@@ -157,9 +159,26 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
       }
     : undefined;
 
-  const access = await withSpinner('Checking app access...', () =>
-    checkAppAccess(appId, idToken, userId, firestoreOptions),
+  const manifestPath = path.join(projectRoot, '.manifest.json');
+  const readManifest = (): Promise<RootManifest> =>
+    fs.readFile(manifestPath, 'utf8').then(
+      (raw) => JSON.parse(raw) as RootManifest,
+      () => ({}),
+    );
+
+  const [access, cloudAppResult, localFiles, manifestExisting] = await withSpinner(
+    'Checking app access, fetching cloud app, and collecting files...',
+    async () => {
+      const [accessRes, cloudRes, files, manifest] = await Promise.all([
+        checkAppAccess(appId, idToken, userId, firestoreOptions),
+        fetchCloudApp(appId, idToken, firestoreOptions).catch((e: unknown) => e),
+        collectAppFiles(projectRoot),
+        readManifest(),
+      ]);
+      return [accessRes, cloudRes, files, manifest] as const;
+    },
   );
+
   if (!access.ok) {
     // eslint-disable-next-line no-console
     console.error(access.message);
@@ -167,22 +186,39 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
     return;
   }
 
-  const cloudApp = await withSpinner('Fetching cloud app...', () =>
-    fetchCloudApp(appId, idToken, firestoreOptions),
-  );
+  if (cloudAppResult instanceof Error) {
+    const err = cloudAppResult;
+    // eslint-disable-next-line no-console
+    console.error('Failed to fetch app from cloud.');
+    if (err instanceof FirestoreClientError) {
+      // eslint-disable-next-line no-console
+      console.error(`${err.message} (${err.code})`);
+      if (err.hint) {
+        // eslint-disable-next-line no-console
+        console.error(err.hint);
+      }
+    } else {
+      // eslint-disable-next-line no-console
+      console.error(err instanceof Error ? err.message : String(err));
+    }
+    if (!(err instanceof FirestoreClientError)) {
+      // eslint-disable-next-line no-console
+      console.error('Check your internet connection or proxy settings, then try again.');
+    } else if (err.code === 'NETWORK_UNAVAILABLE') {
+      // eslint-disable-next-line no-console
+      console.error('Check your internet connection or proxy settings, then try again.');
+    } else if (err.code === 'AUTH_EXPIRED') {
+      // eslint-disable-next-line no-console
+      console.error('Run `ensemble login` and try again.');
+    }
+    process.exitCode = 1;
+    return;
+  }
+  const cloudApp = cloudAppResult as CloudApp;
+
   await writeVerboseJson(projectRoot, 'ensemble-cloud-app.json', cloudApp, {
     verbose,
   });
-
-  const localFiles = await collectAppFiles(projectRoot);
-  const manifestPath = path.join(projectRoot, '.manifest.json');
-  let manifestExisting: RootManifest = {};
-  try {
-    const raw = await fs.readFile(manifestPath, 'utf8');
-    manifestExisting = JSON.parse(raw) as RootManifest;
-  } catch {
-    manifestExisting = {};
-  }
 
   const plan = computePullPlan({
     appName,
