@@ -13,10 +13,33 @@ function normalizeName(raw: string): string {
   return trimmed.replace(/\s+/g, ' ').replace(/^["']|["']$/g, '');
 }
 
-function toFileBase(name: string): string {
-  // Convert spaces to CamelCase-ish: "Hello World" -> "HelloWorld"
-  const parts = name.split(/\s+/);
-  return parts.map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join('');
+function nameWithoutSpaces(name: string): string {
+  return name.replace(/\s+/g, '');
+}
+
+async function resolveNameWithSpaces(
+  name: string,
+  interactive: boolean,
+): Promise<string> {
+  if (!/\s/.test(name)) return name;
+  const suggestion = nameWithoutSpaces(name);
+  if (!interactive) {
+    throw new Error(
+      `Artifact names cannot contain spaces. Did you mean "${suggestion}"?`,
+    );
+  }
+  const { useSuggestion } = await prompts({
+    type: 'confirm',
+    name: 'useSuggestion',
+    message: `Artifact names cannot contain spaces. Use "${suggestion}" instead?`,
+    initial: true,
+  });
+  if (!useSuggestion) {
+    throw new Error(
+      `Artifact names cannot contain spaces. Try again with a name like "${suggestion}".`,
+    );
+  }
+  return suggestion;
 }
 
 async function ensureDir(dir: string): Promise<void> {
@@ -123,24 +146,45 @@ async function maybeSetHomeScreenName(
 }
 
 function screenTemplate(name: string): string {
-  return `# Screen: ${name}
+  return `View:
+  styles:
+    useSafeArea: true
 
+  # Optional - set the header for the screen
+  header:
+    titleText: ${name}
+
+  # Specify the body of the screen
+  body:
+    Column:
+      styles:
+        padding: 24
+        gap: 8
+      children:
+        - Text:
+            text: Hi there!
+        - Button:
+            label: Checkout Ensemble Kitchen Sink
+            onTap:
+              openUrl:
+                url: 'https://studio.ensembleui.com/preview/index.html?appId=e24402cb-75e2-404c-866c-29e6c3dd7992'
 `;
 }
 
-function widgetTemplate(name: string): string {
-  return `# Widget: ${name}
-
+function widgetTemplate(): string {
+  return `Widget:
+  inputs:
+    - customProperty
+  body:
+    Column:
+      children:
+        - Text:
+            text: \${customProperty}
 `;
 }
 
 function scriptTemplate(name: string): string {
-  const base = toFileBase(name);
   return `// Script: ${name}
-
-export function ${base}() {
-  // TODO: implement script logic
-}
 `;
 }
 
@@ -198,7 +242,8 @@ export async function addCommand(kindArg?: AddKind, rawNameArg?: string): Promis
     throw new Error('Name is required.');
   }
 
-  const name = normalizeName(rawName);
+  let name = normalizeName(rawName);
+  name = await resolveNameWithSpaces(name, interactive);
   const { projectRoot } = await loadProjectConfig();
 
   let targetDir: string;
@@ -215,7 +260,7 @@ export async function addCommand(kindArg?: AddKind, rawNameArg?: string): Promis
     case 'widget':
       targetDir = path.join(projectRoot, 'widgets');
       fileName = `${name}.yaml`;
-      contents = widgetTemplate(name);
+      contents = widgetTemplate();
       updateManifest = true;
       break;
     case 'script':
