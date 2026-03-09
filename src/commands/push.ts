@@ -71,51 +71,12 @@ function printPushSummary(summary: PushSummary, options: { verbose?: boolean; is
   }
 }
 
-function fileLabel(name: string, defaultExt: string): string {
-  if (name.includes('.')) return name;
-  return `${name}${defaultExt}`;
-}
-
 function printPushDryRun(diff: BundleDiff): void {
-  console.log('Push dry run – the following changes would be applied:');
-
-  const printGroup = (
-    title: string,
-    changed: { name: string; isArchived?: boolean }[],
-    added: { name: string }[],
-    defaultExt: string,
-  ) => {
-    if (changed.length === 0 && added.length === 0) return;
-    console.log(`\n  ${title}:`);
-    for (const item of added) {
-      console.log(`    + create ${title.slice(0, -1)} ${fileLabel(item.name, defaultExt)}`);
-    }
-    for (const item of changed) {
-      if (item.isArchived) {
-        console.log(
-          `    - delete ${title.slice(0, -1)} ${fileLabel(item.name, defaultExt)}`,
-        );
-      } else {
-        console.log(
-          `    ~ update ${title.slice(0, -1)} ${fileLabel(item.name, defaultExt)}`,
-        );
-      }
-    }
-  };
-
-  printGroup('screens', diff.screens.changed, diff.screens.new, '.yaml');
-  printGroup('widgets', diff.widgets.changed, diff.widgets.new, '.yaml');
-  printGroup('scripts', diff.scripts.changed, diff.scripts.new, '.js');
-  printGroup('translations', diff.translations.changed, diff.translations.new, '.yaml');
-
-  if (diff.themeChanged) {
-    console.log('\n  theme:');
-    console.log('    ~ update theme theme.yaml');
+  console.log('Push dry run – the following changes would be applied:\n');
+  for (const line of formatDiffSummary(diff)) {
+    console.log(line);
   }
-
-  console.log(
-    '\nRun `ensemble push` without `--dry-run` to apply these changes.',
-  );
+  console.log('\nRun `ensemble push` without `--dry-run` to apply these changes.');
 }
 
 async function readDefaultLanguage(root: string): Promise<string | undefined> {
@@ -349,6 +310,11 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
       return;
     }
 
+    const pushPayload = buildPushPayload(bundle!, plan.diff, cloudApp, updatedBy);
+    await writeVerboseJson(root, 'ensemble-push-payload.json', pushPayload, {
+      verbose,
+    });
+
     if (options.dryRun) {
       printPushDryRun(plan.diff);
       return;
@@ -402,11 +368,6 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
       process.exitCode = 130;
       return;
     }
-
-    const pushPayload = buildPushPayload(bundle!, plan.diff, cloudApp, updatedBy);
-    await writeVerboseJson(root, 'ensemble-push-payload.json', pushPayload, {
-      verbose,
-    });
 
     try {
       await withSpinner('Pushing changes to cloud...', () =>

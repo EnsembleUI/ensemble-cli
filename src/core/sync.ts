@@ -370,15 +370,6 @@ export function computePullPlan({
     }
   }
 
-  if (!manifestMatch) {
-    updatedCount += 1;
-    changes.push({
-      kind: 'manifest',
-      file: '.manifest.json',
-      operation: 'update',
-    });
-  }
-
   const summary: PullSummary = {
     appName,
     environment,

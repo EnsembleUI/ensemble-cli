@@ -112,17 +112,13 @@ function diffArtifacts(
 
 type ArtifactDisplay = ArtifactWithContent & { fileName?: string };
 
-function artifactDisplay(type: string, item: ArtifactDisplay, defaultExt: string): string {
+function artifactFileName(item: ArtifactDisplay, defaultExt: string): string {
   const withFileName = item as { fileName?: string };
-  let file: string;
-  if (withFileName.fileName) {
-    file = withFileName.fileName;
-  } else if (item.id.includes('/') && !/^[0-9a-f-]{36}$/i.test(item.id)) {
-    file = item.id.split('/').pop() ?? item.name;
-  } else {
-    file = `${item.name}${defaultExt}`;
+  if (withFileName.fileName) return withFileName.fileName;
+  if (item.id.includes('/') && !/^[0-9a-f-]{36}$/i.test(item.id)) {
+    return item.id.split('/').pop() ?? item.name;
   }
-  return `${type} - ${file}`;
+  return `${item.name}${defaultExt}`;
 }
 
 const LABELS = {
@@ -131,24 +127,46 @@ const LABELS = {
   removed: '🗑️  removed',
 } as const;
 
-/** Format diff as git-style lines (new/modified/removed) with type and name. */
+const LINE_PREFIX = '        ';
+const LABEL_WIDTH = 14;
+
+/** Format diff as grouped lines with icons (new/modified/removed). Used for both dry run and actual run. */
 export function formatDiffSummary(diff: BundleDiff): string[] {
   const lines: string[] = [];
-  const fmt = (label: string, text: string) =>
-    lines.push(`        ${label}  ${text}`);
+  const pad = (label: string) => label.padEnd(LABEL_WIDTH);
 
-  const labelFor = (item: ArtifactWithContent) =>
-    item.isArchived ? LABELS.removed : LABELS.modified;
+  const addGroup = (
+    title: string,
+    changed: ArtifactWithContent[],
+    added: ArtifactWithContent[],
+    type: string,
+    ext: string,
+  ) => {
+    if (changed.length === 0 && added.length === 0) return;
+    lines.push(`  ${title}:`);
+    // Group by status: removed first, then modified, then new
+    const removed = changed.filter((i) => i.isArchived);
+    const modified = changed.filter((i) => !i.isArchived);
+    for (const item of removed) {
+      lines.push(`${LINE_PREFIX}${pad(LABELS.removed)}${artifactFileName(item, ext)}`);
+    }
+    for (const item of modified) {
+      lines.push(`${LINE_PREFIX}${pad(LABELS.modified)}${artifactFileName(item, ext)}`);
+    }
+    for (const item of added) {
+      lines.push(`${LINE_PREFIX}${pad(LABELS.new)}${artifactFileName(item, ext)}`);
+    }
+  };
 
-  for (const item of diff.screens.changed) fmt(labelFor(item), artifactDisplay('screen', item, '.yaml'));
-  for (const item of diff.screens.new) fmt(LABELS.new, artifactDisplay('screen', item, '.yaml'));
-  for (const item of diff.widgets.changed) fmt(labelFor(item), artifactDisplay('widget', item, '.yaml'));
-  for (const item of diff.widgets.new) fmt(LABELS.new, artifactDisplay('widget', item, '.yaml'));
-  for (const item of diff.scripts.changed) fmt(labelFor(item), artifactDisplay('script', item, '.js'));
-  for (const item of diff.scripts.new) fmt(LABELS.new, artifactDisplay('script', item, '.js'));
-  if (diff.themeChanged) fmt(LABELS.modified, 'theme - theme.yaml');
-  for (const item of diff.translations.changed) fmt(labelFor(item), artifactDisplay('translation', item, '.yaml'));
-  for (const item of diff.translations.new) fmt(LABELS.new, artifactDisplay('translation', item, '.yaml'));
+  addGroup('screens', diff.screens.changed, diff.screens.new, 'screen', '.yaml');
+  addGroup('widgets', diff.widgets.changed, diff.widgets.new, 'widget', '.yaml');
+  addGroup('scripts', diff.scripts.changed, diff.scripts.new, 'script', '.js');
+  addGroup('translations', diff.translations.changed, diff.translations.new, 'translation', '.yaml');
+
+  if (diff.themeChanged) {
+    lines.push('  theme:');
+    lines.push(`${LINE_PREFIX}${pad(LABELS.modified)}theme.yaml`);
+  }
 
   return lines;
 }

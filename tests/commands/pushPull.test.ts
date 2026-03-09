@@ -504,8 +504,8 @@ describe('push/pull integration (commands)', () => {
       messages.some(
         (m) =>
           typeof m === 'string' &&
-          m.includes('+ create') &&
-          m.includes('screen'),
+          m.includes('✨ new') &&
+          m.includes('Home.yaml'),
       ),
     ).toBe(true);
     expect(
@@ -567,14 +567,8 @@ describe('push/pull integration (commands)', () => {
       messages.some(
         (m) =>
           typeof m === 'string' &&
-          m.includes('modified  manifest - .manifest.json'),
-      ),
-    ).toBe(true);
-    expect(
-      messages.some(
-        (m) =>
-          typeof m === 'string' &&
-          m.includes('removed  screen - Stale.yaml'),
+          m.includes('removed') &&
+          m.includes('Stale.yaml'),
       ),
     ).toBe(true);
     expect(

@@ -40,6 +40,64 @@ const PULL_LABELS = {
   removed: '🗑️  removed',
 } as const;
 
+const PULL_LABEL_WIDTH = 14;
+
+/** Format pull changes as grouped lines with icons. Used for both dry run and actual run. */
+function formatPullSummary(changes: PullSummary['changes']): string[] {
+  const lines: string[] = [];
+  const byKind = new Map<string, { operation: PullSummary['changes'][number]['operation']; file: string }[]>();
+  for (const c of changes) {
+    if (c.kind === 'manifest') continue; // Manifest is a generated file, never show in summary
+    const list = byKind.get(c.kind) ?? [];
+    list.push({ operation: c.operation, file: c.file });
+    byKind.set(c.kind, list);
+  }
+  const kindToSection: Record<string, string> = {
+    screen: 'screens',
+    widget: 'widgets',
+    script: 'scripts',
+    translation: 'translations',
+    theme: 'theme',
+  };
+  const kindOrder = ['screen', 'widget', 'script', 'translation', 'theme'];
+  const processed = new Set<string>();
+  const pad = (label: string) => label.padEnd(PULL_LABEL_WIDTH);
+  const sortByOp = (list: { operation: string; file: string }[]) =>
+    [...list].sort((a, b) => {
+      const order = { delete: 0, update: 1, create: 2 };
+      return (order[a.operation as keyof typeof order] ?? 3) - (order[b.operation as keyof typeof order] ?? 3);
+    });
+  for (const kind of kindOrder) {
+    const list = byKind.get(kind);
+    if (!list?.length) continue;
+    processed.add(kind);
+    lines.push(`  ${kindToSection[kind] ?? kind}:`);
+    for (const c of sortByOp(list)) {
+      const label =
+        c.operation === 'create'
+          ? PULL_LABELS.new
+          : c.operation === 'update'
+            ? PULL_LABELS.modified
+            : PULL_LABELS.removed;
+      lines.push(`        ${pad(label)}${path.basename(c.file)}`);
+    }
+  }
+  for (const [kind, list] of byKind) {
+    if (processed.has(kind) || kind === 'manifest') continue;
+    lines.push(`  ${kindToSection[kind] ?? kind}:`);
+    for (const c of sortByOp(list)) {
+      const label =
+        c.operation === 'create'
+          ? PULL_LABELS.new
+          : c.operation === 'update'
+            ? PULL_LABELS.modified
+            : PULL_LABELS.removed;
+      lines.push(`        ${pad(label)}${path.basename(c.file)}`);
+    }
+  }
+  return lines;
+}
+
 function printPullDryRun(summary: PullSummary): void {
   const { appName, environment, changes } = summary;
 
@@ -57,21 +115,14 @@ function printPullDryRun(summary: PullSummary): void {
   }
 
   // eslint-disable-next-line no-console
-  console.log('The following changes would be applied:');
-  for (const change of changes) {
-    const baseLabel =
-      change.operation === 'create'
-        ? '+ create'
-        : change.operation === 'update'
-          ? '~ overwrite'
-          : '- delete';
+  console.log('The following changes would be applied:\n');
+  for (const line of formatPullSummary(changes)) {
     // eslint-disable-next-line no-console
-    console.log(`  ${baseLabel}  ${change.kind} ${change.file}`);
+    console.log(line);
   }
-
   // eslint-disable-next-line no-console
   console.log(
-    'Dry run only: no files were changed. Run `ensemble pull` without `--dry-run` to apply these changes.',
+    '\nDry run only: no files were changed. Run `ensemble pull` without `--dry-run` to apply these changes.',
   );
 }
 
@@ -238,15 +289,8 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
 
   if (pullSummary.changes.length > 0 && !options.dryRun) {
     // eslint-disable-next-line no-console
-    console.log('Changes to be pulled:');
-    for (const change of pullSummary.changes) {
-      const baseLabel =
-        change.operation === 'create'
-          ? PULL_LABELS.new
-          : change.operation === 'update'
-            ? PULL_LABELS.modified
-            : PULL_LABELS.removed;
-      const line = `        ${baseLabel}  ${change.kind} - ${path.basename(change.file)}`;
+    console.log('Changes to be pulled:\n');
+    for (const line of formatPullSummary(pullSummary.changes)) {
       // eslint-disable-next-line no-console
       console.log(line);
     }
