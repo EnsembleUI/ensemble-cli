@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
-import https from 'node:https';
+import { exec } from 'node:child_process';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const pkg = require('../package.json') as { version: string };
@@ -105,47 +105,23 @@ program
   });
 
 function checkForUpdates(): void {
-  const req = https.request(
-    'https://npm.pkg.github.com/@ensembleui%2Fcli',
-    {
-      method: 'GET',
-      headers: {
-        Accept: 'application/vnd.npm.install-v1+json',
-      },
-    },
-    (res) => {
-      if (res.statusCode !== 200) {
-        res.resume();
+  // Use the user's existing npm + auth config to query GitHub Packages.
+  exec(
+    'npm view @ensembleui/cli version --registry=https://npm.pkg.github.com',
+    (error, stdout) => {
+      if (error) {
         return;
       }
+      const latest = stdout.trim();
+      if (!latest || latest === LOCAL_VERSION) return;
 
-      let body = '';
-      res.on('data', (chunk) => {
-        body += chunk;
-      });
-      res.on('end', () => {
-        try {
-          const data = JSON.parse(body) as { 'dist-tags'?: { latest?: string } };
-          const latest = data['dist-tags']?.latest;
-          if (!latest || latest === LOCAL_VERSION) return;
-
-          // eslint-disable-next-line no-console
-          console.warn(
-            `A new version of @ensembleui/cli is available (${LOCAL_VERSION} → ${latest}).\n` +
-              `Run "ensemble update" to upgrade.`,
-          );
-        } catch {
-          // ignore JSON/parse errors
-        }
-      });
+      // eslint-disable-next-line no-console
+      console.warn(
+        `A new version of @ensembleui/cli is available (${LOCAL_VERSION} → ${latest}).\n` +
+          `Run "ensemble update" to upgrade.`,
+      );
     },
   );
-
-  req.on('error', () => {
-    // Silently ignore network errors; CLI behavior should not depend on this check.
-  });
-
-  req.end();
 }
 
 checkForUpdates();
