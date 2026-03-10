@@ -6,6 +6,16 @@ CLI for logging in, initializing, and pushing app definitions to the Ensemble cl
 
 ### From GitHub Packages (recommended)
 
+#### Option 1: One-shot install script
+
+Run this command once (it will prompt for a GitHub token with `read:packages`):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/EnsembleUI/ensemble-cli/main/scripts/install-ensemble-cli.sh | bash
+```
+
+#### Option 2: Manual setup
+
 1. **Configure npm to use GitHub Packages for `@ensembleui`:**
 
 Add this to your `~/.npmrc` (global) or project `.npmrc`:
