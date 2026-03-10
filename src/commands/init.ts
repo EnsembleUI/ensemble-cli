@@ -5,11 +5,12 @@ import prompts from 'prompts';
 import { checkAppAccess, fetchRootScreenName } from '../cloud/firestoreClient.js';
 import { getValidAuthSession } from '../auth/session.js';
 import { upsertAppAlias } from '../config/projectConfig.js';
+import { ui } from '../core/ui.js';
 
 export async function initCommand(): Promise<void> {
   const session = await getValidAuthSession();
   if (!session.ok) {
-    console.error(session.message);
+    ui.error(session.message);
     return;
   }
   const { idToken, userId } = session;
@@ -38,7 +39,7 @@ export async function initCommand(): Promise<void> {
 
   const access = await checkAppAccess(appId, idToken, userId);
   if (!access.ok) {
-    console.error(access.message);
+    ui.error(access.message);
     return;
   }
 
@@ -72,13 +73,13 @@ export async function initCommand(): Promise<void> {
         JSON.stringify(manifest, null, 2) + '\n',
         'utf8',
       );
-      // eslint-disable-next-line no-console
-      console.log(
-        `Updated .manifest.json: homeScreenName set to "${appHome}".`,
-      );
+      ui.note(`Updated .manifest.json: homeScreenName set to "${appHome}".`);
     }
   }
-  console.log(
-    `Initialized Ensemble config and linked alias "${alias}" to app "${appId}". You can now run \`ensemble push --app ${alias}\` or \`ensemble pull --app ${alias}\``
+  ui.success(
+    `Initialized Ensemble config and linked alias "${alias}" to app "${appId}".`,
+  );
+  ui.note(
+    `You can now run \`ensemble push --app ${alias}\` or \`ensemble pull --app ${alias}\`.`,
   );
 }

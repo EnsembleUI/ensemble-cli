@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import prompts from 'prompts';
+import pc from 'picocolors';
 
 import {
   checkAppAccess,
@@ -20,6 +21,7 @@ import { safeFileName } from '../core/fileNames.js';
 import { type RootManifest, buildAndWriteManifest } from '../core/manifest.js';
 import { writeVerboseJson } from '../core/debugFiles.js';
 import { ARTIFACT_FS_CONFIG, computePullPlan, type PullSummary } from '../core/sync.js';
+import { ui } from '../core/ui.js';
 
 export interface PullOptions {
   verbose?: boolean;
@@ -34,13 +36,14 @@ async function ensureDir(dir: string): Promise<void> {
   await fs.mkdir(dir, { recursive: true });
 }
 
-const PULL_LABELS = {
-  new: '✨ new',
+const PULL_LABEL_TEXT = {
+  new: '🍀 new',
   modified: '✏️  modified',
-  removed: '🗑️  removed',
+  removed: '❌  removed',
 } as const;
 
 const PULL_LABEL_WIDTH = 14;
+const PULL_LINE_PREFIX = '        ';
 
 /** Format pull changes as grouped lines with icons. Used for both dry run and actual run. */
 function formatPullSummary(changes: PullSummary['changes']): string[] {
@@ -62,6 +65,8 @@ function formatPullSummary(changes: PullSummary['changes']): string[] {
   const kindOrder = ['screen', 'widget', 'script', 'translation', 'theme'];
   const processed = new Set<string>();
   const pad = (label: string) => label.padEnd(PULL_LABEL_WIDTH);
+  const formatLabel = (raw: string, color: (value: string) => string) =>
+    color(pad(raw));
   const sortByOp = (list: { operation: string; file: string }[]) =>
     [...list].sort((a, b) => {
       const order = { delete: 0, update: 1, create: 2 };
@@ -71,28 +76,28 @@ function formatPullSummary(changes: PullSummary['changes']): string[] {
     const list = byKind.get(kind);
     if (!list?.length) continue;
     processed.add(kind);
-    lines.push(`  ${kindToSection[kind] ?? kind}:`);
+    lines.push(pc.cyan(pc.bold(`  ${kindToSection[kind] ?? kind}:`)));
     for (const c of sortByOp(list)) {
       const label =
         c.operation === 'create'
-          ? PULL_LABELS.new
+          ? formatLabel(PULL_LABEL_TEXT.new, pc.green)
           : c.operation === 'update'
-            ? PULL_LABELS.modified
-            : PULL_LABELS.removed;
-      lines.push(`        ${pad(label)}${path.basename(c.file)}`);
+            ? formatLabel(PULL_LABEL_TEXT.modified, pc.yellow)
+            : formatLabel(PULL_LABEL_TEXT.removed, pc.red);
+      lines.push(`${PULL_LINE_PREFIX}${label} ${path.basename(c.file)}`);
     }
   }
   for (const [kind, list] of byKind) {
     if (processed.has(kind) || kind === 'manifest') continue;
-    lines.push(`  ${kindToSection[kind] ?? kind}:`);
+    lines.push(pc.cyan(pc.bold(`  ${kindToSection[kind] ?? kind}:`)));
     for (const c of sortByOp(list)) {
       const label =
         c.operation === 'create'
-          ? PULL_LABELS.new
+          ? formatLabel(PULL_LABEL_TEXT.new, pc.green)
           : c.operation === 'update'
-            ? PULL_LABELS.modified
-            : PULL_LABELS.removed;
-      lines.push(`        ${pad(label)}${path.basename(c.file)}`);
+            ? formatLabel(PULL_LABEL_TEXT.modified, pc.yellow)
+            : formatLabel(PULL_LABEL_TEXT.removed, pc.red);
+      lines.push(`${PULL_LINE_PREFIX}${label} ${path.basename(c.file)}`);
     }
   }
   return lines;
@@ -101,27 +106,22 @@ function formatPullSummary(changes: PullSummary['changes']): string[] {
 function printPullDryRun(summary: PullSummary): void {
   const { appName, environment, changes } = summary;
 
-  // eslint-disable-next-line no-console
-  console.log(`Pull plan for ${appName} (${environment})`);
+  ui.heading(`Pull plan for ${appName} (${environment})`);
 
   if (changes.length === 0) {
-    // eslint-disable-next-line no-console
-    console.log('No changes. Local files are already up to date with the cloud app.');
-    // eslint-disable-next-line no-console
-    console.log(
+    ui.info('No changes. Local files are already up to date with the cloud app.');
+    ui.note(
       'Dry run only: no files were changed. Run `ensemble pull` without `--dry-run` when you are ready to apply remote changes.',
     );
     return;
   }
 
-  // eslint-disable-next-line no-console
-  console.log('The following changes would be applied:\n');
+  ui.note('The following changes would be applied:\n');
   for (const line of formatPullSummary(changes)) {
     // eslint-disable-next-line no-console
     console.log(line);
   }
-  // eslint-disable-next-line no-console
-  console.log(
+  ui.note(
     '\nDry run only: no files were changed. Run `ensemble pull` without `--dry-run` to apply these changes.',
   );
 }
@@ -131,23 +131,16 @@ function printPullSummary(summary: PullSummary): void {
   const total = created + updated + deleted;
 
   if (total === 0) {
-    // eslint-disable-next-line no-console
-    console.log(
+    ui.info(
       `Pulled app ${appName} (${environment}): no file changes were applied (metadata may have been updated).`,
     );
   } else {
-    // eslint-disable-next-line no-console
-    console.log(
+    ui.success(
       `Pulled app ${appName} (${environment}): applied ${total} change${
         total === 1 ? '' : 's'
       } (created: ${created}, updated: ${updated}, deleted: ${deleted}, skipped: ${skipped}).`,
     );
   }
-
-  // eslint-disable-next-line no-console
-  console.log(
-    'Next steps: Review the updated files in your editor or version control, then run your tests.',
-  );
 }
 
 export async function pullCommand(options: PullOptions = {}): Promise<void> {
@@ -163,8 +156,7 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
 
   const session = await getValidAuthSession();
   if (!session.ok) {
-    // eslint-disable-next-line no-console
-    console.error(session.message);
+    ui.error(session.message);
     process.exitCode = 1;
     return;
   }
@@ -231,36 +223,31 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
   );
 
   if (!access.ok) {
-    // eslint-disable-next-line no-console
-    console.error(access.message);
+    ui.error(access.message);
     process.exitCode = 1;
     return;
   }
 
   if (cloudAppResult instanceof Error) {
     const err = cloudAppResult;
-    // eslint-disable-next-line no-console
-    console.error('Failed to fetch app from cloud.');
+    ui.error('Failed to fetch app from cloud.');
     if (err instanceof FirestoreClientError) {
       // eslint-disable-next-line no-console
-      console.error(`${err.message} (${err.code})`);
+      ui.error(`${err.message} (${err.code})`);
       if (err.hint) {
-        // eslint-disable-next-line no-console
-        console.error(err.hint);
+        ui.note(err.hint);
       }
     } else {
-      // eslint-disable-next-line no-console
-      console.error(err instanceof Error ? err.message : String(err));
+      ui.error(err instanceof Error ? err.message : String(err));
     }
     if (!(err instanceof FirestoreClientError)) {
       // eslint-disable-next-line no-console
-      console.error('Check your internet connection or proxy settings, then try again.');
+      ui.error('Check your internet connection or proxy settings, then try again.');
     } else if (err.code === 'NETWORK_UNAVAILABLE') {
       // eslint-disable-next-line no-console
-      console.error('Check your internet connection or proxy settings, then try again.');
+      ui.error('Check your internet connection or proxy settings, then try again.');
     } else if (err.code === 'AUTH_EXPIRED') {
-      // eslint-disable-next-line no-console
-      console.error('Run `ensemble login` and try again.');
+      ui.error('Run `ensemble login` and try again.');
     }
     process.exitCode = 1;
     return;
@@ -281,15 +268,14 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
   });
 
   if (plan.allArtifactsMatch && plan.manifestMatch) {
-    console.log('Up to date. Nothing to pull.');
+    ui.info('Up to date. Nothing to pull.');
     return;
   }
 
   const pullSummary: PullSummary = plan.summary;
 
   if (pullSummary.changes.length > 0 && !options.dryRun) {
-    // eslint-disable-next-line no-console
-    console.log('Changes to be pulled:\n');
+    ui.heading('Changes to be pulled');
     for (const line of formatPullSummary(pullSummary.changes)) {
       // eslint-disable-next-line no-console
       console.log(line);
@@ -302,8 +288,7 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
   }
 
   if (pullSummary.updated > 0 || pullSummary.deleted > 0) {
-    // eslint-disable-next-line no-console
-    console.log(
+    ui.note(
       'If you are unsure, cancel this pull and re-run with `--dry-run` to inspect the plan, or back up your local changes first.',
     );
   }
@@ -320,8 +305,7 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
   }
 
   if (!confirmed) {
-    // eslint-disable-next-line no-console
-    console.log('Pull cancelled.');
+    ui.warn('Pull cancelled.');
     process.exitCode = 130;
     return;
   }

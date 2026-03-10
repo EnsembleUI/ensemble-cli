@@ -3,6 +3,7 @@ import path from 'path';
 import prompts from 'prompts';
 
 import { loadProjectConfig } from '../config/projectConfig.js';
+import { ui } from '../core/ui.js';
 
 export type AddKind = 'screen' | 'widget' | 'script' | 'translation';
 
@@ -212,8 +213,7 @@ export async function addCommand(kindArg?: AddKind, rawNameArg?: string): Promis
       ],
     });
     if (!selected) {
-      // eslint-disable-next-line no-console
-      console.log('Add cancelled.');
+      ui.warn('Add cancelled.');
       return;
     }
     kind = selected as AddKind;
@@ -231,8 +231,7 @@ export async function addCommand(kindArg?: AddKind, rawNameArg?: string): Promis
       validate: (v: string) => (v && v.trim().length > 0 ? true : 'Name is required'),
     });
     if (!name) {
-      // eslint-disable-next-line no-console
-      console.log('Add cancelled.');
+      ui.warn('Add cancelled.');
       return;
     }
     rawName = name as string;
@@ -303,8 +302,7 @@ export async function addCommand(kindArg?: AddKind, rawNameArg?: string): Promis
       ? await maybeSetHomeScreenName(projectRoot, name, interactive)
       : false;
 
-  // eslint-disable-next-line no-console
-  console.log(
+  ui.success(
     `Created ${kind} "${name}" at ${path.relative(
       projectRoot,
       filePath,

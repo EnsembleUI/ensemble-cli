@@ -14,6 +14,7 @@ import { addCommand } from './commands/add.js';
 import { pullCommand } from './commands/pull.js';
 import { updateCommand } from './commands/update.js';
 import { printCliError, resolveDebugFlag } from './core/cliError.js';
+import { ui } from './core/ui.js';
 
 const program = new Command();
 
@@ -115,11 +116,10 @@ function checkForUpdates(): void {
       const latest = stdout.trim();
       if (!latest || latest === LOCAL_VERSION) return;
 
-      // eslint-disable-next-line no-console
-      console.warn(
-        `A new version of @ensembleui/cli is available (${LOCAL_VERSION} → ${latest}).\n` +
-          `Run "ensemble update" to upgrade.`,
+      ui.warn(
+        `A new version of @ensembleui/cli is available (${LOCAL_VERSION} → ${latest}).`,
       );
+      ui.note('Run "ensemble update" to upgrade.');
     },
   );
 }

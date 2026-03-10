@@ -21,6 +21,7 @@ import { withSpinner } from '../lib/spinner.js';
 import { writeVerboseJson } from '../core/debugFiles.js';
 import { computePushPlan, type PushSummary, type PushCounts } from '../core/sync.js';
 import { buildAndWriteManifest } from '../core/manifest.js';
+import { ui } from '../core/ui.js';
 
 export interface PushOptions {
   verbose?: boolean;
@@ -38,7 +39,7 @@ function printPushSummary(summary: PushSummary, options: { verbose?: boolean; is
   const totalChanges = counts.created + counts.updated + counts.deleted;
 
   if (options.isNoop || totalChanges === 0) {
-    console.log(
+    ui.info(
       `Pushed app "${appName}" to environment "${environment}" (no changes; already up to date).`,
     );
     return;
@@ -49,9 +50,7 @@ function printPushSummary(summary: PushSummary, options: { verbose?: boolean; is
   if (counts.updated > 0) parts.push(`${counts.updated} updated`);
   if (counts.deleted > 0) parts.push(`${counts.deleted} deleted`);
 
-  console.log(
-    `Pushed app "${appName}" to environment "${environment}" (${parts.join(', ')}).`,
-  );
+  ui.success(`Pushed app "${appName}" to environment "${environment}" (${parts.join(', ')}).`);
 
   if (options.verbose) {
     const entries: [string, PushCounts][] = [
@@ -64,6 +63,7 @@ function printPushSummary(summary: PushSummary, options: { verbose?: boolean; is
 
     for (const [kind, c] of entries) {
       if (c.created === 0 && c.updated === 0 && c.deleted === 0) continue;
+      // eslint-disable-next-line no-console
       console.log(
         `  ${kind}: ${c.created} created, ${c.updated} updated, ${c.deleted} deleted`,
       );
@@ -72,11 +72,13 @@ function printPushSummary(summary: PushSummary, options: { verbose?: boolean; is
 }
 
 function printPushDryRun(diff: BundleDiff): void {
-  console.log('Push dry run – the following changes would be applied:\n');
+  ui.heading('Push dry run');
+  ui.note('The following changes would be applied:');
   for (const line of formatDiffSummary(diff)) {
+    // eslint-disable-next-line no-console
     console.log(line);
   }
-  console.log('\nRun `ensemble push` without `--dry-run` to apply these changes.');
+  ui.note('\nRun `ensemble push` without `--dry-run` to apply these changes.');
 }
 
 async function readDefaultLanguage(root: string): Promise<string | undefined> {
@@ -306,7 +308,7 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
       summary.counts.created + summary.counts.updated + summary.counts.deleted;
 
     if (changedCount === 0) {
-      console.log('Up to date. Nothing to push.');
+      ui.info('Up to date. Nothing to push.');
       return;
     }
 
@@ -320,8 +322,9 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
       return;
     }
 
-    console.log('Changes to be pushed:');
+    ui.heading('Changes to be pushed');
     for (const line of formatDiffSummary(plan.diff)) {
+      // eslint-disable-next-line no-console
       console.log(line);
     }
 
@@ -336,7 +339,7 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
 
     if (!confirmed) {
       if (!isInteractive) {
-        console.error(
+        ui.error(
           'Refusing to run push non-interactively without --yes. Re-run with --dry-run to inspect changes.',
         );
         process.exitCode = 1;
@@ -358,13 +361,11 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
       });
       confirmed = proceed === true;
     } else if (hasDeletes || largeChangeSet) {
-      console.log(
-        'Proceeding without interactive confirmation because --yes was provided.',
-      );
+      ui.note('Proceeding without interactive confirmation because --yes was provided.');
     }
 
     if (!confirmed) {
-      console.log('Push cancelled.');
+      ui.warn('Push cancelled.');
       process.exitCode = 130;
       return;
     }
@@ -384,11 +385,11 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
         } catch (manifestErr) {
           if (verbose) {
             // eslint-disable-next-line no-console
-            console.error(
-              'Push succeeded, but failed to refresh .manifest.json. You can run "ensemble pull" later to regenerate it.',
-            );
+          ui.warn(
+            'Push succeeded, but failed to refresh .manifest.json. You can run "ensemble pull" later to regenerate it.',
+          );
             // eslint-disable-next-line no-console
-            console.error(
+            ui.note(
               manifestErr instanceof Error ? manifestErr.message : String(manifestErr),
             );
           }

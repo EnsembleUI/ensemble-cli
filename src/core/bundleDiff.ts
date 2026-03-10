@@ -1,4 +1,5 @@
 import type { CloudApp } from '../cloud/firestoreClient.js';
+import pc from 'picocolors';
 import type {
   ApplicationDTO,
   ScreenDTO,
@@ -121,19 +122,21 @@ function artifactFileName(item: ArtifactDisplay, defaultExt: string): string {
   return `${item.name}${defaultExt}`;
 }
 
-const LABELS = {
-  new: '✨ new',
-  modified: '✏️  modified',
-  removed: '🗑️  removed',
-} as const;
-
 const LINE_PREFIX = '        ';
 const LABEL_WIDTH = 14;
+
+const LABEL_TEXT = {
+  new: '🍀 new',
+  modified: '✏️  modified',
+  removed: '❌  removed',
+} as const;
 
 /** Format diff as grouped lines with icons (new/modified/removed). Used for both dry run and actual run. */
 export function formatDiffSummary(diff: BundleDiff): string[] {
   const lines: string[] = [];
   const pad = (label: string) => label.padEnd(LABEL_WIDTH);
+  const formatLabel = (raw: string, color: (value: string) => string) =>
+    color(pad(raw));
 
   const addGroup = (
     title: string,
@@ -143,18 +146,21 @@ export function formatDiffSummary(diff: BundleDiff): string[] {
     ext: string,
   ) => {
     if (changed.length === 0 && added.length === 0) return;
-    lines.push(`  ${title}:`);
+    lines.push(pc.cyan(pc.bold(`  ${title}:`)));
     // Group by status: removed first, then modified, then new
     const removed = changed.filter((i) => i.isArchived);
     const modified = changed.filter((i) => !i.isArchived);
     for (const item of removed) {
-      lines.push(`${LINE_PREFIX}${pad(LABELS.removed)}${artifactFileName(item, ext)}`);
+      const label = formatLabel(LABEL_TEXT.removed, pc.red);
+      lines.push(`${LINE_PREFIX}${label} ${artifactFileName(item, ext)}`);
     }
     for (const item of modified) {
-      lines.push(`${LINE_PREFIX}${pad(LABELS.modified)}${artifactFileName(item, ext)}`);
+      const label = formatLabel(LABEL_TEXT.modified, pc.yellow);
+      lines.push(`${LINE_PREFIX}${label} ${artifactFileName(item, ext)}`);
     }
     for (const item of added) {
-      lines.push(`${LINE_PREFIX}${pad(LABELS.new)}${artifactFileName(item, ext)}`);
+      const label = formatLabel(LABEL_TEXT.new, pc.green);
+      lines.push(`${LINE_PREFIX}${label} ${artifactFileName(item, ext)}`);
     }
   };
 
@@ -164,8 +170,9 @@ export function formatDiffSummary(diff: BundleDiff): string[] {
   addGroup('translations', diff.translations.changed, diff.translations.new, 'translation', '.yaml');
 
   if (diff.themeChanged) {
-    lines.push('  theme:');
-    lines.push(`${LINE_PREFIX}${pad(LABELS.modified)}theme.yaml`);
+    lines.push(pc.cyan(pc.bold('  theme:')));
+    const label = formatLabel(LABEL_TEXT.modified, pc.yellow);
+    lines.push(`${LINE_PREFIX}${label} theme.yaml`);
   }
 
   return lines;
