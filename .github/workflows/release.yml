@@ -61,6 +61,9 @@ jobs:
         env:
           ENSEMBLE_FIREBASE_API_KEY: ${{ secrets.ENSEMBLE_FIREBASE_API_KEY }}
 
+      - name: Build CLI (create dist/)
+        run: npm run build
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
