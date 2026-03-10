@@ -275,7 +275,7 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
   const pullSummary: PullSummary = plan.summary;
 
   if (pullSummary.changes.length > 0 && !options.dryRun) {
-    ui.heading('Changes to be pulled');
+    ui.heading('Changes to be pulled:');
     for (const line of formatPullSummary(pullSummary.changes)) {
       // eslint-disable-next-line no-console
       console.log(line);

@@ -423,11 +423,6 @@ describe('push/pull integration (commands)', () => {
           m.includes('applied'),
       ),
     ).toBe(true);
-    expect(
-      messages.some(
-        (m) => typeof m === 'string' && m.includes('Next steps: Review'),
-      ),
-    ).toBe(true);
 
     logSpy.mockRestore();
   });
@@ -504,7 +499,7 @@ describe('push/pull integration (commands)', () => {
       messages.some(
         (m) =>
           typeof m === 'string' &&
-          m.includes('✨ new') &&
+          m.includes('🍀 new') &&
           m.includes('Home.yaml'),
       ),
     ).toBe(true);

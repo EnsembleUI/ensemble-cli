@@ -50,8 +50,15 @@ export const ui = {
             ? pc.yellow(message)
             : pc.red(message);
 
-    // eslint-disable-next-line no-console
-    console.log(`${symbol} ${colored}`);
+    const line = `${symbol} ${colored}`;
+
+    if (kind === 'warn' || kind === 'error') {
+      // eslint-disable-next-line no-console
+      console.error(line);
+    } else {
+      // eslint-disable-next-line no-console
+      console.log(line);
+    }
   },
 };
 
