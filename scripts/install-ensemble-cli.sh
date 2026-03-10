@@ -64,6 +64,31 @@ if ! npm install -g @ensembleui/cli --force; then
   exit 1
 fi
 
+echo "Ensuring 'ensemble' is available on PATH..."
+PREFIX="$(npm prefix -g 2>/dev/null || true)"
+ROOT="$(npm root -g 2>/dev/null || true)"
+if [[ -z "$PREFIX" || -z "$ROOT" ]]; then
+  echo "Warning: Could not determine npm global prefix/root. If 'ensemble' is not found, open a new terminal."
+else
+  BIN_DIR="$PREFIX/bin"
+  TARGET="$BIN_DIR/ensemble"
+  SOURCE="$ROOT/@ensembleui/cli/dist/index.js"
+
+  if [[ ! -d "$BIN_DIR" ]]; then
+    mkdir -p "$BIN_DIR"
+  fi
+
+  if [[ ! -e "$TARGET" ]]; then
+    if [[ -e "$SOURCE" ]]; then
+      ln -sf "$SOURCE" "$TARGET"
+      chmod +x "$SOURCE" "$TARGET" 2>/dev/null || true
+    else
+      echo "Warning: Expected CLI entrypoint not found at '$SOURCE'."
+      echo "The package may have been published without 'dist/'."
+    fi
+  fi
+fi
+
 echo
 echo "Done. You can now run 'ensemble login', 'ensemble push', etc."
 
