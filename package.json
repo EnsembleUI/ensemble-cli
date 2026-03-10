@@ -1,6 +1,6 @@
 {
   "name": "@ensembleui/cli",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Ensemble CLI for logging in, initializing, and pushing/pulling app definitions to the cloud.",
   "bin": {
     "ensemble": "dist/index.js"
