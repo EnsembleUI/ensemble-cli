@@ -22,6 +22,17 @@ if [[ -z "${GH_TOKEN:-}" ]]; then
   exit 1
 fi
 
+echo "Cleaning up any existing global 'ensemble' installs..."
+# Best-effort uninstall; ignore errors
+npm uninstall -g @ensembleui/cli >/dev/null 2>&1 || true
+npm uninstall -g ensemble >/dev/null 2>&1 || true
+
+GLOBAL_BIN_DIR="$(npm bin -g 2>/dev/null || true)"
+if [[ -n "$GLOBAL_BIN_DIR" && -e "$GLOBAL_BIN_DIR/ensemble" ]]; then
+  echo "Found existing executable at '$GLOBAL_BIN_DIR/ensemble'. Removing it so we can install the new CLI..."
+  rm -f "$GLOBAL_BIN_DIR/ensemble"
+fi
+
 echo "Configuring npm registry for @ensembleui scope..."
 npm config set @ensembleui:registry https://npm.pkg.github.com >/dev/null
 npm config set //npm.pkg.github.com/:_authToken "$GH_TOKEN" >/dev/null
