@@ -46,11 +46,18 @@ jobs:
         run: |
           npm version "${{ inputs.bump }}" -m "chore(release): %s"
 
+      - name: Read new tag
+        id: tag
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "name=v$VERSION" >> "$GITHUB_OUTPUT"
+
       - name: Push commit and tags
         run: git push --follow-tags
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.tag.outputs.name }}
           generate_release_notes: true
 
