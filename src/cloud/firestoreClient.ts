@@ -13,8 +13,8 @@ import type {
 } from '../core/dto.js';
 import { EnsembleDocumentType } from '../core/dto.js';
 import { processWithConcurrency } from '../core/concurrency.js';
+import { getEnsembleFirebaseProject } from '../config/env.js';
 
-const DEFAULT_FIREBASE_PROJECT = 'ensemble-web-studio';
 const DEFAULT_FIRESTORE_CONCURRENCY = 15;
 
 export type FirestoreErrorCode =
@@ -407,7 +407,7 @@ export async function submitCliPush(
   payload: unknown,
   options?: FirestoreClientOptions,
 ): Promise<void> {
-  const project = process.env.ENSEMBLE_FIREBASE_PROJECT ?? DEFAULT_FIREBASE_PROJECT;
+  const project = getEnsembleFirebaseProject();
   assertValidPushPayload(payload);
   const p = payload as PushPayloadShape;
 
@@ -450,7 +450,7 @@ function encodeUpdatedBy(
     | undefined,
 ): FirestoreValue | undefined {
   if (!updatedBy) return undefined;
-  const project = process.env.ENSEMBLE_FIREBASE_PROJECT ?? DEFAULT_FIREBASE_PROJECT;
+  const project = getEnsembleFirebaseProject();
   return {
     referenceValue: `projects/${project}/databases/(default)/documents/users/${updatedBy.id}`,
   };
@@ -707,7 +707,7 @@ export async function checkAppAccess(
   userId: string,
   options?: FirestoreClientOptions,
 ): Promise<AppAccessResult> {
-  const project = process.env.ENSEMBLE_FIREBASE_PROJECT ?? DEFAULT_FIREBASE_PROJECT;
+  const project = getEnsembleFirebaseProject();
   const url = `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents/apps/${appId}`;
 
   try {
@@ -898,7 +898,7 @@ export async function fetchCloudApp(
   idToken: string,
   options?: FirestoreClientOptions,
 ): Promise<CloudApp> {
-  const project = process.env.ENSEMBLE_FIREBASE_PROJECT ?? DEFAULT_FIREBASE_PROJECT;
+  const project = getEnsembleFirebaseProject();
   const parentPath = `apps/${appId}`;
 
   const [appDoc, internalArtifacts, artifacts] = await Promise.all([
@@ -974,7 +974,7 @@ export async function fetchRootScreenName(
   idToken: string,
   options?: FirestoreClientOptions,
 ): Promise<string | undefined> {
-  const project = process.env.ENSEMBLE_FIREBASE_PROJECT ?? DEFAULT_FIREBASE_PROJECT;
+  const project = getEnsembleFirebaseProject();
   const parent = `projects/${project}/databases/(default)/documents/apps/${appId}`;
   const url = `https://firestore.googleapis.com/v1/${parent}:runQuery`;
 

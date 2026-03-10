@@ -8,6 +8,7 @@ import {
   getIdTokenExpiryMs,
   isTokenExpired,
 } from './token.js';
+import { getEnsembleFirebaseApiKey } from '../config/env.js';
 
 const DEFAULT_REFRESH_API_BASE = 'https://securetoken.googleapis.com/v1/token';
 
@@ -36,17 +37,13 @@ export type AuthSessionResult =
       message: string;
     };
 
-function getRefreshApiKey(): string | undefined {
-  return process.env.ENSEMBLE_FIREBASE_API_KEY;
-}
-
 async function refreshIdToken(refreshToken: string): Promise<{
   idToken: string;
   refreshToken: string;
   userId?: string;
   expiresAt?: number;
 }> {
-  const apiKey = getRefreshApiKey();
+  const apiKey = getEnsembleFirebaseApiKey();
   if (!apiKey) {
     throw new Error(
       'Missing Firebase API key for token refresh. Set ENSEMBLE_FIREBASE_API_KEY.'

@@ -35,6 +35,11 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Inject Ensemble environment config
+        run: npm run inject-env
+        env:
+          ENSEMBLE_FIREBASE_API_KEY: ${{ secrets.ENSEMBLE_FIREBASE_API_KEY }}
+
       - name: Run tests
         run: npm test
 
