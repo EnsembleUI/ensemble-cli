@@ -42,6 +42,7 @@ ensemble init
 ensemble push
 ensemble pull
 ensemble add
+ensemble update
 ```
 
 ### Development setup
@@ -73,6 +74,7 @@ To release a new version, go to GitHub → Actions → run the workflow **Releas
 | `ensemble push`   | Scan the app directory and push changes to the cloud        |
 | `ensemble pull`   | Pull artifacts from the cloud and overwrite local files     |
 | `ensemble add`    | Add a new screen, widget, script, or translation scaffold   |
+| `ensemble update` | Update the CLI to the latest version                        |
 
 ### Options
 
