@@ -25,6 +25,7 @@ export interface HistoryEntry {
   type: string;
   isRoot?: boolean;
   isArchived?: boolean;
+  defaultLocale?: boolean;
   updatedAt?: string;
   updatedBy?: { name: string; email?: string; id: string };
 }
@@ -217,13 +218,14 @@ export function computeBundleDiff(
   };
 }
 
-function buildHistoryEntry(cloud: ArtifactWithContent & { type?: string; updatedAt?: string; updatedBy?: object }): HistoryEntry {
+function buildHistoryEntry(cloud: ArtifactWithContent & { type?: string; updatedAt?: string; updatedBy?: object; defaultLocale?: boolean }): HistoryEntry {
   return {
     content: cloud.content,
     name: cloud.name,
     type: cloud.type ?? 'unknown',
     isRoot: (cloud as { isRoot?: boolean }).isRoot,
     isArchived: cloud.isArchived,
+    defaultLocale: (cloud as { defaultLocale?: boolean }).defaultLocale,
     updatedAt: cloud.updatedAt,
     updatedBy: cloud.updatedBy as HistoryEntry['updatedBy'],
   };

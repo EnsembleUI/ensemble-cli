@@ -230,6 +230,7 @@ type YamlArtifactPushOperation =
         type: string;
         isRoot?: boolean;
         isArchived?: boolean;
+        defaultLocale?: boolean;
         updatedAt?: string;
         updatedBy?: { name: string; email?: string; id: string };
       };
@@ -532,6 +533,10 @@ function encodeHistoryFields(history: UpdateHistory): FirestoreWriteFields {
   }
   if (typeof history.isArchived === 'boolean') {
     fields.isArchived = { booleanValue: history.isArchived };
+  }
+  const defaultLocale = (history as { defaultLocale?: boolean }).defaultLocale;
+  if (typeof defaultLocale === 'boolean') {
+    fields.defaultLocale = { booleanValue: defaultLocale };
   }
   if (history.updatedAt) {
     fields.updatedAt = { timestampValue: history.updatedAt };
