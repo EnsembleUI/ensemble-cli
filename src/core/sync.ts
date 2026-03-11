@@ -3,7 +3,7 @@ import type { ParsedAppFiles } from './appCollector.js';
 import type { ApplicationDTO, ArtifactProp } from './dto.js';
 import { ArtifactProps } from './dto.js';
 import type { BundleDiff } from './bundleDiff.js';
-import { computeBundleDiff } from './bundleDiff.js';
+import { computeBundleDiff, normalizeContentForCompare } from './bundleDiff.js';
 import { buildMergedBundle } from './buildDocuments.js';
 import type { RootManifest } from './manifest.js';
 import { buildManifestObject } from './manifest.js';
@@ -228,7 +228,10 @@ export function computePullPlan({
       if (expectedThemeContent === undefined) {
         themeMatch = localFiles.theme === undefined;
       } else {
-        themeMatch = localFiles.theme === expectedThemeContent;
+        themeMatch =
+          localFiles.theme !== undefined &&
+          normalizeContentForCompare(localFiles.theme) ===
+            normalizeContentForCompare(expectedThemeContent);
       }
       matchesByProp[prop] = themeMatch;
       continue;
@@ -257,7 +260,10 @@ export function computePullPlan({
         break;
       }
       const k = expectedKeys[i]!;
-      if (expected[k] !== actualMap[k]) {
+      if (
+        normalizeContentForCompare(expected[k] ?? '') !==
+        normalizeContentForCompare(actualMap[k] ?? '')
+      ) {
         equal = false;
         break;
       }
@@ -294,7 +300,14 @@ export function computePullPlan({
           ? cloudApp.theme.content ?? ''
           : undefined;
       const actualTheme = localFiles.theme;
-      if (expectedThemeContent === actualTheme) continue;
+      if (
+        expectedThemeContent === undefined
+          ? actualTheme === undefined
+          : actualTheme !== undefined &&
+            normalizeContentForCompare(actualTheme) ===
+              normalizeContentForCompare(expectedThemeContent)
+      )
+        continue;
       if (expectedThemeContent && !actualTheme) {
         createdCount += 1;
         changes.push({

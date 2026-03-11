@@ -189,6 +189,24 @@ export function buildDocumentsFromParsed(
 
 type UpdatedBy = { name: string; email?: string; id: string };
 
+/**
+ * Deduplicate cloud items by name. Prefer non-archived (pull skips archived when building expected).
+ * When both archived and active exist for same name, keep the non-archived one so push matches pull.
+ */
+function deduplicateCloudByName<
+  T extends { name: string; isArchived?: boolean },
+>(items: T[] | undefined): T[] {
+  if (!items?.length) return [];
+  const byName = new Map<string, T>();
+  for (const item of items) {
+    const existing = byName.get(item.name);
+    const itemIsActive = item.isArchived !== true;
+    const existingIsActive = existing && (existing as { isArchived?: boolean }).isArchived !== true;
+    if (!existing || itemIsActive || !existingIsActive) byName.set(item.name, item);
+  }
+  return [...byName.values()];
+}
+
 function mergeArtifacts<
   T extends {
     id: string;
@@ -273,25 +291,25 @@ export function buildMergedBundle(
   const now = new Date().toISOString();
 
   const screens = mergeArtifacts(
-    cloudApp.screens as ScreenDTO[] | undefined,
+    deduplicateCloudByName(cloudApp.screens as ScreenDTO[] | undefined),
     localApp.screens,
     now,
     updatedBy,
   ) as ScreenDTO[];
   const widgets = mergeArtifacts(
-    cloudApp.widgets as WidgetDTO[] | undefined,
+    deduplicateCloudByName(cloudApp.widgets as WidgetDTO[] | undefined),
     localApp.widgets,
     now,
     updatedBy,
   ) as WidgetDTO[];
   const scripts = mergeArtifacts(
-    cloudApp.scripts as ScriptDTO[] | undefined,
+    deduplicateCloudByName(cloudApp.scripts as ScriptDTO[] | undefined),
     localApp.scripts,
     now,
     updatedBy,
   ) as ScriptDTO[];
   const translations = mergeArtifacts(
-    cloudApp.translations as TranslationDTO[] | undefined,
+    deduplicateCloudByName(cloudApp.translations as TranslationDTO[] | undefined),
     localApp.translations,
     now,
     updatedBy,

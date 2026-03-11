@@ -20,7 +20,7 @@ import { getValidAuthSession } from '../auth/session.js';
 import { withSpinner } from '../lib/spinner.js';
 import { writeVerboseJson } from '../core/debugFiles.js';
 import { computePushPlan, type PushSummary, type PushCounts } from '../core/sync.js';
-import { buildAndWriteManifest } from '../core/manifest.js';
+import { buildAndWriteManifest, getCloudHomeScreenName } from '../core/manifest.js';
 import { ui } from '../core/ui.js';
 
 export interface PushOptions {
@@ -328,6 +328,24 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
       console.log(line);
     }
 
+    const appHome = appConfig.appHome as string | undefined;
+    const cloudHome = getCloudHomeScreenName(cloudApp);
+    const hasHomeConflict =
+      appHome && cloudHome && appHome !== cloudHome;
+    if (hasHomeConflict && process.stdout.isTTY && process.stdin.isTTY && !options.yes) {
+      const { proceed } = await prompts({
+        type: 'confirm',
+        name: 'proceed',
+        message: `Cloud has "${cloudHome}" as root. ensemble.config.json has appHome: "${appHome}". Pushing will set "${appHome}" as root. Continue?`,
+        initial: false,
+      });
+      if (!proceed) {
+        ui.warn('Push cancelled.');
+        process.exitCode = 130;
+        return;
+      }
+    }
+
     const manifestNeedsRefresh = hasManifestRelevantChanges(cloudApp, plan.diff);
 
     let confirmed = options.yes ?? false;
@@ -376,11 +394,14 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
       );
 
       if (manifestNeedsRefresh && bundle) {
-        // Only refresh manifest when artifact changes can affect its contents,
-        // and build it from the merged bundle we just pushed (no extra network call).
+        // Only refresh manifest when artifact changes can affect its contents.
+        // Use appHome from config (what we pushed), not cloud's root.
         try {
           await withSpinner('Refreshing local manifest...', async () => {
-            await buildAndWriteManifest(root, bundle as CloudApp);
+            await buildAndWriteManifest(root, bundle as CloudApp, {
+              appHomeFromConfig: appHome,
+              ...(appHome && { homeScreenNameOverride: appHome }),
+            });
           });
         } catch (manifestErr) {
           if (verbose) {

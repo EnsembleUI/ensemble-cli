@@ -75,6 +75,11 @@ export interface BundleDiff {
   translations: { changed: ArtifactWithContent[]; new: ArtifactWithContent[] };
 }
 
+/** Normalize content for comparison to avoid false diffs from line endings or trailing newlines. */
+export function normalizeContentForCompare(content: string): string {
+  return content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\n+$/, '');
+}
+
 function diffArtifacts(
   bundleItems: ArtifactWithContent[] | undefined,
   cloudItems: ArtifactWithContent[] | undefined,
@@ -94,7 +99,9 @@ function diffArtifacts(
   for (const bundle of bundleItems ?? []) {
     const cloud = cloudById.get(bundle.id) ?? cloudByName.get(bundle.name);
     if (cloud) {
-      const contentChanged = bundle.content !== (cloud as ArtifactWithContent).content;
+      const contentChanged =
+        normalizeContentForCompare(bundle.content) !==
+        normalizeContentForCompare((cloud as ArtifactWithContent).content);
       const archivedChanged =
         (bundle.isArchived ?? false) !== ((cloud as ArtifactWithContent).isArchived ?? false);
       const isRootChanged = bundle.isRoot !== (cloud as ArtifactWithContent).isRoot;
@@ -202,7 +209,9 @@ export function computeBundleDiff(
 
   const themeChanged =
     !!bundle.theme &&
-    (!cloudApp.theme || bundle.theme.content !== cloudApp.theme.content);
+    (!cloudApp.theme ||
+      normalizeContentForCompare(bundle.theme.content) !==
+        normalizeContentForCompare(cloudApp.theme.content));
 
   const translations = diffArtifacts(
     bundle.translations as ArtifactWithContent[] | undefined,

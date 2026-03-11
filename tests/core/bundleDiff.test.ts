@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { computeBundleDiff, buildPushPayload } from '../../src/core/bundleDiff.js';
+import {
+  computeBundleDiff,
+  buildPushPayload,
+  normalizeContentForCompare,
+} from '../../src/core/bundleDiff.js';
 import type { ApplicationDTO, ScreenDTO } from '../../src/core/dto.js';
 import { EnsembleDocumentType } from '../../src/core/dto.js';
 
@@ -96,6 +100,68 @@ describe('computeBundleDiff', () => {
     const diff = computeBundleDiff(bundle, cloud);
     expect(diff.screens.changed).toHaveLength(0);
     expect(diff.screens.new).toHaveLength(0);
+  });
+
+  it('reports no change when content differs only by trailing newline', () => {
+    const cloud: ApplicationDTO = {
+      id: 'app1',
+      name: 'App',
+      screens: [screen('s1', 'Home', 'content')],
+    };
+    const bundle: ApplicationDTO = {
+      id: 'app1',
+      name: 'App',
+      screens: [screen('s1', 'Home', 'content\n')],
+    };
+    const diff = computeBundleDiff(bundle, cloud);
+    expect(diff.screens.changed).toHaveLength(0);
+  });
+
+  it('reports no change when content differs only by line endings (CRLF vs LF)', () => {
+    const cloud: ApplicationDTO = {
+      id: 'app1',
+      name: 'App',
+      screens: [screen('s1', 'Home', 'line1\nline2\n')],
+    };
+    const bundle: ApplicationDTO = {
+      id: 'app1',
+      name: 'App',
+      screens: [screen('s1', 'Home', 'line1\r\nline2\r\n')],
+    };
+    const diff = computeBundleDiff(bundle, cloud);
+    expect(diff.screens.changed).toHaveLength(0);
+  });
+
+  it('reports no change when content differs only by multiple trailing newlines', () => {
+    const cloud: ApplicationDTO = {
+      id: 'app1',
+      name: 'App',
+      screens: [screen('s1', 'Home', 'foo\n\n')],
+    };
+    const bundle: ApplicationDTO = {
+      id: 'app1',
+      name: 'App',
+      screens: [screen('s1', 'Home', 'foo\n')],
+    };
+    const diff = computeBundleDiff(bundle, cloud);
+    expect(diff.screens.changed).toHaveLength(0);
+  });
+});
+
+describe('normalizeContentForCompare', () => {
+  it('normalizes CRLF to LF', () => {
+    expect(normalizeContentForCompare('a\r\nb')).toBe('a\nb');
+  });
+
+  it('strips trailing newlines', () => {
+    expect(normalizeContentForCompare('foo\n')).toBe('foo');
+    expect(normalizeContentForCompare('foo\n\n')).toBe('foo');
+  });
+
+  it('treats semantically equal content as equal', () => {
+    const a = 'View:\n  body: Text\n';
+    const b = 'View:\n  body: Text';
+    expect(normalizeContentForCompare(a)).toBe(normalizeContentForCompare(b));
   });
 });
 

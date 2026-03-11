@@ -261,4 +261,83 @@ describe('buildMergedBundle', () => {
     expect(merged.screens).toHaveLength(1);
     expect(merged.screens![0].isArchived).toBe(true);
   });
+
+  it('deduplicates cloud items by name, preferring non-archived (matches pull behavior)', () => {
+    const localScreen: ScreenDTO = {
+      id: 'screens/Home.yaml',
+      name: 'Home',
+      content: 'active content',
+      type: EnsembleDocumentType.Screen,
+    };
+    const cloudArchived: ScreenDTO = {
+      id: 'archived-id',
+      name: 'Home',
+      content: 'archived content',
+      type: EnsembleDocumentType.Screen,
+      isArchived: true,
+    };
+    const cloudActive: ScreenDTO = {
+      id: 'active-id',
+      name: 'Home',
+      content: 'active content',
+      type: EnsembleDocumentType.Screen,
+    };
+    const local: ApplicationDTO = {
+      id: 'app1',
+      name: 'App',
+      screens: [localScreen],
+      widgets: [],
+      scripts: [],
+    };
+    const cloud: CloudApp = {
+      id: 'app1',
+      name: 'App',
+      screens: [cloudArchived, cloudActive],
+      widgets: [],
+      scripts: [],
+    };
+    const merged = buildMergedBundle(local, cloud, { name: 'CLI', id: 'u1' });
+    expect(merged.screens).toHaveLength(1);
+    expect(merged.screens![0].id).toBe('active-id');
+    expect(merged.screens![0].content).toBe('active content');
+  });
+
+  it('keeps non-archived when archived comes last in cloud order', () => {
+    const localScreen: ScreenDTO = {
+      id: 'screens/Home.yaml',
+      name: 'Home',
+      content: 'active content',
+      type: EnsembleDocumentType.Screen,
+    };
+    const cloudActive: ScreenDTO = {
+      id: 'active-id',
+      name: 'Home',
+      content: 'active content',
+      type: EnsembleDocumentType.Screen,
+    };
+    const cloudArchived: ScreenDTO = {
+      id: 'archived-id',
+      name: 'Home',
+      content: 'archived content',
+      type: EnsembleDocumentType.Screen,
+      isArchived: true,
+    };
+    const local: ApplicationDTO = {
+      id: 'app1',
+      name: 'App',
+      screens: [localScreen],
+      widgets: [],
+      scripts: [],
+    };
+    const cloud: CloudApp = {
+      id: 'app1',
+      name: 'App',
+      screens: [cloudActive, cloudArchived],
+      widgets: [],
+      scripts: [],
+    };
+    const merged = buildMergedBundle(local, cloud, { name: 'CLI', id: 'u1' });
+    expect(merged.screens).toHaveLength(1);
+    expect(merged.screens![0].id).toBe('active-id');
+  });
 });

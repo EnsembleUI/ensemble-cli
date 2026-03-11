@@ -18,7 +18,12 @@ import { getValidAuthSession } from '../auth/session.js';
 import { withSpinner } from '../lib/spinner.js';
 import { processWithConcurrency } from '../core/concurrency.js';
 import { safeFileName } from '../core/fileNames.js';
-import { type RootManifest, buildAndWriteManifest } from '../core/manifest.js';
+import {
+  type RootManifest,
+  buildAndWriteManifest,
+  getCloudHomeScreenName,
+  type BuildManifestOptions,
+} from '../core/manifest.js';
 import { writeVerboseJson } from '../core/debugFiles.js';
 import { ARTIFACT_FS_CONFIG, computePullPlan, type PullSummary } from '../core/sync.js';
 import { ui } from '../core/ui.js';
@@ -310,6 +315,41 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
     return;
   }
 
+  const appHome = appConfig.appHome as string | undefined;
+  const cloudHome = getCloudHomeScreenName(cloudApp);
+  const existingHome = manifestExisting.homeScreenName;
+  const hasHomeConflict =
+    typeof existingHome === 'string' &&
+    cloudHome &&
+    appHome &&
+    cloudHome !== appHome;
+
+  let manifestOptions: BuildManifestOptions = {
+    appHomeFromConfig: appHome,
+  };
+  if (hasHomeConflict && process.stdout.isTTY && process.stdin.isTTY) {
+    const choices: { title: string; value: string }[] = [
+      { title: `Keep current (${existingHome})`, value: existingHome },
+      ...(cloudHome && cloudHome !== existingHome
+        ? [{ title: `Use cloud (${cloudHome})`, value: cloudHome }]
+        : []),
+      ...(appHome && appHome !== existingHome
+        ? [{ title: `Use config appHome (${appHome})`, value: appHome }]
+        : []),
+    ].filter((c, i, a) => a.findIndex((x) => x.value === c.value) === i);
+
+    const { homeChoice } = await prompts({
+      type: 'select',
+      name: 'homeChoice',
+      message: `homeScreenName conflict: .manifest has "${existingHome}", cloud has "${cloudHome ?? 'none'}"${appHome ? `, ensemble.config.json appHome is "${appHome}"` : ''}. Choose:`,
+      choices,
+      initial: 0,
+    });
+    if (homeChoice !== undefined) {
+      manifestOptions = { ...manifestOptions, homeScreenNameOverride: homeChoice };
+    }
+  }
+
   await withSpinner('Writing local files...', async () => {
     type WriteTask =
       | { op: 'write'; filePath: string; content: string }
@@ -390,7 +430,7 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
       }
     });
 
-    await buildAndWriteManifest(projectRoot, cloudApp);
+    await buildAndWriteManifest(projectRoot, cloudApp, manifestOptions);
   });
 
   printPullSummary(pullSummary);

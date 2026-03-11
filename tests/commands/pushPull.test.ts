@@ -427,6 +427,113 @@ describe('push/pull integration (commands)', () => {
     logSpy.mockRestore();
   });
 
+  it('pull then push with no local changes: push reports nothing to push (consistency)', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const cloudApp = {
+      id: 'app1',
+      name: 'App',
+      screens: [
+        {
+          id: 'screen-id-1',
+          name: 'Home',
+          content: 'home: content',
+          type: 'screen',
+          isRoot: true,
+        },
+      ] as unknown[],
+      widgets: [] as unknown[],
+      scripts: [] as unknown[],
+      translations: [
+        {
+          id: 'i18n_en',
+          name: 'en',
+          content: 'en: content',
+          type: 'i18n',
+          defaultLocale: true,
+        },
+      ] as unknown[],
+      theme: undefined,
+    };
+    (cloudModuleMock.fetchCloudApp as ReturnType<typeof vi.fn>).mockResolvedValue(
+      cloudApp,
+    );
+
+    await pullCommand({ verbose: false, yes: true });
+    const { submitCliPush } = cloudModuleMock as {
+      submitCliPush: ReturnType<typeof vi.fn>;
+    };
+    submitCliPush.mockClear();
+
+    await pushCommand({ verbose: false, yes: true });
+
+    expect(submitCliPush).not.toHaveBeenCalled();
+    const messages = logSpy.mock.calls.map((args) => args[0]);
+    expect(
+      messages.some(
+        (m) =>
+          typeof m === 'string' &&
+          m.includes('Up to date') &&
+          m.includes('Nothing to push'),
+      ),
+    ).toBe(true);
+
+    logSpy.mockRestore();
+  });
+
+  it('pull then push with no changes when cloud has duplicate names (archived + active)', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const activeContent = 'home: content';
+    const cloudApp = {
+      id: 'app1',
+      name: 'App',
+      screens: [
+        {
+          id: 'archived-id',
+          name: 'Home',
+          content: 'archived: old',
+          type: 'screen',
+          isRoot: false,
+          isArchived: true,
+        },
+        {
+          id: 'active-id',
+          name: 'Home',
+          content: activeContent,
+          type: 'screen',
+          isRoot: true,
+        },
+      ] as unknown[],
+      widgets: [] as unknown[],
+      scripts: [] as unknown[],
+      translations: [] as unknown[],
+      theme: undefined,
+    };
+    (cloudModuleMock.fetchCloudApp as ReturnType<typeof vi.fn>).mockResolvedValue(
+      cloudApp,
+    );
+
+    await pullCommand({ verbose: false, yes: true });
+    const { submitCliPush } = cloudModuleMock as {
+      submitCliPush: ReturnType<typeof vi.fn>;
+    };
+    submitCliPush.mockClear();
+
+    await pushCommand({ verbose: false, yes: true });
+
+    expect(submitCliPush).not.toHaveBeenCalled();
+    const messages = logSpy.mock.calls.map((args) => args[0]);
+    expect(
+      messages.some(
+        (m) =>
+          typeof m === 'string' &&
+          m.includes('Up to date') &&
+          m.includes('Nothing to push'),
+      ),
+    ).toBe(true);
+
+    logSpy.mockRestore();
+  });
+
   it('pull respects app options and does not overwrite disabled artifact kinds', async () => {
     // Disable screens in app options
     appOptionsRef.value = { screens: false };
