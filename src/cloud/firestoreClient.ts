@@ -13,6 +13,7 @@ import type {
   TranslationDTO,
 } from '../core/dto.js';
 import { EnsembleDocumentType } from '../core/dto.js';
+import { getArtifactConfig, type ArtifactProp } from '../core/artifacts.js';
 import { processWithConcurrency } from '../core/concurrency.js';
 import { getEnsembleFirebaseProject } from '../config/env.js';
 
@@ -77,7 +78,7 @@ export type FirestoreDebugEvent =
       kind: 'push_operation';
       appId: string;
       operation: 'create' | 'update';
-      artifactKind: 'screens' | 'widgets' | 'scripts' | 'actions' | 'translations' | 'theme';
+      artifactKind: ArtifactProp;
       documentId: string;
     };
 
@@ -465,32 +466,18 @@ function getDocId(docName: string): string {
   return docName.split('/').pop() ?? docName;
 }
 
-function artifactCollectionAndType(
-  kind: 'screens' | 'widgets' | 'scripts' | 'actions' | 'translations' | 'theme',
-): {
+function artifactCollectionAndType(kind: ArtifactProp): {
   collection: 'artifacts' | 'internal_artifacts';
   typeValue: string | null;
 } {
-  switch (kind) {
-    case 'widgets':
-      return { collection: 'internal_artifacts', typeValue: 'internal_widget' };
-    case 'scripts':
-      return { collection: 'internal_artifacts', typeValue: 'internal_script' };
-    case 'actions':
-      return { collection: 'internal_artifacts', typeValue: 'internal_action' };
-    case 'screens':
-      return { collection: 'artifacts', typeValue: 'screen' };
-    case 'translations':
-      return { collection: 'artifacts', typeValue: 'i18n' };
-    case 'theme':
-      return { collection: 'artifacts', typeValue: 'theme' };
-  }
+  const cfg = getArtifactConfig(kind);
+  return {
+    collection: cfg.firestoreCollection,
+    typeValue: cfg.firestoreType,
+  };
 }
 
-function encodeYamlDocumentFields(
-  kind: 'screens' | 'widgets' | 'scripts' | 'actions' | 'translations' | 'theme',
-  doc: CreateYamlOp['document'],
-): FirestoreWriteFields {
+function encodeYamlDocumentFields(kind: ArtifactProp, doc: CreateYamlOp['document']): FirestoreWriteFields {
   const { typeValue } = artifactCollectionAndType(kind);
   const fields: FirestoreWriteFields = {
     name: { stringValue: doc.name },
@@ -557,7 +544,7 @@ function encodeHistoryFields(history: UpdateHistory): FirestoreWriteFields {
 }
 
 function encodeUpdateFields(
-  kind: 'screens' | 'widgets' | 'scripts' | 'actions' | 'translations' | 'theme',
+  kind: ArtifactProp,
   updates: UpdateUpdates,
 ): { fields: FirestoreWriteFields; fieldPaths: string[] } {
   const { typeValue } = artifactCollectionAndType(kind);

@@ -1,7 +1,12 @@
 import type { CloudApp } from '../cloud/firestoreClient.js';
 import type { ParsedAppFiles } from './appCollector.js';
-import type { ApplicationDTO, ArtifactProp } from './dto.js';
-import { ArtifactProps } from './dto.js';
+import type { ApplicationDTO } from './dto.js';
+import {
+  ArtifactProps,
+  type ArtifactProp,
+  ARTIFACT_FS_CONFIG,
+  getArtifactConfig,
+} from './artifacts.js';
 import type { BundleDiff } from './bundleDiff.js';
 import { computeBundleDiff, normalizeContentForCompare } from './bundleDiff.js';
 import { buildMergedBundle } from './buildDocuments.js';
@@ -185,21 +190,6 @@ export interface PullPlan {
   readonly manifestMatch: boolean;
 }
 
-export interface ArtifactFsConfig {
-  readonly prop: ArtifactProp;
-  readonly ext?: string;
-  readonly isTheme?: boolean;
-}
-
-export const ARTIFACT_FS_CONFIG: ArtifactFsConfig[] = [
-  { prop: 'screens', ext: '.yaml' },
-  { prop: 'widgets', ext: '.yaml' },
-  { prop: 'scripts', ext: '.js' },
-  { prop: 'actions', ext: '.yaml' },
-  { prop: 'translations', ext: '.yaml' },
-  { prop: 'theme', isTheme: true },
-];
-
 export interface ComputePullPlanArgs {
   appName: string;
   environment: string;
@@ -290,14 +280,6 @@ export function computePullPlan({
   let updatedCount = 0;
   let deletedCount = 0;
 
-  const typeLabelByProp: Record<Exclude<ArtifactProp, 'theme'>, string> = {
-    screens: 'screen',
-    widgets: 'widget',
-    scripts: 'script',
-    actions: 'action',
-    translations: 'translation',
-  };
-
   for (const cfg of ARTIFACT_FS_CONFIG) {
     const { prop, isTheme, ext } = cfg;
     if (!enabledByProp[prop]) continue;
@@ -341,7 +323,7 @@ export function computePullPlan({
       continue;
     }
 
-    const kind = typeLabelByProp[prop as Exclude<ArtifactProp, 'theme'>];
+    const kind = getArtifactConfig(prop as Exclude<ArtifactProp, 'theme'>).label;
     const expected: Record<string, string> = {};
     const cloudItems = (cloudApp as Record<string, unknown>)[prop] as
       | { name: string; content?: string; isArchived?: boolean }[]

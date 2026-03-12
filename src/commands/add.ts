@@ -3,6 +3,7 @@ import path from 'path';
 import prompts from 'prompts';
 
 import { loadProjectConfig } from '../config/projectConfig.js';
+import { upsertManifestEntry, type RootManifest } from '../core/manifest.js';
 import { ui } from '../core/ui.js';
 
 export type AddKind = 'screen' | 'widget' | 'script' | 'action' | 'translation';
@@ -54,62 +55,6 @@ async function fileExists(filePath: string): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-interface RootManifest {
-  scripts?: { name: string }[];
-  widgets?: { name: string }[];
-  actions?: { name: string }[];
-  homeScreenName?: string;
-  defaultLanguage?: string;
-  languages?: string[];
-}
-
-async function upsertManifest(
-  projectRoot: string,
-  kind: 'widget' | 'script' | 'action' | 'translation',
-  name: string,
-): Promise<void> {
-  // Root-level manifest file (note the leading dot).
-  const manifestPath = path.join(projectRoot, '.manifest.json');
-  let manifest: RootManifest = {};
-  try {
-    const raw = await fs.readFile(manifestPath, 'utf8');
-    manifest = JSON.parse(raw) as RootManifest;
-  } catch {
-    manifest = {};
-  }
-
-  if (kind === 'widget') {
-    const current = manifest.widgets ?? [];
-    if (!current.some((w) => w.name === name)) {
-      manifest.widgets = [...current, { name }];
-    }
-  } else if (kind === 'script') {
-    const current = manifest.scripts ?? [];
-    if (!current.some((s) => s.name === name)) {
-      manifest.scripts = [...current, { name }];
-    }
-  } else if (kind === 'action') {
-    const current = manifest.actions ?? [];
-    if (!current.some((a) => a.name === name)) {
-      manifest.actions = [...current, { name }];
-    }
-  } else if (kind === 'translation') {
-    const currentLangs = manifest.languages ?? [];
-    if (!currentLangs.includes(name)) {
-      manifest.languages = [...currentLangs, name];
-    }
-    if (!manifest.defaultLanguage) {
-      manifest.defaultLanguage = name;
-    }
-  }
-
-  await fs.writeFile(
-    manifestPath,
-    JSON.stringify(manifest, null, 2) + '\n',
-    'utf8',
-  );
 }
 
 async function maybeSetHomeScreenName(
@@ -315,7 +260,7 @@ export async function addCommand(kindArg?: AddKind, rawNameArg?: string): Promis
   await fs.writeFile(filePath, contents, 'utf8');
 
   if (updateManifest) {
-    await upsertManifest(
+    await upsertManifestEntry(
       projectRoot,
       kind as 'widget' | 'script' | 'action' | 'translation',
       name,

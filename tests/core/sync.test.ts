@@ -1,9 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import {
-  computePullPlan,
-  computePushPlan,
-  ARTIFACT_FS_CONFIG,
-} from '../../src/core/sync.js';
+import { computePullPlan, computePushPlan } from '../../src/core/sync.js';
+import { ARTIFACT_FS_CONFIG } from '../../src/core/artifacts.js';
 import { buildDocumentsFromParsed } from '../../src/core/buildDocuments.js';
 import type { ParsedAppFiles } from '../../src/core/appCollector.js';
 import type { CloudApp } from '../../src/cloud/firestoreClient.js';

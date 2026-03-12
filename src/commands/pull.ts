@@ -11,7 +11,7 @@ import {
   type FirestoreClientOptions,
 } from '../cloud/firestoreClient.js';
 import { collectAppFiles } from '../core/appCollector.js';
-import { ArtifactProps, type ArtifactProp } from '../core/dto.js';
+import { ArtifactProps, type ArtifactProp } from '../core/artifacts.js';
 import { resolveVerboseFlag } from '../core/cliError.js';
 import { resolveAppContext } from '../config/projectConfig.js';
 import { getValidAuthSession } from '../auth/session.js';
@@ -25,7 +25,8 @@ import {
   type BuildManifestOptions,
 } from '../core/manifest.js';
 import { writeVerboseJson } from '../core/debugFiles.js';
-import { ARTIFACT_FS_CONFIG, computePullPlan, type PullSummary } from '../core/sync.js';
+import { ARTIFACT_FS_CONFIG } from '../core/artifacts.js';
+import { computePullPlan, type PullSummary } from '../core/sync.js';
 import { ui } from '../core/ui.js';
 
 export interface PullOptions {

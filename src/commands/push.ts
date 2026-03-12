@@ -13,7 +13,7 @@ import {
 import { buildDocumentsFromParsed } from '../core/buildDocuments.js';
 import { buildPushPayload, formatDiffSummary, type BundleDiff } from '../core/bundleDiff.js';
 import { collectAppFiles } from '../core/appCollector.js';
-import { ArtifactProps, type ArtifactProp } from '../core/dto.js';
+import { ArtifactProps, type ArtifactProp } from '../core/artifacts.js';
 import { resolveVerboseFlag } from '../core/cliError.js';
 import { resolveAppContext } from '../config/projectConfig.js';
 import { getValidAuthSession } from '../auth/session.js';

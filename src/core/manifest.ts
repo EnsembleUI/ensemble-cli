@@ -106,3 +106,50 @@ export async function buildAndWriteManifest(
   await fs.writeFile(manifestPath, JSON.stringify(merged, null, 2) + '\n', 'utf8');
 }
 
+async function readRootManifest(manifestPath: string): Promise<RootManifest> {
+  try {
+    const raw = await fs.readFile(manifestPath, 'utf8');
+    return JSON.parse(raw) as RootManifest;
+  } catch {
+    return {};
+  }
+}
+
+async function writeRootManifest(manifestPath: string, manifest: RootManifest): Promise<void> {
+  await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
+}
+
+export async function upsertManifestEntry(
+  projectRoot: string,
+  kind: 'widget' | 'script' | 'action' | 'translation',
+  name: string,
+): Promise<void> {
+  const manifestPath = path.join(projectRoot, '.manifest.json');
+  const manifest = await readRootManifest(manifestPath);
+
+  const listKeyByKind: Record<'widget' | 'script' | 'action', keyof RootManifest> = {
+    widget: 'widgets',
+    script: 'scripts',
+    action: 'actions',
+  };
+
+  if (kind in listKeyByKind) {
+    const key = listKeyByKind[kind as 'widget' | 'script' | 'action'];
+    const current = (manifest[key] as { name: string }[] | undefined) ?? [];
+    if (!current.some((entry) => entry.name === name)) {
+      (manifest as Record<string, unknown>)[key] = [...current, { name }];
+    }
+  } else if (kind === 'translation') {
+    const currentLangs = manifest.languages ?? [];
+    if (!currentLangs.includes(name)) {
+      manifest.languages = [...currentLangs, name];
+    }
+    if (!manifest.defaultLanguage) {
+      manifest.defaultLanguage = name;
+    }
+  }
+
+  await writeRootManifest(manifestPath, manifest);
+}
+
+

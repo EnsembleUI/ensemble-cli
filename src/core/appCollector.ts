@@ -6,7 +6,8 @@
 import fs from 'fs/promises';
 import path from 'path';
 
-import type { ArtifactProp } from './dto.js';
+import type { ArtifactProp } from './artifacts.js';
+import { ARTIFACT_CONFIGS } from './artifacts.js';
 import { processWithConcurrency } from './concurrency.js';
 
 export interface ParsedAppFiles {
@@ -68,6 +69,13 @@ export async function collectAppFiles(
 
   const tasks: FileTask[] = [];
 
+  const fsDirToProp = new Map<string, ArtifactProp>();
+  for (const cfg of ARTIFACT_CONFIGS) {
+    if (cfg.fsDir && !cfg.isTheme) {
+      fsDirToProp.set(cfg.fsDir, cfg.prop);
+    }
+  }
+
   reportStatus('scanning', { rootDir });
 
   async function walk(dir: string): Promise<void> {
@@ -81,11 +89,8 @@ export async function collectAppFiles(
         if (['.git', '.hg', '.svn', 'node_modules'].includes(entry.name)) {
           continue;
         }
-        if (entry.name === 'screens' && !include('screens')) continue;
-        if (entry.name === 'widgets' && !include('widgets')) continue;
-        if (entry.name === 'scripts' && !include('scripts')) continue;
-        if (entry.name === 'actions' && !include('actions')) continue;
-        if (entry.name === 'translations' && !include('translations')) continue;
+        const propForDir = fsDirToProp.get(entry.name as ArtifactProp);
+        if (propForDir && !include(propForDir)) continue;
         if (['config', 'assets', 'fonts'].includes(entry.name)) continue;
         await walk(fullPath);
         continue;

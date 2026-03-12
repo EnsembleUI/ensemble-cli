@@ -158,14 +158,3 @@ export type EnsembleDocumentHistoryItem = EnsembleDocument & {
   readonly comment: string;
   readonly label: string;
 };
-
-export const ArtifactProps = [
-  'screens',
-  'widgets',
-  'scripts',
-  'actions',
-  'translations',
-  'theme',
-] as const;
-
-export type ArtifactProp = (typeof ArtifactProps)[number];
