@@ -7,6 +7,7 @@ import {
   type ScreenDTO,
   type WidgetDTO,
   type ScriptDTO,
+  type ActionDTO,
   type ThemeDTO,
   type TranslationDTO,
   type ApplicationDTO,
@@ -52,6 +53,7 @@ export function buildDocumentsFromParsed(
     screenFileCount: Object.keys(parsed.screens).length,
     widgetFileCount: Object.keys(parsed.widgets).length,
     scriptFileCount: Object.keys(parsed.scripts).length,
+    actionFileCount: Object.keys(parsed.actions ?? {}).length,
     translationFileCount: Object.keys(parsed.translations).length,
     hasTheme: typeof parsed.theme === 'string',
   });
@@ -93,6 +95,17 @@ export function buildDocumentsFromParsed(
     }),
   );
 
+  const actions: ActionDTO[] = Object.entries(parsed.actions ?? {}).map(
+    ([relativePath, content]) => ({
+      id: pathToId(`actions/${relativePath}`),
+      name: pathToName(relativePath),
+      content,
+      type: EnsembleDocumentType.Action,
+      createdAt: now,
+      updatedAt: now,
+    }),
+  );
+
   const theme: ThemeDTO | undefined = parsed.theme
     ? {
         id: 'theme',
@@ -128,6 +141,7 @@ export function buildDocumentsFromParsed(
     screenCount: screens.length,
     widgetCount: widgets.length,
     scriptCount: scripts.length,
+    actionCount: actions.length,
     translationCount: translations.length,
     appHome,
     defaultLanguage,
@@ -180,6 +194,7 @@ export function buildDocumentsFromParsed(
     ...(screens.length > 0 && { screens }),
     ...(widgets.length > 0 && { widgets }),
     ...(scripts.length > 0 && { scripts }),
+    ...(actions.length > 0 && { actions }),
     ...(theme && { theme }),
     ...(translations.length > 0 && { translations }),
   };
@@ -258,7 +273,8 @@ function mergeArtifacts<
       if (
         localWithType.type === EnsembleDocumentType.Screen ||
         localWithType.type === EnsembleDocumentType.Widget ||
-        localWithType.type === EnsembleDocumentType.Script
+        localWithType.type === EnsembleDocumentType.Script ||
+        localWithType.type === EnsembleDocumentType.Action
       ) {
         id = crypto.randomUUID();
       }
@@ -308,6 +324,12 @@ export function buildMergedBundle(
     now,
     updatedBy,
   ) as ScriptDTO[];
+  const actions = mergeArtifacts(
+    deduplicateCloudByName(cloudApp.actions as ActionDTO[] | undefined),
+    localApp.actions,
+    now,
+    updatedBy,
+  ) as ActionDTO[];
   const translations = mergeArtifacts(
     deduplicateCloudByName(cloudApp.translations as TranslationDTO[] | undefined),
     localApp.translations,
@@ -325,6 +347,7 @@ export function buildMergedBundle(
     ...(screens.length > 0 && { screens }),
     ...(widgets.length > 0 && { widgets }),
     ...(scripts.length > 0 && { scripts }),
+    ...(actions.length > 0 && { actions }),
     ...(translations.length > 0 && { translations }),
     ...(theme && { theme }),
   };

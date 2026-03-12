@@ -5,6 +5,7 @@ import type {
   ScreenDTO,
   WidgetDTO,
   ScriptDTO,
+  ActionDTO,
   ThemeDTO,
   TranslationDTO,
 } from './dto.js';
@@ -30,7 +31,7 @@ export interface HistoryEntry {
   updatedBy?: { name: string; email?: string; id: string };
 }
 
-type YamlDocument = ScreenDTO | WidgetDTO | ScriptDTO | ThemeDTO | TranslationDTO;
+type YamlDocument = ScreenDTO | WidgetDTO | ScriptDTO | ActionDTO | ThemeDTO | TranslationDTO;
 
 type YamlUpdates = {
   content?: string;
@@ -63,6 +64,7 @@ export interface PushPayload {
   screens?: YamlArtifactPushItem[];
   widgets?: YamlArtifactPushItem[];
   scripts?: YamlArtifactPushItem[];
+   actions?: YamlArtifactPushItem[];
   translations?: YamlArtifactPushItem[];
   theme?: YamlArtifactPushItem;
 }
@@ -71,6 +73,7 @@ export interface BundleDiff {
   screens: { changed: ArtifactWithContent[]; new: ArtifactWithContent[] };
   widgets: { changed: ArtifactWithContent[]; new: ArtifactWithContent[] };
   scripts: { changed: ArtifactWithContent[]; new: ArtifactWithContent[] };
+  actions: { changed: ArtifactWithContent[]; new: ArtifactWithContent[] };
   themeChanged: boolean;
   translations: { changed: ArtifactWithContent[]; new: ArtifactWithContent[] };
 }
@@ -175,6 +178,7 @@ export function formatDiffSummary(diff: BundleDiff): string[] {
   addGroup('screens', diff.screens.changed, diff.screens.new, 'screen', '.yaml');
   addGroup('widgets', diff.widgets.changed, diff.widgets.new, 'widget', '.yaml');
   addGroup('scripts', diff.scripts.changed, diff.scripts.new, 'script', '.js');
+  addGroup('actions', diff.actions.changed, diff.actions.new, 'action', '.yaml');
   addGroup('translations', diff.translations.changed, diff.translations.new, 'translation', '.yaml');
 
   if (diff.themeChanged) {
@@ -206,6 +210,10 @@ export function computeBundleDiff(
     bundle.scripts as ArtifactWithContent[] | undefined,
     cloudApp.scripts as ArtifactWithContent[] | undefined,
   );
+  const actions = diffArtifacts(
+    bundle.actions as ArtifactWithContent[] | undefined,
+    (cloudApp.actions as ArtifactWithContent[] | undefined) ?? [],
+  );
 
   const themeChanged =
     !!bundle.theme &&
@@ -222,6 +230,7 @@ export function computeBundleDiff(
     screens,
     widgets,
     scripts,
+    actions,
     themeChanged,
     translations,
   };
@@ -352,6 +361,19 @@ export function buildPushPayload(
     now,
     updatedBy,
   );
+  const actions = buildYamlPushItems(
+    diff.actions,
+    (cloudApp.actions as ArtifactWithContent[] | undefined) ?? [],
+    bundle.actions as (ArtifactWithContent & { type?: string; updatedAt?: string; updatedBy?: object })[] | undefined,
+    cloudById(
+      (cloudApp.actions as { id: string; name: string; content: string; type?: string; updatedAt?: string; updatedBy?: object }[] | undefined) ?? [],
+    ),
+    cloudByName(
+      (cloudApp.actions as { id: string; name: string; content: string; type?: string; updatedAt?: string; updatedBy?: object }[] | undefined) ?? [],
+    ),
+    now,
+    updatedBy,
+  );
   const translations = buildYamlPushItems(
     diff.translations,
     cloudApp.translations as ArtifactWithContent[] | undefined,
@@ -394,6 +416,7 @@ export function buildPushPayload(
     ...(screens.length > 0 && { screens }),
     ...(widgets.length > 0 && { widgets }),
     ...(scripts.length > 0 && { scripts }),
+    ...(actions.length > 0 && { actions }),
     ...(translations.length > 0 && { translations }),
     ...(theme && { theme }),
   };

@@ -57,6 +57,7 @@ function printPushSummary(summary: PushSummary, options: { verbose?: boolean; is
       ['screens', summary.byKind.screens],
       ['widgets', summary.byKind.widgets],
       ['scripts', summary.byKind.scripts],
+      ['actions', summary.byKind.actions],
       ['translations', summary.byKind.translations],
       ['theme', summary.byKind.theme],
     ];
@@ -330,8 +331,7 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
 
     const appHome = appConfig.appHome as string | undefined;
     const cloudHome = getCloudHomeScreenName(cloudApp);
-    const hasHomeConflict =
-      appHome && cloudHome && appHome !== cloudHome;
+    const hasHomeConflict = appHome && cloudHome && appHome !== cloudHome;
     if (hasHomeConflict && process.stdout.isTTY && process.stdin.isTTY && !options.yes) {
       const { proceed } = await prompts({
         type: 'confirm',

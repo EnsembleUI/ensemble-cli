@@ -7,6 +7,7 @@ import type {
   ApplicationDTO,
   WidgetDTO,
   ScriptDTO,
+  ActionDTO,
   ScreenDTO,
   ThemeDTO,
   TranslationDTO,
@@ -76,7 +77,7 @@ export type FirestoreDebugEvent =
       kind: 'push_operation';
       appId: string;
       operation: 'create' | 'update';
-      artifactKind: 'screens' | 'widgets' | 'scripts' | 'translations' | 'theme';
+      artifactKind: 'screens' | 'widgets' | 'scripts' | 'actions' | 'translations' | 'theme';
       documentId: string;
     };
 
@@ -180,6 +181,7 @@ export type CloudApp = Pick<
   | 'updatedAt'
   | 'widgets'
   | 'scripts'
+  | 'actions'
   | 'screens'
   | 'theme'
   | 'translations'
@@ -252,6 +254,7 @@ interface PushPayloadShape {
   screens?: YamlArtifactPushOperation[];
   widgets?: YamlArtifactPushOperation[];
   scripts?: YamlArtifactPushOperation[];
+  actions?: YamlArtifactPushOperation[];
   translations?: YamlArtifactPushOperation[];
   theme?: YamlArtifactPushOperation;
 }
@@ -282,7 +285,7 @@ function getFirestoreConcurrency(): number {
 }
 
 async function applyYamlOperationsForKind(
-  kind: 'screens' | 'widgets' | 'scripts' | 'translations' | 'theme',
+  kind: 'screens' | 'widgets' | 'scripts' | 'actions' | 'translations' | 'theme',
   appId: string,
   idToken: string,
   project: string,
@@ -415,6 +418,7 @@ export async function submitCliPush(
   await applyYamlOperationsForKind('screens', appId, idToken, project, p.screens, options);
   await applyYamlOperationsForKind('widgets', appId, idToken, project, p.widgets, options);
   await applyYamlOperationsForKind('scripts', appId, idToken, project, p.scripts, options);
+  await applyYamlOperationsForKind('actions', appId, idToken, project, p.actions, options);
   await applyYamlOperationsForKind('translations', appId, idToken, project, p.translations, options);
   if (p.theme) {
     await applyYamlOperationsForKind('theme', appId, idToken, project, [p.theme], options);
@@ -461,7 +465,9 @@ function getDocId(docName: string): string {
   return docName.split('/').pop() ?? docName;
 }
 
-function artifactCollectionAndType(kind: 'screens' | 'widgets' | 'scripts' | 'translations' | 'theme'): {
+function artifactCollectionAndType(
+  kind: 'screens' | 'widgets' | 'scripts' | 'actions' | 'translations' | 'theme',
+): {
   collection: 'artifacts' | 'internal_artifacts';
   typeValue: string | null;
 } {
@@ -470,6 +476,8 @@ function artifactCollectionAndType(kind: 'screens' | 'widgets' | 'scripts' | 'tr
       return { collection: 'internal_artifacts', typeValue: 'internal_widget' };
     case 'scripts':
       return { collection: 'internal_artifacts', typeValue: 'internal_script' };
+    case 'actions':
+      return { collection: 'internal_artifacts', typeValue: 'internal_action' };
     case 'screens':
       return { collection: 'artifacts', typeValue: 'screen' };
     case 'translations':
@@ -480,7 +488,7 @@ function artifactCollectionAndType(kind: 'screens' | 'widgets' | 'scripts' | 'tr
 }
 
 function encodeYamlDocumentFields(
-  kind: 'screens' | 'widgets' | 'scripts' | 'translations' | 'theme',
+  kind: 'screens' | 'widgets' | 'scripts' | 'actions' | 'translations' | 'theme',
   doc: CreateYamlOp['document'],
 ): FirestoreWriteFields {
   const { typeValue } = artifactCollectionAndType(kind);
@@ -549,7 +557,7 @@ function encodeHistoryFields(history: UpdateHistory): FirestoreWriteFields {
 }
 
 function encodeUpdateFields(
-  kind: 'screens' | 'widgets' | 'scripts' | 'translations' | 'theme',
+  kind: 'screens' | 'widgets' | 'scripts' | 'actions' | 'translations' | 'theme',
   updates: UpdateUpdates,
 ): { fields: FirestoreWriteFields; fieldPaths: string[] } {
   const { typeValue } = artifactCollectionAndType(kind);
@@ -662,6 +670,14 @@ function toScriptDTO(doc: FirestoreDocument): ScriptDTO {
   return {
     ...base,
     type: EnsembleDocumentType.Script,
+  };
+}
+
+function toActionDTO(doc: FirestoreDocument): ActionDTO {
+  const base = firestoreDocToEnsembleBase(doc);
+  return {
+    ...base,
+    type: EnsembleDocumentType.Action,
   };
 }
 
@@ -924,10 +940,12 @@ export async function fetchCloudApp(
 
   const widgets: WidgetDTO[] = [];
   const scripts: ScriptDTO[] = [];
+  const actions: ActionDTO[] = [];
   for (const doc of internalArtifacts) {
     const type = parseFirestoreString((doc.fields?.type as { stringValue?: string }) ?? undefined);
     if (type === 'internal_widget') widgets.push(toWidgetDTO(doc));
     else if (type === 'internal_script') scripts.push(toScriptDTO(doc));
+    else if (type === 'internal_action') actions.push(toActionDTO(doc));
   }
 
   const screens: ScreenDTO[] = [];
@@ -963,6 +981,8 @@ export async function fetchCloudApp(
     ...(appDoc.updatedAt !== undefined && { updatedAt: appDoc.updatedAt }),
     widgets,
     scripts,
+    // Actions are stored as internal_artifacts with type=internal_action.
+    ...(actions.length > 0 && { actions }),
     screens,
     ...(theme && { theme }),
     ...(translations.length > 0 && { translations }),

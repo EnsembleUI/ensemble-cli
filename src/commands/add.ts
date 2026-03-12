@@ -5,7 +5,7 @@ import prompts from 'prompts';
 import { loadProjectConfig } from '../config/projectConfig.js';
 import { ui } from '../core/ui.js';
 
-export type AddKind = 'screen' | 'widget' | 'script' | 'translation';
+export type AddKind = 'screen' | 'widget' | 'script' | 'action' | 'translation';
 
 function normalizeName(raw: string): string {
   const trimmed = raw.trim();
@@ -59,6 +59,7 @@ async function fileExists(filePath: string): Promise<boolean> {
 interface RootManifest {
   scripts?: { name: string }[];
   widgets?: { name: string }[];
+  actions?: { name: string }[];
   homeScreenName?: string;
   defaultLanguage?: string;
   languages?: string[];
@@ -66,7 +67,7 @@ interface RootManifest {
 
 async function upsertManifest(
   projectRoot: string,
-  kind: 'widget' | 'script' | 'translation',
+  kind: 'widget' | 'script' | 'action' | 'translation',
   name: string,
 ): Promise<void> {
   // Root-level manifest file (note the leading dot).
@@ -88,6 +89,11 @@ async function upsertManifest(
     const current = manifest.scripts ?? [];
     if (!current.some((s) => s.name === name)) {
       manifest.scripts = [...current, { name }];
+    }
+  } else if (kind === 'action') {
+    const current = manifest.actions ?? [];
+    if (!current.some((a) => a.name === name)) {
+      manifest.actions = [...current, { name }];
     }
   } else if (kind === 'translation') {
     const currentLangs = manifest.languages ?? [];
@@ -184,6 +190,18 @@ function widgetTemplate(): string {
 `;
 }
 
+function actionTemplate(): string {
+  return `Action:
+  inputs:
+    - message
+  body:
+    executeActionGroup:
+      actions:
+        - showToast:
+            message: \${message}
+`;
+}
+
 function scriptTemplate(name: string): string {
   return `// Script: ${name}
 `;
@@ -209,6 +227,7 @@ export async function addCommand(kindArg?: AddKind, rawNameArg?: string): Promis
         { title: 'Screen', value: 'screen' },
         { title: 'Widget', value: 'widget' },
         { title: 'Script', value: 'script' },
+        { title: 'Action', value: 'action' },
         { title: 'Translation', value: 'translation' },
       ],
     });
@@ -268,6 +287,12 @@ export async function addCommand(kindArg?: AddKind, rawNameArg?: string): Promis
       contents = scriptTemplate(name);
       updateManifest = true;
       break;
+    case 'action':
+      targetDir = path.join(projectRoot, 'actions');
+      fileName = `${name}.yaml`;
+      contents = actionTemplate();
+      updateManifest = true;
+      break;
     case 'translation':
       targetDir = path.join(projectRoot, 'translations');
       fileName = `${name}.yaml`;
@@ -292,7 +317,7 @@ export async function addCommand(kindArg?: AddKind, rawNameArg?: string): Promis
   if (updateManifest) {
     await upsertManifest(
       projectRoot,
-      kind as 'widget' | 'script' | 'translation',
+      kind as 'widget' | 'script' | 'action' | 'translation',
       name,
     );
   }

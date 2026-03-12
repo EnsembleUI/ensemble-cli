@@ -23,6 +23,7 @@ export interface PushSummary {
     screens: PushCounts;
     widgets: PushCounts;
     scripts: PushCounts;
+    actions: PushCounts;
     translations: PushCounts;
     theme: PushCounts;
   };
@@ -73,6 +74,7 @@ function computePushSummary(
   const screens = computeKindCounts(diff.screens);
   const widgets = computeKindCounts(diff.widgets);
   const scripts = computeKindCounts(diff.scripts);
+  const actions = computeKindCounts(diff.actions);
   const translations = computeKindCounts(diff.translations);
 
   // Theme currently only supports modified (no explicit create/delete in diff),
@@ -86,18 +88,21 @@ function computePushSummary(
       screens.created +
       widgets.created +
       scripts.created +
+      actions.created +
       translations.created +
       theme.created,
     updated:
       screens.updated +
       widgets.updated +
       scripts.updated +
+      actions.updated +
       translations.updated +
       theme.updated,
     deleted:
       screens.deleted +
       widgets.deleted +
       scripts.deleted +
+      actions.deleted +
       translations.deleted +
       theme.deleted,
   };
@@ -111,6 +116,7 @@ function computePushSummary(
       screens,
       widgets,
       scripts,
+      actions,
       translations,
       theme,
     },
@@ -189,6 +195,7 @@ export const ARTIFACT_FS_CONFIG: ArtifactFsConfig[] = [
   { prop: 'screens', ext: '.yaml' },
   { prop: 'widgets', ext: '.yaml' },
   { prop: 'scripts', ext: '.js' },
+  { prop: 'actions', ext: '.yaml' },
   { prop: 'translations', ext: '.yaml' },
   { prop: 'theme', isTheme: true },
 ];
@@ -287,6 +294,7 @@ export function computePullPlan({
     screens: 'screen',
     widgets: 'widget',
     scripts: 'script',
+    actions: 'action',
     translations: 'translation',
   };
 

@@ -13,6 +13,7 @@ const enabledByProp = {
   screens: true,
   widgets: true,
   scripts: true,
+  actions: true,
   translations: true,
   theme: true,
 };
@@ -75,6 +76,7 @@ describe('computePullPlan + computePushPlan consistency', () => {
       screens: { 'Home.yaml': content },
       widgets: {},
       scripts: {},
+      actions: {},
       translations: {},
     };
 
@@ -125,6 +127,7 @@ describe('computePullPlan + computePushPlan consistency', () => {
       screens: { 'Home.yaml': localContent },
       widgets: {},
       scripts: {},
+      actions: {},
       translations: {},
     };
 
@@ -173,6 +176,7 @@ describe('computePullPlan + computePushPlan consistency', () => {
       screens: { 'Home.yaml': localContent },
       widgets: {},
       scripts: {},
+      actions: {},
       translations: {},
     };
 
@@ -223,6 +227,7 @@ describe('computePullPlan + computePushPlan consistency', () => {
       screens: { 'Home.yaml': activeContent },
       widgets: {},
       scripts: {},
+      actions: {},
       translations: {},
     };
 
@@ -275,6 +280,7 @@ describe('computePullPlan + computePushPlan consistency', () => {
       screens: { 'Home.yaml': activeContent },
       widgets: {},
       scripts: {},
+      actions: {},
       translations: {},
     };
 
@@ -321,6 +327,7 @@ describe('computePullPlan + computePushPlan consistency', () => {
       screens: { 'Home.yaml': 'new content' },
       widgets: {},
       scripts: {},
+      actions: {},
       translations: {},
     };
 
@@ -371,6 +378,7 @@ describe('computePullPlan + computePushPlan consistency', () => {
       screens: {},
       widgets: { 'Button.yaml': activeContent },
       scripts: {},
+      actions: {},
       translations: {},
     };
 
@@ -421,6 +429,7 @@ describe('computePullPlan + computePushPlan consistency', () => {
       widgets: {},
       scripts: {},
       translations: {},
+      actions: {},
       theme: localTheme,
     };
 
@@ -455,6 +464,7 @@ describe('ARTIFACT_FS_CONFIG', () => {
     expect(props).toContain('screens');
     expect(props).toContain('widgets');
     expect(props).toContain('scripts');
+    expect(props).toContain('actions');
     expect(props).toContain('translations');
     expect(props).toContain('theme');
 

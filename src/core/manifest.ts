@@ -6,6 +6,7 @@ import type { CloudApp } from '../cloud/firestoreClient.js';
 export type RootManifest = Record<string, unknown> & {
   scripts?: { name: string }[];
   widgets?: { name: string }[];
+  actions?: { name: string }[];
   homeScreenName?: string;
   defaultLanguage?: string;
   languages?: string[];
@@ -50,6 +51,11 @@ export function buildManifestObject(
     .map((s) => s.name);
   const scripts = mergeByName(existing.scripts, cloudScriptNames);
 
+  const cloudActionNames = (cloudApp.actions ?? [])
+    .filter((a) => a.isArchived !== true)
+    .map((a) => a.name);
+  const actions = mergeByName(existing.actions, cloudActionNames);
+
   const screens = (cloudApp.screens ?? []).filter((s) => s.isArchived !== true);
   const cloudHome = screens.find((s) => s.isRoot === true)?.name ?? screens[0]?.name;
 
@@ -73,6 +79,7 @@ export function buildManifestObject(
     ...existing,
     widgets,
     scripts,
+    actions,
     ...(homeScreenName ? { homeScreenName } : {}),
     ...(languages.length > 0 ? { languages } : {}),
     ...(defaultLanguage ? { defaultLanguage } : {}),

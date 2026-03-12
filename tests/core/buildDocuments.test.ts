@@ -14,6 +14,7 @@ describe('buildDocumentsFromParsed', () => {
       screens: { 'Home.yaml': 'screen content' },
       scripts: { 'utils.js': 'script content' },
       widgets: { 'Button.yaml': 'widget content' },
+      actions: {},
       translations: {},
     };
     const app = buildDocumentsFromParsed(parsed, 'app-123', 'My App');
@@ -36,6 +37,7 @@ describe('buildDocumentsFromParsed', () => {
       },
       scripts: {},
       widgets: {},
+      actions: {},
       translations: {},
     };
     const app = buildDocumentsFromParsed(parsed, 'app1', 'App', 'Home');
@@ -51,6 +53,7 @@ describe('buildDocumentsFromParsed', () => {
       screens: { 'Home.yaml': 'content' },
       scripts: {},
       widgets: {},
+      actions: {},
       translations: {},
     };
     const app = buildDocumentsFromParsed(parsed, 'app1', 'App');
@@ -62,6 +65,7 @@ describe('buildDocumentsFromParsed', () => {
       screens: {},
       scripts: {},
       widgets: {},
+      actions: {},
       translations: {},
       theme: 'colors:\n  primary: blue',
     };
@@ -76,6 +80,7 @@ describe('buildDocumentsFromParsed', () => {
       screens: {},
       scripts: {},
       widgets: {},
+      actions: {},
       translations: {
         'en.json': '{"hello":"Hello"}',
         'es.json': '{"hello":"Hola"}',
@@ -92,6 +97,7 @@ describe('buildDocumentsFromParsed', () => {
       screens: {},
       scripts: {},
       widgets: {},
+      actions: {},
       translations: {
         'en.yaml': 'en: content',
         'es.yaml': 'es: contenido',
@@ -193,6 +199,7 @@ describe('buildMergedBundle', () => {
       screens: { 'Home.yaml': 'home' },
       scripts: { 'S1.js': 'console.log(1);' },
       widgets: { 'W1.yaml': 'widget: w1' },
+      actions: {},
       translations: {
         'en.yaml': 'en: content',
         'es.yaml': 'es: contenido',
