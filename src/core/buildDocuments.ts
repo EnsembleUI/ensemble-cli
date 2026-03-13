@@ -7,6 +7,7 @@ import {
   type ScreenDTO,
   type WidgetDTO,
   type ScriptDTO,
+  type ActionDTO,
   type ThemeDTO,
   type TranslationDTO,
   type ApplicationDTO,
@@ -52,6 +53,7 @@ export function buildDocumentsFromParsed(
     screenFileCount: Object.keys(parsed.screens).length,
     widgetFileCount: Object.keys(parsed.widgets).length,
     scriptFileCount: Object.keys(parsed.scripts).length,
+    actionFileCount: Object.keys(parsed.actions ?? {}).length,
     translationFileCount: Object.keys(parsed.translations).length,
     hasTheme: typeof parsed.theme === 'string',
   });
@@ -93,6 +95,17 @@ export function buildDocumentsFromParsed(
     }),
   );
 
+  const actions: ActionDTO[] = Object.entries(parsed.actions ?? {}).map(
+    ([relativePath, content]) => ({
+      id: pathToId(`actions/${relativePath}`),
+      name: pathToName(relativePath),
+      content,
+      type: EnsembleDocumentType.Action,
+      createdAt: now,
+      updatedAt: now,
+    }),
+  );
+
   const theme: ThemeDTO | undefined = parsed.theme
     ? {
         id: 'theme',
@@ -128,6 +141,7 @@ export function buildDocumentsFromParsed(
     screenCount: screens.length,
     widgetCount: widgets.length,
     scriptCount: scripts.length,
+    actionCount: actions.length,
     translationCount: translations.length,
     appHome,
     defaultLanguage,
@@ -180,6 +194,7 @@ export function buildDocumentsFromParsed(
     ...(screens.length > 0 && { screens }),
     ...(widgets.length > 0 && { widgets }),
     ...(scripts.length > 0 && { scripts }),
+    ...(actions.length > 0 && { actions }),
     ...(theme && { theme }),
     ...(translations.length > 0 && { translations }),
   };
@@ -188,6 +203,24 @@ export function buildDocumentsFromParsed(
 }
 
 type UpdatedBy = { name: string; email?: string; id: string };
+
+/**
+ * Deduplicate cloud items by name. Prefer non-archived (pull skips archived when building expected).
+ * When both archived and active exist for same name, keep the non-archived one so push matches pull.
+ */
+function deduplicateCloudByName<
+  T extends { name: string; isArchived?: boolean },
+>(items: T[] | undefined): T[] {
+  if (!items?.length) return [];
+  const byName = new Map<string, T>();
+  for (const item of items) {
+    const existing = byName.get(item.name);
+    const itemIsActive = item.isArchived !== true;
+    const existingIsActive = existing && (existing as { isArchived?: boolean }).isArchived !== true;
+    if (!existing || itemIsActive || !existingIsActive) byName.set(item.name, item);
+  }
+  return [...byName.values()];
+}
 
 function mergeArtifacts<
   T extends {
@@ -240,7 +273,8 @@ function mergeArtifacts<
       if (
         localWithType.type === EnsembleDocumentType.Screen ||
         localWithType.type === EnsembleDocumentType.Widget ||
-        localWithType.type === EnsembleDocumentType.Script
+        localWithType.type === EnsembleDocumentType.Script ||
+        localWithType.type === EnsembleDocumentType.Action
       ) {
         id = crypto.randomUUID();
       }
@@ -273,25 +307,31 @@ export function buildMergedBundle(
   const now = new Date().toISOString();
 
   const screens = mergeArtifacts(
-    cloudApp.screens as ScreenDTO[] | undefined,
+    deduplicateCloudByName(cloudApp.screens as ScreenDTO[] | undefined),
     localApp.screens,
     now,
     updatedBy,
   ) as ScreenDTO[];
   const widgets = mergeArtifacts(
-    cloudApp.widgets as WidgetDTO[] | undefined,
+    deduplicateCloudByName(cloudApp.widgets as WidgetDTO[] | undefined),
     localApp.widgets,
     now,
     updatedBy,
   ) as WidgetDTO[];
   const scripts = mergeArtifacts(
-    cloudApp.scripts as ScriptDTO[] | undefined,
+    deduplicateCloudByName(cloudApp.scripts as ScriptDTO[] | undefined),
     localApp.scripts,
     now,
     updatedBy,
   ) as ScriptDTO[];
+  const actions = mergeArtifacts(
+    deduplicateCloudByName(cloudApp.actions as ActionDTO[] | undefined),
+    localApp.actions,
+    now,
+    updatedBy,
+  ) as ActionDTO[];
   const translations = mergeArtifacts(
-    cloudApp.translations as TranslationDTO[] | undefined,
+    deduplicateCloudByName(cloudApp.translations as TranslationDTO[] | undefined),
     localApp.translations,
     now,
     updatedBy,
@@ -307,6 +347,7 @@ export function buildMergedBundle(
     ...(screens.length > 0 && { screens }),
     ...(widgets.length > 0 && { widgets }),
     ...(scripts.length > 0 && { scripts }),
+    ...(actions.length > 0 && { actions }),
     ...(translations.length > 0 && { translations }),
     ...(theme && { theme }),
   };

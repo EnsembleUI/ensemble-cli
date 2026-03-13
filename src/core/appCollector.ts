@@ -6,13 +6,15 @@
 import fs from 'fs/promises';
 import path from 'path';
 
-import type { ArtifactProp } from './dto.js';
+import type { ArtifactProp } from './artifacts.js';
+import { ARTIFACT_CONFIGS } from './artifacts.js';
 import { processWithConcurrency } from './concurrency.js';
 
 export interface ParsedAppFiles {
   screens: Record<string, string>;
   scripts: Record<string, string>;
   widgets: Record<string, string>;
+  actions: Record<string, string>;
   translations: Record<string, string>;
   theme?: string;
 }
@@ -47,7 +49,7 @@ export async function collectAppFiles(
 
   type FileTask =
     | {
-        kind: 'screens' | 'scripts' | 'widgets' | 'translations';
+        kind: 'screens' | 'scripts' | 'widgets' | 'actions' | 'translations';
         key: string;
         fullPath: string;
       }
@@ -60,11 +62,19 @@ export async function collectAppFiles(
     screens: {},
     scripts: {},
     widgets: {},
+    actions: {},
     translations: {},
     theme: undefined,
   };
 
   const tasks: FileTask[] = [];
+
+  const fsDirToProp = new Map<string, ArtifactProp>();
+  for (const cfg of ARTIFACT_CONFIGS) {
+    if (cfg.fsDir && !cfg.isTheme) {
+      fsDirToProp.set(cfg.fsDir, cfg.prop);
+    }
+  }
 
   reportStatus('scanning', { rootDir });
 
@@ -79,10 +89,8 @@ export async function collectAppFiles(
         if (['.git', '.hg', '.svn', 'node_modules'].includes(entry.name)) {
           continue;
         }
-        if (entry.name === 'screens' && !include('screens')) continue;
-        if (entry.name === 'widgets' && !include('widgets')) continue;
-        if (entry.name === 'scripts' && !include('scripts')) continue;
-        if (entry.name === 'translations' && !include('translations')) continue;
+        const propForDir = fsDirToProp.get(entry.name as ArtifactProp);
+        if (propForDir && !include(propForDir)) continue;
         if (['config', 'assets', 'fonts'].includes(entry.name)) continue;
         await walk(fullPath);
         continue;
@@ -107,6 +115,11 @@ export async function collectAppFiles(
 
       if (top === 'widgets') {
         tasks.push({ kind: 'widgets', key: relativeWithinTop, fullPath });
+        continue;
+      }
+
+      if (top === 'actions') {
+        tasks.push({ kind: 'actions', key: relativeWithinTop, fullPath });
         continue;
       }
 
@@ -146,6 +159,9 @@ export async function collectAppFiles(
         break;
       case 'widgets':
         result.widgets[task.key] = content;
+        break;
+      case 'actions':
+        result.actions[task.key] = content;
         break;
       case 'translations':
         result.translations[task.key] = content;

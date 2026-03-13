@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 
-import type { ArtifactProp } from '../core/dto.js';
+import type { ArtifactProp } from '../core/artifacts.js';
 
 export type EnsembleProjectAppConfigOptions = Partial<Record<ArtifactProp, boolean>>;
 

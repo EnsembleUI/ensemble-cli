@@ -1,5 +1,10 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
+import { exec } from 'node:child_process';
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const pkg = require('../package.json') as { version: string };
+const LOCAL_VERSION = pkg.version;
 
 import { loginCommand } from './commands/login.js';
 import { logoutCommand } from './commands/logout.js';
@@ -7,14 +12,16 @@ import { initCommand } from './commands/init.js';
 import { pushCommand } from './commands/push.js';
 import { addCommand } from './commands/add.js';
 import { pullCommand } from './commands/pull.js';
+import { updateCommand } from './commands/update.js';
 import { printCliError, resolveDebugFlag } from './core/cliError.js';
+import { ui } from './core/ui.js';
 
 const program = new Command();
 
 program
   .name('ensemble')
   .description('Ensemble CLI for logging in and configuring Ensemble apps.')
-  .version('0.1.0')
+  .version(LOCAL_VERSION)
   .option('--debug', 'Print full debug information and stack traces', false);
 
 program
@@ -90,6 +97,34 @@ program
     }
     await addCommand(normalizedKind, name);
   });
+
+program
+  .command('update')
+  .description('Update the Ensemble CLI to the latest version.')
+  .action(async () => {
+    await updateCommand();
+  });
+
+function checkForUpdates(): void {
+  // Use the user's existing npm + auth config to query GitHub Packages.
+  exec(
+    'npm view @ensembleui/cli version --registry=https://npm.pkg.github.com',
+    (error, stdout) => {
+      if (error) {
+        return;
+      }
+      const latest = stdout.trim();
+      if (!latest || latest === LOCAL_VERSION) return;
+
+      ui.warn(
+        `A new version of @ensembleui/cli is available (${LOCAL_VERSION} → ${latest}).`,
+      );
+      ui.note('Run "ensemble update" to upgrade.');
+    },
+  );
+}
+
+checkForUpdates();
 
 program.parseAsync(process.argv).catch((err) => {
   const globalOptions = program.opts<{ debug?: boolean }>();

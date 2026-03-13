@@ -3,8 +3,10 @@ import path from 'path';
 import prompts from 'prompts';
 
 import { loadProjectConfig } from '../config/projectConfig.js';
+import { upsertManifestEntry, type RootManifest } from '../core/manifest.js';
+import { ui } from '../core/ui.js';
 
-export type AddKind = 'screen' | 'widget' | 'script' | 'translation';
+export type AddKind = 'screen' | 'widget' | 'script' | 'action' | 'translation';
 
 function normalizeName(raw: string): string {
   const trimmed = raw.trim();
@@ -13,10 +15,33 @@ function normalizeName(raw: string): string {
   return trimmed.replace(/\s+/g, ' ').replace(/^["']|["']$/g, '');
 }
 
-function toFileBase(name: string): string {
-  // Convert spaces to CamelCase-ish: "Hello World" -> "HelloWorld"
-  const parts = name.split(/\s+/);
-  return parts.map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join('');
+function nameWithoutSpaces(name: string): string {
+  return name.replace(/\s+/g, '');
+}
+
+async function resolveNameWithSpaces(
+  name: string,
+  interactive: boolean,
+): Promise<string> {
+  if (!/\s/.test(name)) return name;
+  const suggestion = nameWithoutSpaces(name);
+  if (!interactive) {
+    throw new Error(
+      `Artifact names cannot contain spaces. Did you mean "${suggestion}"?`,
+    );
+  }
+  const { useSuggestion } = await prompts({
+    type: 'confirm',
+    name: 'useSuggestion',
+    message: `Artifact names cannot contain spaces. Use "${suggestion}" instead?`,
+    initial: true,
+  });
+  if (!useSuggestion) {
+    throw new Error(
+      `Artifact names cannot contain spaces. Try again with a name like "${suggestion}".`,
+    );
+  }
+  return suggestion;
 }
 
 async function ensureDir(dir: string): Promise<void> {
@@ -30,56 +55,6 @@ async function fileExists(filePath: string): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-interface RootManifest {
-  scripts?: { name: string }[];
-  widgets?: { name: string }[];
-  homeScreenName?: string;
-  defaultLanguage?: string;
-  languages?: string[];
-}
-
-async function upsertManifest(
-  projectRoot: string,
-  kind: 'widget' | 'script' | 'translation',
-  name: string,
-): Promise<void> {
-  // Root-level manifest file (note the leading dot).
-  const manifestPath = path.join(projectRoot, '.manifest.json');
-  let manifest: RootManifest = {};
-  try {
-    const raw = await fs.readFile(manifestPath, 'utf8');
-    manifest = JSON.parse(raw) as RootManifest;
-  } catch {
-    manifest = {};
-  }
-
-  if (kind === 'widget') {
-    const current = manifest.widgets ?? [];
-    if (!current.some((w) => w.name === name)) {
-      manifest.widgets = [...current, { name }];
-    }
-  } else if (kind === 'script') {
-    const current = manifest.scripts ?? [];
-    if (!current.some((s) => s.name === name)) {
-      manifest.scripts = [...current, { name }];
-    }
-  } else if (kind === 'translation') {
-    const currentLangs = manifest.languages ?? [];
-    if (!currentLangs.includes(name)) {
-      manifest.languages = [...currentLangs, name];
-    }
-    if (!manifest.defaultLanguage) {
-      manifest.defaultLanguage = name;
-    }
-  }
-
-  await fs.writeFile(
-    manifestPath,
-    JSON.stringify(manifest, null, 2) + '\n',
-    'utf8',
-  );
 }
 
 async function maybeSetHomeScreenName(
@@ -123,24 +98,57 @@ async function maybeSetHomeScreenName(
 }
 
 function screenTemplate(name: string): string {
-  return `# Screen: ${name}
+  return `View:
+  styles:
+    useSafeArea: true
 
+  # Optional - set the header for the screen
+  header:
+    titleText: ${name}
+
+  # Specify the body of the screen
+  body:
+    Column:
+      styles:
+        padding: 24
+        gap: 8
+      children:
+        - Text:
+            text: Hi there!
+        - Button:
+            label: Checkout Ensemble Kitchen Sink
+            onTap:
+              openUrl:
+                url: 'https://studio.ensembleui.com/preview/index.html?appId=e24402cb-75e2-404c-866c-29e6c3dd7992'
 `;
 }
 
-function widgetTemplate(name: string): string {
-  return `# Widget: ${name}
+function widgetTemplate(): string {
+  return `Widget:
+  inputs:
+    - customProperty
+  body:
+    Column:
+      children:
+        - Text:
+            text: \${customProperty}
+`;
+}
 
+function actionTemplate(): string {
+  return `Action:
+  inputs:
+    - message
+  body:
+    executeActionGroup:
+      actions:
+        - showToast:
+            message: \${message}
 `;
 }
 
 function scriptTemplate(name: string): string {
-  const base = toFileBase(name);
   return `// Script: ${name}
-
-export function ${base}() {
-  // TODO: implement script logic
-}
 `;
 }
 
@@ -164,12 +172,12 @@ export async function addCommand(kindArg?: AddKind, rawNameArg?: string): Promis
         { title: 'Screen', value: 'screen' },
         { title: 'Widget', value: 'widget' },
         { title: 'Script', value: 'script' },
+        { title: 'Action', value: 'action' },
         { title: 'Translation', value: 'translation' },
       ],
     });
     if (!selected) {
-      // eslint-disable-next-line no-console
-      console.log('Add cancelled.');
+      ui.warn('Add cancelled.');
       return;
     }
     kind = selected as AddKind;
@@ -187,8 +195,7 @@ export async function addCommand(kindArg?: AddKind, rawNameArg?: string): Promis
       validate: (v: string) => (v && v.trim().length > 0 ? true : 'Name is required'),
     });
     if (!name) {
-      // eslint-disable-next-line no-console
-      console.log('Add cancelled.');
+      ui.warn('Add cancelled.');
       return;
     }
     rawName = name as string;
@@ -198,7 +205,8 @@ export async function addCommand(kindArg?: AddKind, rawNameArg?: string): Promis
     throw new Error('Name is required.');
   }
 
-  const name = normalizeName(rawName);
+  let name = normalizeName(rawName);
+  name = await resolveNameWithSpaces(name, interactive);
   const { projectRoot } = await loadProjectConfig();
 
   let targetDir: string;
@@ -215,13 +223,19 @@ export async function addCommand(kindArg?: AddKind, rawNameArg?: string): Promis
     case 'widget':
       targetDir = path.join(projectRoot, 'widgets');
       fileName = `${name}.yaml`;
-      contents = widgetTemplate(name);
+      contents = widgetTemplate();
       updateManifest = true;
       break;
     case 'script':
       targetDir = path.join(projectRoot, 'scripts');
       fileName = `${name}.js`;
       contents = scriptTemplate(name);
+      updateManifest = true;
+      break;
+    case 'action':
+      targetDir = path.join(projectRoot, 'actions');
+      fileName = `${name}.yaml`;
+      contents = actionTemplate();
       updateManifest = true;
       break;
     case 'translation':
@@ -246,9 +260,9 @@ export async function addCommand(kindArg?: AddKind, rawNameArg?: string): Promis
   await fs.writeFile(filePath, contents, 'utf8');
 
   if (updateManifest) {
-    await upsertManifest(
+    await upsertManifestEntry(
       projectRoot,
-      kind as 'widget' | 'script' | 'translation',
+      kind as 'widget' | 'script' | 'action' | 'translation',
       name,
     );
   }
@@ -258,8 +272,7 @@ export async function addCommand(kindArg?: AddKind, rawNameArg?: string): Promis
       ? await maybeSetHomeScreenName(projectRoot, name, interactive)
       : false;
 
-  // eslint-disable-next-line no-console
-  console.log(
+  ui.success(
     `Created ${kind} "${name}" at ${path.relative(
       projectRoot,
       filePath,

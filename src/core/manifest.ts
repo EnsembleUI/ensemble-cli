@@ -6,25 +6,67 @@ import type { CloudApp } from '../cloud/firestoreClient.js';
 export type RootManifest = Record<string, unknown> & {
   scripts?: { name: string }[];
   widgets?: { name: string }[];
+  actions?: { name: string }[];
   homeScreenName?: string;
   defaultLanguage?: string;
   languages?: string[];
 };
 
-export function buildManifestObject(existing: RootManifest, cloudApp: CloudApp): RootManifest {
-  const widgets = (cloudApp.widgets ?? [])
-    .filter((w) => w.isArchived !== true)
-    .map((w) => ({ name: w.name }));
+/** Get the screen name that cloud has as root (isRoot: true). */
+export function getCloudHomeScreenName(cloudApp: CloudApp): string | undefined {
+  const screens = (cloudApp.screens ?? []).filter((s) => s.isArchived !== true);
+  return screens.find((s) => s.isRoot === true)?.name ?? screens[0]?.name;
+}
 
-  const scripts = (cloudApp.scripts ?? [])
+export interface BuildManifestOptions {
+  /** appHome from ensemble.config.json for the current app. */
+  appHomeFromConfig?: string;
+  /** When provided (e.g. from user prompt after conflict), use this value. Otherwise preserve existing if set. */
+  homeScreenNameOverride?: string;
+}
+
+/** Preserve existing manifest entries by name; only add minimal { name } for new ones. */
+function mergeByName<T extends { name: string }>(
+  existing: T[] | undefined,
+  cloudNames: string[],
+): T[] {
+  const existingByName = new Map((existing ?? []).map((e) => [e.name, e]));
+  return cloudNames.map((name) => existingByName.get(name) ?? ({ name } as T));
+}
+
+export function buildManifestObject(
+  existing: RootManifest,
+  cloudApp: CloudApp,
+  options: BuildManifestOptions = {},
+): RootManifest {
+  const { appHomeFromConfig, homeScreenNameOverride } = options;
+
+  const cloudWidgetNames = (cloudApp.widgets ?? [])
+    .filter((w) => w.isArchived !== true)
+    .map((w) => w.name);
+  const widgets = mergeByName(existing.widgets, cloudWidgetNames);
+
+  const cloudScriptNames = (cloudApp.scripts ?? [])
     .filter((s) => s.isArchived !== true)
-    .map((s) => ({ name: s.name }));
+    .map((s) => s.name);
+  const scripts = mergeByName(existing.scripts, cloudScriptNames);
+
+  const cloudActionNames = (cloudApp.actions ?? [])
+    .filter((a) => a.isArchived !== true)
+    .map((a) => a.name);
+  const actions = mergeByName(existing.actions, cloudActionNames);
 
   const screens = (cloudApp.screens ?? []).filter((s) => s.isArchived !== true);
-  const homeScreenName =
-    screens.find((s) => s.isRoot === true)?.name ??
-    (typeof existing.homeScreenName === 'string' ? existing.homeScreenName : undefined) ??
-    screens[0]?.name;
+  const cloudHome = screens.find((s) => s.isRoot === true)?.name ?? screens[0]?.name;
+
+  let homeScreenName: string | undefined;
+  if (homeScreenNameOverride) {
+    homeScreenName = homeScreenNameOverride;
+  } else if (typeof existing.homeScreenName === 'string') {
+    homeScreenName = existing.homeScreenName;
+  } else {
+    homeScreenName = appHomeFromConfig ?? cloudHome;
+  }
 
   const translations = (cloudApp.translations ?? []).filter((t) => t.isArchived !== true);
   const languages = translations.map((t) => t.name);
@@ -37,6 +79,7 @@ export function buildManifestObject(existing: RootManifest, cloudApp: CloudApp):
     ...existing,
     widgets,
     scripts,
+    actions,
     ...(homeScreenName ? { homeScreenName } : {}),
     ...(languages.length > 0 ? { languages } : {}),
     ...(defaultLanguage ? { defaultLanguage } : {}),
@@ -48,6 +91,7 @@ export function buildManifestObject(existing: RootManifest, cloudApp: CloudApp):
 export async function buildAndWriteManifest(
   projectRoot: string,
   cloudApp: CloudApp,
+  options: BuildManifestOptions = {},
 ): Promise<void> {
   const manifestPath = path.join(projectRoot, '.manifest.json');
   let existing: RootManifest = {};
@@ -58,7 +102,54 @@ export async function buildAndWriteManifest(
     existing = {};
   }
 
-  const merged = buildManifestObject(existing, cloudApp);
+  const merged = buildManifestObject(existing, cloudApp, options);
   await fs.writeFile(manifestPath, JSON.stringify(merged, null, 2) + '\n', 'utf8');
 }
+
+async function readRootManifest(manifestPath: string): Promise<RootManifest> {
+  try {
+    const raw = await fs.readFile(manifestPath, 'utf8');
+    return JSON.parse(raw) as RootManifest;
+  } catch {
+    return {};
+  }
+}
+
+async function writeRootManifest(manifestPath: string, manifest: RootManifest): Promise<void> {
+  await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
+}
+
+export async function upsertManifestEntry(
+  projectRoot: string,
+  kind: 'widget' | 'script' | 'action' | 'translation',
+  name: string,
+): Promise<void> {
+  const manifestPath = path.join(projectRoot, '.manifest.json');
+  const manifest = await readRootManifest(manifestPath);
+
+  const listKeyByKind: Record<'widget' | 'script' | 'action', keyof RootManifest> = {
+    widget: 'widgets',
+    script: 'scripts',
+    action: 'actions',
+  };
+
+  if (kind in listKeyByKind) {
+    const key = listKeyByKind[kind as 'widget' | 'script' | 'action'];
+    const current = (manifest[key] as { name: string }[] | undefined) ?? [];
+    if (!current.some((entry) => entry.name === name)) {
+      (manifest as Record<string, unknown>)[key] = [...current, { name }];
+    }
+  } else if (kind === 'translation') {
+    const currentLangs = manifest.languages ?? [];
+    if (!currentLangs.includes(name)) {
+      manifest.languages = [...currentLangs, name];
+    }
+    if (!manifest.defaultLanguage) {
+      manifest.defaultLanguage = name;
+    }
+  }
+
+  await writeRootManifest(manifestPath, manifest);
+}
+
 

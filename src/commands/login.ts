@@ -15,8 +15,9 @@ import {
   normalizeExpiresAt,
 } from '../auth/token.js';
 import { resolveVerboseFlag } from '../core/cliError.js';
+import { getEnsembleAuthBaseUrl } from '../config/env.js';
+import { ui } from '../core/ui.js';
 
-const DEFAULT_AUTH_BASE_URL = 'https://studio.ensembleui.com/sign-in';
 const CALLBACK_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
 export interface LoginOptions {
@@ -45,14 +46,14 @@ function openBrowser(url: string): void {
 
   exec(openCommand, (err) => {
     if (err) {
-      console.warn('Could not open browser automatically. Please open the URL manually.');
+      ui.warn('Could not open browser automatically. Please open the URL manually.');
     }
   });
 }
 
 export async function loginCommand(options: LoginOptions = {}): Promise<void> {
   const existing = (await readGlobalConfig()) ?? {};
-  const baseUrl = process.env.ENSEMBLE_AUTH_BASE_URL ?? DEFAULT_AUTH_BASE_URL;
+  const baseUrl = getEnsembleAuthBaseUrl();
   const configPath = getGlobalConfigPath();
   const verbose = resolveVerboseFlag(options.verbose);
 
@@ -82,11 +83,11 @@ export async function loginCommand(options: LoginOptions = {}): Promise<void> {
     }
 
     const currentEmail = mergedUser.email;
-    console.log(
+    ui.info(
       currentEmail ? `You are already logged in as ${currentEmail}` : 'You are already logged in.',
     );
     if (verbose) {
-      console.log(`Auth config path: ${configPath}`);
+      ui.note(`Auth config path: ${configPath}`);
     }
     return;
   }
@@ -164,9 +165,9 @@ export async function loginCommand(options: LoginOptions = {}): Promise<void> {
     });
 
     server.listen(port, '127.0.0.1', () => {
-      // eslint-disable-next-line no-console
-      console.log(
-        'Opening browser to sign in. Complete sign-in there; this window will close automatically.'
+      ui.heading('Sign in to Ensemble');
+      ui.note(
+        'Opening your browser. Complete sign-in there; this window will close automatically.',
       );
       openBrowser(loginUrl.toString());
     });
@@ -186,7 +187,7 @@ export async function loginCommand(options: LoginOptions = {}): Promise<void> {
   try {
     callbackData = await tokenPromise;
   } catch (err) {
-    console.error(err instanceof Error ? err.message : 'Login failed.');
+    ui.error(err instanceof Error ? err.message : 'Login failed.');
     return;
   }
 
@@ -207,8 +208,8 @@ export async function loginCommand(options: LoginOptions = {}): Promise<void> {
   };
 
   await writeGlobalConfig(newConfig);
-  console.log(email ? `Logged in as ${email}` : 'Logged in successfully.');
+  ui.success(email ? `Logged in as ${email}` : 'Logged in successfully.');
   if (verbose) {
-    console.log(`Auth config path: ${configPath}`);
+    ui.note(`Auth config path: ${configPath}`);
   }
 }

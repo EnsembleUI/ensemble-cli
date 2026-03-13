@@ -1,9 +1,11 @@
 import type { CloudApp } from '../cloud/firestoreClient.js';
+import pc from 'picocolors';
 import type {
   ApplicationDTO,
   ScreenDTO,
   WidgetDTO,
   ScriptDTO,
+  ActionDTO,
   ThemeDTO,
   TranslationDTO,
 } from './dto.js';
@@ -24,11 +26,12 @@ export interface HistoryEntry {
   type: string;
   isRoot?: boolean;
   isArchived?: boolean;
+  defaultLocale?: boolean;
   updatedAt?: string;
   updatedBy?: { name: string; email?: string; id: string };
 }
 
-type YamlDocument = ScreenDTO | WidgetDTO | ScriptDTO | ThemeDTO | TranslationDTO;
+type YamlDocument = ScreenDTO | WidgetDTO | ScriptDTO | ActionDTO | ThemeDTO | TranslationDTO;
 
 type YamlUpdates = {
   content?: string;
@@ -61,6 +64,7 @@ export interface PushPayload {
   screens?: YamlArtifactPushItem[];
   widgets?: YamlArtifactPushItem[];
   scripts?: YamlArtifactPushItem[];
+   actions?: YamlArtifactPushItem[];
   translations?: YamlArtifactPushItem[];
   theme?: YamlArtifactPushItem;
 }
@@ -69,8 +73,14 @@ export interface BundleDiff {
   screens: { changed: ArtifactWithContent[]; new: ArtifactWithContent[] };
   widgets: { changed: ArtifactWithContent[]; new: ArtifactWithContent[] };
   scripts: { changed: ArtifactWithContent[]; new: ArtifactWithContent[] };
+  actions: { changed: ArtifactWithContent[]; new: ArtifactWithContent[] };
   themeChanged: boolean;
   translations: { changed: ArtifactWithContent[]; new: ArtifactWithContent[] };
+}
+
+/** Normalize content for comparison to avoid false diffs from line endings or trailing newlines. */
+export function normalizeContentForCompare(content: string): string {
+  return content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\n+$/, '');
 }
 
 function diffArtifacts(
@@ -92,7 +102,9 @@ function diffArtifacts(
   for (const bundle of bundleItems ?? []) {
     const cloud = cloudById.get(bundle.id) ?? cloudByName.get(bundle.name);
     if (cloud) {
-      const contentChanged = bundle.content !== (cloud as ArtifactWithContent).content;
+      const contentChanged =
+        normalizeContentForCompare(bundle.content) !==
+        normalizeContentForCompare((cloud as ArtifactWithContent).content);
       const archivedChanged =
         (bundle.isArchived ?? false) !== ((cloud as ArtifactWithContent).isArchived ?? false);
       const isRootChanged = bundle.isRoot !== (cloud as ArtifactWithContent).isRoot;
@@ -112,43 +124,68 @@ function diffArtifacts(
 
 type ArtifactDisplay = ArtifactWithContent & { fileName?: string };
 
-function artifactDisplay(type: string, item: ArtifactDisplay, defaultExt: string): string {
+function artifactFileName(item: ArtifactDisplay, defaultExt: string): string {
   const withFileName = item as { fileName?: string };
-  let file: string;
-  if (withFileName.fileName) {
-    file = withFileName.fileName;
-  } else if (item.id.includes('/') && !/^[0-9a-f-]{36}$/i.test(item.id)) {
-    file = item.id.split('/').pop() ?? item.name;
-  } else {
-    file = `${item.name}${defaultExt}`;
+  if (withFileName.fileName) return withFileName.fileName;
+  if (item.id.includes('/') && !/^[0-9a-f-]{36}$/i.test(item.id)) {
+    return item.id.split('/').pop() ?? item.name;
   }
-  return `${type} - ${file}`;
+  return `${item.name}${defaultExt}`;
 }
 
-const LABELS = {
-  new: '✨ new',
+const LINE_PREFIX = '        ';
+const LABEL_WIDTH = 14;
+
+const LABEL_TEXT = {
+  new: '🍀 new',
   modified: '✏️  modified',
-  removed: '🗑️  removed',
+  removed: '❌  removed',
 } as const;
 
-/** Format diff as git-style lines (new/modified/removed) with type and name. */
+/** Format diff as grouped lines with icons (new/modified/removed). Used for both dry run and actual run. */
 export function formatDiffSummary(diff: BundleDiff): string[] {
   const lines: string[] = [];
-  const fmt = (label: string, text: string) =>
-    lines.push(`        ${label}  ${text}`);
+  const pad = (label: string) => label.padEnd(LABEL_WIDTH);
+  const formatLabel = (raw: string, color: (value: string) => string) =>
+    color(pad(raw));
 
-  const labelFor = (item: ArtifactWithContent) =>
-    item.isArchived ? LABELS.removed : LABELS.modified;
+  const addGroup = (
+    title: string,
+    changed: ArtifactWithContent[],
+    added: ArtifactWithContent[],
+    type: string,
+    ext: string,
+  ) => {
+    if (changed.length === 0 && added.length === 0) return;
+    lines.push(pc.cyan(pc.bold(`  ${title}:`)));
+    // Group by status: removed first, then modified, then new
+    const removed = changed.filter((i) => i.isArchived);
+    const modified = changed.filter((i) => !i.isArchived);
+    for (const item of removed) {
+      const label = formatLabel(LABEL_TEXT.removed, pc.red);
+      lines.push(`${LINE_PREFIX}${label} ${artifactFileName(item, ext)}`);
+    }
+    for (const item of modified) {
+      const label = formatLabel(LABEL_TEXT.modified, pc.yellow);
+      lines.push(`${LINE_PREFIX}${label} ${artifactFileName(item, ext)}`);
+    }
+    for (const item of added) {
+      const label = formatLabel(LABEL_TEXT.new, pc.green);
+      lines.push(`${LINE_PREFIX}${label} ${artifactFileName(item, ext)}`);
+    }
+  };
 
-  for (const item of diff.screens.changed) fmt(labelFor(item), artifactDisplay('screen', item, '.yaml'));
-  for (const item of diff.screens.new) fmt(LABELS.new, artifactDisplay('screen', item, '.yaml'));
-  for (const item of diff.widgets.changed) fmt(labelFor(item), artifactDisplay('widget', item, '.yaml'));
-  for (const item of diff.widgets.new) fmt(LABELS.new, artifactDisplay('widget', item, '.yaml'));
-  for (const item of diff.scripts.changed) fmt(labelFor(item), artifactDisplay('script', item, '.js'));
-  for (const item of diff.scripts.new) fmt(LABELS.new, artifactDisplay('script', item, '.js'));
-  if (diff.themeChanged) fmt(LABELS.modified, 'theme - theme.yaml');
-  for (const item of diff.translations.changed) fmt(labelFor(item), artifactDisplay('translation', item, '.yaml'));
-  for (const item of diff.translations.new) fmt(LABELS.new, artifactDisplay('translation', item, '.yaml'));
+  addGroup('screens', diff.screens.changed, diff.screens.new, 'screen', '.yaml');
+  addGroup('widgets', diff.widgets.changed, diff.widgets.new, 'widget', '.yaml');
+  addGroup('scripts', diff.scripts.changed, diff.scripts.new, 'script', '.js');
+  addGroup('actions', diff.actions.changed, diff.actions.new, 'action', '.yaml');
+  addGroup('translations', diff.translations.changed, diff.translations.new, 'translation', '.yaml');
+
+  if (diff.themeChanged) {
+    lines.push(pc.cyan(pc.bold('  theme:')));
+    const label = formatLabel(LABEL_TEXT.modified, pc.yellow);
+    lines.push(`${LINE_PREFIX}${label} theme.yaml`);
+  }
 
   return lines;
 }
@@ -173,10 +210,16 @@ export function computeBundleDiff(
     bundle.scripts as ArtifactWithContent[] | undefined,
     cloudApp.scripts as ArtifactWithContent[] | undefined,
   );
+  const actions = diffArtifacts(
+    bundle.actions as ArtifactWithContent[] | undefined,
+    (cloudApp.actions as ArtifactWithContent[] | undefined) ?? [],
+  );
 
   const themeChanged =
     !!bundle.theme &&
-    (!cloudApp.theme || bundle.theme.content !== cloudApp.theme.content);
+    (!cloudApp.theme ||
+      normalizeContentForCompare(bundle.theme.content) !==
+        normalizeContentForCompare(cloudApp.theme.content));
 
   const translations = diffArtifacts(
     bundle.translations as ArtifactWithContent[] | undefined,
@@ -187,18 +230,20 @@ export function computeBundleDiff(
     screens,
     widgets,
     scripts,
+    actions,
     themeChanged,
     translations,
   };
 }
 
-function buildHistoryEntry(cloud: ArtifactWithContent & { type?: string; updatedAt?: string; updatedBy?: object }): HistoryEntry {
+function buildHistoryEntry(cloud: ArtifactWithContent & { type?: string; updatedAt?: string; updatedBy?: object; defaultLocale?: boolean }): HistoryEntry {
   return {
     content: cloud.content,
     name: cloud.name,
     type: cloud.type ?? 'unknown',
     isRoot: (cloud as { isRoot?: boolean }).isRoot,
     isArchived: cloud.isArchived,
+    defaultLocale: (cloud as { defaultLocale?: boolean }).defaultLocale,
     updatedAt: cloud.updatedAt,
     updatedBy: cloud.updatedBy as HistoryEntry['updatedBy'],
   };
@@ -316,6 +361,19 @@ export function buildPushPayload(
     now,
     updatedBy,
   );
+  const actions = buildYamlPushItems(
+    diff.actions,
+    (cloudApp.actions as ArtifactWithContent[] | undefined) ?? [],
+    bundle.actions as (ArtifactWithContent & { type?: string; updatedAt?: string; updatedBy?: object })[] | undefined,
+    cloudById(
+      (cloudApp.actions as { id: string; name: string; content: string; type?: string; updatedAt?: string; updatedBy?: object }[] | undefined) ?? [],
+    ),
+    cloudByName(
+      (cloudApp.actions as { id: string; name: string; content: string; type?: string; updatedAt?: string; updatedBy?: object }[] | undefined) ?? [],
+    ),
+    now,
+    updatedBy,
+  );
   const translations = buildYamlPushItems(
     diff.translations,
     cloudApp.translations as ArtifactWithContent[] | undefined,
@@ -358,6 +416,7 @@ export function buildPushPayload(
     ...(screens.length > 0 && { screens }),
     ...(widgets.length > 0 && { widgets }),
     ...(scripts.length > 0 && { scripts }),
+    ...(actions.length > 0 && { actions }),
     ...(translations.length > 0 && { translations }),
     ...(theme && { theme }),
   };

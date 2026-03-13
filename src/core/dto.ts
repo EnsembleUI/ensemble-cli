@@ -45,6 +45,7 @@ export enum EnsembleDocumentType {
   Font = 'font',
   Widget = 'internal_widget',
   Script = 'internal_script',
+  Action = 'internal_action',
   Environment = 'config',
   Secrets = 'secrets',
   Label = 'label',
@@ -65,6 +66,7 @@ export interface ApplicationDTO
   readonly screens?: ScreenDTO[];
   readonly widgets?: WidgetDTO[];
   readonly scripts?: ScriptDTO[];
+  readonly actions?: ActionDTO[];
   readonly theme?: ThemeDTO;
   readonly assets?: AssetDTO[];
   readonly fonts?: FontDTO[];
@@ -103,6 +105,10 @@ export type WidgetDTO = EnsembleLabeledDocument & {
 
 export type ScriptDTO = EnsembleLabeledDocument & {
   readonly type: EnsembleDocumentType.Script;
+};
+
+export type ActionDTO = EnsembleLabeledDocument & {
+  readonly type: EnsembleDocumentType.Action;
 };
 
 export type ThemeDTO = EnsembleDocument & {
@@ -152,13 +158,3 @@ export type EnsembleDocumentHistoryItem = EnsembleDocument & {
   readonly comment: string;
   readonly label: string;
 };
-
-export const ArtifactProps = [
-  'screens',
-  'widgets',
-  'scripts',
-  'translations',
-  'theme',
-] as const;
-
-export type ArtifactProp = (typeof ArtifactProps)[number];

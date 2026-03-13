@@ -1,0 +1,77 @@
+name: Release (bump version, tag, publish)
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump (patch/minor/major)
+        required: true
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://npm.pkg.github.com
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run tests
+        run: npm test
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump version and create tag
+        run: |
+          npm version "${{ inputs.bump }}" -m "chore(release): %s"
+
+      - name: Read new tag
+        id: tag
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "name=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Push commit and tags
+        run: git push --follow-tags
+
+      - name: Inject Ensemble environment config
+        run: npm run inject-env
+        env:
+          ENSEMBLE_FIREBASE_API_KEY: ${{ secrets.ENSEMBLE_FIREBASE_API_KEY }}
+
+      - name: Build CLI (create dist/)
+        run: npm run build
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          generate_release_notes: true
+
+      - name: Publish to GitHub Packages
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_TOKEN }}
+

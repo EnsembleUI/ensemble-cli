@@ -14,6 +14,7 @@ describe('buildDocumentsFromParsed', () => {
       screens: { 'Home.yaml': 'screen content' },
       scripts: { 'utils.js': 'script content' },
       widgets: { 'Button.yaml': 'widget content' },
+      actions: {},
       translations: {},
     };
     const app = buildDocumentsFromParsed(parsed, 'app-123', 'My App');
@@ -36,6 +37,7 @@ describe('buildDocumentsFromParsed', () => {
       },
       scripts: {},
       widgets: {},
+      actions: {},
       translations: {},
     };
     const app = buildDocumentsFromParsed(parsed, 'app1', 'App', 'Home');
@@ -51,6 +53,7 @@ describe('buildDocumentsFromParsed', () => {
       screens: { 'Home.yaml': 'content' },
       scripts: {},
       widgets: {},
+      actions: {},
       translations: {},
     };
     const app = buildDocumentsFromParsed(parsed, 'app1', 'App');
@@ -62,6 +65,7 @@ describe('buildDocumentsFromParsed', () => {
       screens: {},
       scripts: {},
       widgets: {},
+      actions: {},
       translations: {},
       theme: 'colors:\n  primary: blue',
     };
@@ -76,6 +80,7 @@ describe('buildDocumentsFromParsed', () => {
       screens: {},
       scripts: {},
       widgets: {},
+      actions: {},
       translations: {
         'en.json': '{"hello":"Hello"}',
         'es.json': '{"hello":"Hola"}',
@@ -92,6 +97,7 @@ describe('buildDocumentsFromParsed', () => {
       screens: {},
       scripts: {},
       widgets: {},
+      actions: {},
       translations: {
         'en.yaml': 'en: content',
         'es.yaml': 'es: contenido',
@@ -193,6 +199,7 @@ describe('buildMergedBundle', () => {
       screens: { 'Home.yaml': 'home' },
       scripts: { 'S1.js': 'console.log(1);' },
       widgets: { 'W1.yaml': 'widget: w1' },
+      actions: {},
       translations: {
         'en.yaml': 'en: content',
         'es.yaml': 'es: contenido',
@@ -260,5 +267,84 @@ describe('buildMergedBundle', () => {
     const merged = buildMergedBundle(local, cloud, { name: 'CLI', id: 'u1' });
     expect(merged.screens).toHaveLength(1);
     expect(merged.screens![0].isArchived).toBe(true);
+  });
+
+  it('deduplicates cloud items by name, preferring non-archived (matches pull behavior)', () => {
+    const localScreen: ScreenDTO = {
+      id: 'screens/Home.yaml',
+      name: 'Home',
+      content: 'active content',
+      type: EnsembleDocumentType.Screen,
+    };
+    const cloudArchived: ScreenDTO = {
+      id: 'archived-id',
+      name: 'Home',
+      content: 'archived content',
+      type: EnsembleDocumentType.Screen,
+      isArchived: true,
+    };
+    const cloudActive: ScreenDTO = {
+      id: 'active-id',
+      name: 'Home',
+      content: 'active content',
+      type: EnsembleDocumentType.Screen,
+    };
+    const local: ApplicationDTO = {
+      id: 'app1',
+      name: 'App',
+      screens: [localScreen],
+      widgets: [],
+      scripts: [],
+    };
+    const cloud: CloudApp = {
+      id: 'app1',
+      name: 'App',
+      screens: [cloudArchived, cloudActive],
+      widgets: [],
+      scripts: [],
+    };
+    const merged = buildMergedBundle(local, cloud, { name: 'CLI', id: 'u1' });
+    expect(merged.screens).toHaveLength(1);
+    expect(merged.screens![0].id).toBe('active-id');
+    expect(merged.screens![0].content).toBe('active content');
+  });
+
+  it('keeps non-archived when archived comes last in cloud order', () => {
+    const localScreen: ScreenDTO = {
+      id: 'screens/Home.yaml',
+      name: 'Home',
+      content: 'active content',
+      type: EnsembleDocumentType.Screen,
+    };
+    const cloudActive: ScreenDTO = {
+      id: 'active-id',
+      name: 'Home',
+      content: 'active content',
+      type: EnsembleDocumentType.Screen,
+    };
+    const cloudArchived: ScreenDTO = {
+      id: 'archived-id',
+      name: 'Home',
+      content: 'archived content',
+      type: EnsembleDocumentType.Screen,
+      isArchived: true,
+    };
+    const local: ApplicationDTO = {
+      id: 'app1',
+      name: 'App',
+      screens: [localScreen],
+      widgets: [],
+      scripts: [],
+    };
+    const cloud: CloudApp = {
+      id: 'app1',
+      name: 'App',
+      screens: [cloudActive, cloudArchived],
+      widgets: [],
+      scripts: [],
+    };
+    const merged = buildMergedBundle(local, cloud, { name: 'CLI', id: 'u1' });
+    expect(merged.screens).toHaveLength(1);
+    expect(merged.screens![0].id).toBe('active-id');
   });
 });

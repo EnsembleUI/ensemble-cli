@@ -423,9 +423,111 @@ describe('push/pull integration (commands)', () => {
           m.includes('applied'),
       ),
     ).toBe(true);
+
+    logSpy.mockRestore();
+  });
+
+  it('pull then push with no local changes: push reports nothing to push (consistency)', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const cloudApp = {
+      id: 'app1',
+      name: 'App',
+      screens: [
+        {
+          id: 'screen-id-1',
+          name: 'Home',
+          content: 'home: content',
+          type: 'screen',
+          isRoot: true,
+        },
+      ] as unknown[],
+      widgets: [] as unknown[],
+      scripts: [] as unknown[],
+      translations: [
+        {
+          id: 'i18n_en',
+          name: 'en',
+          content: 'en: content',
+          type: 'i18n',
+          defaultLocale: true,
+        },
+      ] as unknown[],
+      theme: undefined,
+    };
+    (cloudModuleMock.fetchCloudApp as ReturnType<typeof vi.fn>).mockResolvedValue(
+      cloudApp,
+    );
+
+    await pullCommand({ verbose: false, yes: true });
+    const { submitCliPush } = cloudModuleMock as {
+      submitCliPush: ReturnType<typeof vi.fn>;
+    };
+    submitCliPush.mockClear();
+
+    await pushCommand({ verbose: false, yes: true });
+
+    expect(submitCliPush).not.toHaveBeenCalled();
+    const messages = logSpy.mock.calls.map((args) => args[0]);
     expect(
       messages.some(
-        (m) => typeof m === 'string' && m.includes('Next steps: Review'),
+        (m) =>
+          typeof m === 'string' &&
+          m.includes('Up to date') &&
+          m.includes('Nothing to push'),
+      ),
+    ).toBe(true);
+
+    logSpy.mockRestore();
+  });
+
+  it('pull then push with no changes when cloud has duplicate names (archived + active)', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const activeContent = 'home: content';
+    const cloudApp = {
+      id: 'app1',
+      name: 'App',
+      screens: [
+        {
+          id: 'archived-id',
+          name: 'Home',
+          content: 'archived: old',
+          type: 'screen',
+          isRoot: false,
+          isArchived: true,
+        },
+        {
+          id: 'active-id',
+          name: 'Home',
+          content: activeContent,
+          type: 'screen',
+          isRoot: true,
+        },
+      ] as unknown[],
+      widgets: [] as unknown[],
+      scripts: [] as unknown[],
+      translations: [] as unknown[],
+      theme: undefined,
+    };
+    (cloudModuleMock.fetchCloudApp as ReturnType<typeof vi.fn>).mockResolvedValue(
+      cloudApp,
+    );
+
+    await pullCommand({ verbose: false, yes: true });
+    const { submitCliPush } = cloudModuleMock as {
+      submitCliPush: ReturnType<typeof vi.fn>;
+    };
+    submitCliPush.mockClear();
+
+    await pushCommand({ verbose: false, yes: true });
+
+    expect(submitCliPush).not.toHaveBeenCalled();
+    const messages = logSpy.mock.calls.map((args) => args[0]);
+    expect(
+      messages.some(
+        (m) =>
+          typeof m === 'string' &&
+          m.includes('Up to date') &&
+          m.includes('Nothing to push'),
       ),
     ).toBe(true);
 
@@ -504,8 +606,8 @@ describe('push/pull integration (commands)', () => {
       messages.some(
         (m) =>
           typeof m === 'string' &&
-          m.includes('+ create') &&
-          m.includes('screen'),
+          m.includes('🍀 new') &&
+          m.includes('Home.yaml'),
       ),
     ).toBe(true);
     expect(
@@ -567,14 +669,8 @@ describe('push/pull integration (commands)', () => {
       messages.some(
         (m) =>
           typeof m === 'string' &&
-          m.includes('modified  manifest - .manifest.json'),
-      ),
-    ).toBe(true);
-    expect(
-      messages.some(
-        (m) =>
-          typeof m === 'string' &&
-          m.includes('removed  screen - Stale.yaml'),
+          m.includes('removed') &&
+          m.includes('Stale.yaml'),
       ),
     ).toBe(true);
     expect(
@@ -662,11 +758,9 @@ describe('push/pull integration (commands)', () => {
     expect(errors).toContain('You do not have access to this app.');
     expect(process.exitCode).toBe(1);
 
-    const { fetchCloudApp, submitCliPush } = cloudModuleMock as {
-      fetchCloudApp: ReturnType<typeof vi.fn>;
+    const { submitCliPush } = cloudModuleMock as {
       submitCliPush: ReturnType<typeof vi.fn>;
     };
-    expect(fetchCloudApp).not.toHaveBeenCalled();
     expect(submitCliPush).not.toHaveBeenCalled();
 
     process.exitCode = originalExitCode;
@@ -689,10 +783,8 @@ describe('push/pull integration (commands)', () => {
     expect(errors).toContain('You do not have access to this app.');
     expect(process.exitCode).toBe(1);
 
-    const { fetchCloudApp } = cloudModuleMock as {
-      fetchCloudApp: ReturnType<typeof vi.fn>;
-    };
-    expect(fetchCloudApp).not.toHaveBeenCalled();
+    // fetchCloudApp runs in parallel with checkAppAccess, so it may be called
+    // The important assertion is we exit early (process.exitCode 1) and show the message
 
     process.exitCode = originalExitCode;
     errorSpy.mockRestore();

@@ -4,16 +4,65 @@ CLI for logging in, initializing, and pushing app definitions to the Ensemble cl
 
 ## Installation
 
+### From GitHub Packages (recommended)
+
+#### Option 1: One-shot install script
+
+Run this command once (it will prompt for a GitHub token with `read:packages`):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/EnsembleUI/ensemble-cli/main/scripts/install-ensemble-cli.sh | bash
+```
+
+#### Option 2: Manual setup
+
+1. **Configure npm to use GitHub Packages for `@ensembleui`:**
+
+Add this to your `~/.npmrc` (global) or project `.npmrc`:
+
+```bash
+@ensembleui:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=YOUR_GITHUB_TOKEN
+```
+
+Your GitHub token must have at least the `read:packages` scope.
+
+2. **Install the CLI globally:**
+
+```bash
+npm install -g @ensembleui/cli
+```
+
+3. **Use the CLI:**
+
+```bash
+ensemble login
+ensemble logout
+ensemble init
+ensemble push
+ensemble pull
+ensemble add
+ensemble update
+```
+
+### Development setup
+
 ```bash
 npm install
 npm run build
+npm link   # link globally for local development
 ```
 
-Link globally for development:
+## Releasing (GitHub Packages)
 
-```bash
-npm link
-```
+This repo uses GitHub Actions to:
+
+- bump the version in `package.json`
+- create a git tag (e.g. `v0.1.0`)
+- create a GitHub Release
+- publish `@ensembleui/cli` to GitHub Packages
+
+To release a new version, go to GitHub → Actions → run the workflow **Release (bump version, tag, publish)** and choose `patch`, `minor`, or `major`.
 
 ## Commands
 
@@ -25,6 +74,7 @@ npm link
 | `ensemble push`   | Scan the app directory and push changes to the cloud        |
 | `ensemble pull`   | Pull artifacts from the cloud and overwrite local files     |
 | `ensemble add`    | Add a new screen, widget, script, or translation scaffold   |
+| `ensemble update` | Update the CLI to the latest version                        |
 
 ### Options
 

@@ -7,14 +7,16 @@ import type {
   ApplicationDTO,
   WidgetDTO,
   ScriptDTO,
+  ActionDTO,
   ScreenDTO,
   ThemeDTO,
   TranslationDTO,
 } from '../core/dto.js';
 import { EnsembleDocumentType } from '../core/dto.js';
+import { getArtifactConfig, type ArtifactProp } from '../core/artifacts.js';
 import { processWithConcurrency } from '../core/concurrency.js';
+import { getEnsembleFirebaseProject } from '../config/env.js';
 
-const DEFAULT_FIREBASE_PROJECT = 'ensemble-web-studio';
 const DEFAULT_FIRESTORE_CONCURRENCY = 15;
 
 export type FirestoreErrorCode =
@@ -76,7 +78,7 @@ export type FirestoreDebugEvent =
       kind: 'push_operation';
       appId: string;
       operation: 'create' | 'update';
-      artifactKind: 'screens' | 'widgets' | 'scripts' | 'translations' | 'theme';
+      artifactKind: ArtifactProp;
       documentId: string;
     };
 
@@ -180,6 +182,7 @@ export type CloudApp = Pick<
   | 'updatedAt'
   | 'widgets'
   | 'scripts'
+  | 'actions'
   | 'screens'
   | 'theme'
   | 'translations'
@@ -230,6 +233,7 @@ type YamlArtifactPushOperation =
         type: string;
         isRoot?: boolean;
         isArchived?: boolean;
+        defaultLocale?: boolean;
         updatedAt?: string;
         updatedBy?: { name: string; email?: string; id: string };
       };
@@ -251,6 +255,7 @@ interface PushPayloadShape {
   screens?: YamlArtifactPushOperation[];
   widgets?: YamlArtifactPushOperation[];
   scripts?: YamlArtifactPushOperation[];
+  actions?: YamlArtifactPushOperation[];
   translations?: YamlArtifactPushOperation[];
   theme?: YamlArtifactPushOperation;
 }
@@ -281,7 +286,7 @@ function getFirestoreConcurrency(): number {
 }
 
 async function applyYamlOperationsForKind(
-  kind: 'screens' | 'widgets' | 'scripts' | 'translations' | 'theme',
+  kind: 'screens' | 'widgets' | 'scripts' | 'actions' | 'translations' | 'theme',
   appId: string,
   idToken: string,
   project: string,
@@ -407,13 +412,14 @@ export async function submitCliPush(
   payload: unknown,
   options?: FirestoreClientOptions,
 ): Promise<void> {
-  const project = process.env.ENSEMBLE_FIREBASE_PROJECT ?? DEFAULT_FIREBASE_PROJECT;
+  const project = getEnsembleFirebaseProject();
   assertValidPushPayload(payload);
   const p = payload as PushPayloadShape;
 
   await applyYamlOperationsForKind('screens', appId, idToken, project, p.screens, options);
   await applyYamlOperationsForKind('widgets', appId, idToken, project, p.widgets, options);
   await applyYamlOperationsForKind('scripts', appId, idToken, project, p.scripts, options);
+  await applyYamlOperationsForKind('actions', appId, idToken, project, p.actions, options);
   await applyYamlOperationsForKind('translations', appId, idToken, project, p.translations, options);
   if (p.theme) {
     await applyYamlOperationsForKind('theme', appId, idToken, project, [p.theme], options);
@@ -450,7 +456,7 @@ function encodeUpdatedBy(
     | undefined,
 ): FirestoreValue | undefined {
   if (!updatedBy) return undefined;
-  const project = process.env.ENSEMBLE_FIREBASE_PROJECT ?? DEFAULT_FIREBASE_PROJECT;
+  const project = getEnsembleFirebaseProject();
   return {
     referenceValue: `projects/${project}/databases/(default)/documents/users/${updatedBy.id}`,
   };
@@ -460,28 +466,18 @@ function getDocId(docName: string): string {
   return docName.split('/').pop() ?? docName;
 }
 
-function artifactCollectionAndType(kind: 'screens' | 'widgets' | 'scripts' | 'translations' | 'theme'): {
+function artifactCollectionAndType(kind: ArtifactProp): {
   collection: 'artifacts' | 'internal_artifacts';
   typeValue: string | null;
 } {
-  switch (kind) {
-    case 'widgets':
-      return { collection: 'internal_artifacts', typeValue: 'internal_widget' };
-    case 'scripts':
-      return { collection: 'internal_artifacts', typeValue: 'internal_script' };
-    case 'screens':
-      return { collection: 'artifacts', typeValue: 'screen' };
-    case 'translations':
-      return { collection: 'artifacts', typeValue: 'i18n' };
-    case 'theme':
-      return { collection: 'artifacts', typeValue: 'theme' };
-  }
+  const cfg = getArtifactConfig(kind);
+  return {
+    collection: cfg.firestoreCollection,
+    typeValue: cfg.firestoreType,
+  };
 }
 
-function encodeYamlDocumentFields(
-  kind: 'screens' | 'widgets' | 'scripts' | 'translations' | 'theme',
-  doc: CreateYamlOp['document'],
-): FirestoreWriteFields {
+function encodeYamlDocumentFields(kind: ArtifactProp, doc: CreateYamlOp['document']): FirestoreWriteFields {
   const { typeValue } = artifactCollectionAndType(kind);
   const fields: FirestoreWriteFields = {
     name: { stringValue: doc.name },
@@ -533,6 +529,10 @@ function encodeHistoryFields(history: UpdateHistory): FirestoreWriteFields {
   if (typeof history.isArchived === 'boolean') {
     fields.isArchived = { booleanValue: history.isArchived };
   }
+  const defaultLocale = (history as { defaultLocale?: boolean }).defaultLocale;
+  if (typeof defaultLocale === 'boolean') {
+    fields.defaultLocale = { booleanValue: defaultLocale };
+  }
   if (history.updatedAt) {
     fields.updatedAt = { timestampValue: history.updatedAt };
   }
@@ -544,7 +544,7 @@ function encodeHistoryFields(history: UpdateHistory): FirestoreWriteFields {
 }
 
 function encodeUpdateFields(
-  kind: 'screens' | 'widgets' | 'scripts' | 'translations' | 'theme',
+  kind: ArtifactProp,
   updates: UpdateUpdates,
 ): { fields: FirestoreWriteFields; fieldPaths: string[] } {
   const { typeValue } = artifactCollectionAndType(kind);
@@ -660,6 +660,14 @@ function toScriptDTO(doc: FirestoreDocument): ScriptDTO {
   };
 }
 
+function toActionDTO(doc: FirestoreDocument): ActionDTO {
+  const base = firestoreDocToEnsembleBase(doc);
+  return {
+    ...base,
+    type: EnsembleDocumentType.Action,
+  };
+}
+
 function toScreenDTO(doc: FirestoreDocument): ScreenDTO {
   const base = firestoreDocToEnsembleBase(doc);
   return {
@@ -707,7 +715,7 @@ export async function checkAppAccess(
   userId: string,
   options?: FirestoreClientOptions,
 ): Promise<AppAccessResult> {
-  const project = process.env.ENSEMBLE_FIREBASE_PROJECT ?? DEFAULT_FIREBASE_PROJECT;
+  const project = getEnsembleFirebaseProject();
   const url = `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents/apps/${appId}`;
 
   try {
@@ -898,7 +906,7 @@ export async function fetchCloudApp(
   idToken: string,
   options?: FirestoreClientOptions,
 ): Promise<CloudApp> {
-  const project = process.env.ENSEMBLE_FIREBASE_PROJECT ?? DEFAULT_FIREBASE_PROJECT;
+  const project = getEnsembleFirebaseProject();
   const parentPath = `apps/${appId}`;
 
   const [appDoc, internalArtifacts, artifacts] = await Promise.all([
@@ -919,10 +927,12 @@ export async function fetchCloudApp(
 
   const widgets: WidgetDTO[] = [];
   const scripts: ScriptDTO[] = [];
+  const actions: ActionDTO[] = [];
   for (const doc of internalArtifacts) {
     const type = parseFirestoreString((doc.fields?.type as { stringValue?: string }) ?? undefined);
     if (type === 'internal_widget') widgets.push(toWidgetDTO(doc));
     else if (type === 'internal_script') scripts.push(toScriptDTO(doc));
+    else if (type === 'internal_action') actions.push(toActionDTO(doc));
   }
 
   const screens: ScreenDTO[] = [];
@@ -958,6 +968,8 @@ export async function fetchCloudApp(
     ...(appDoc.updatedAt !== undefined && { updatedAt: appDoc.updatedAt }),
     widgets,
     scripts,
+    // Actions are stored as internal_artifacts with type=internal_action.
+    ...(actions.length > 0 && { actions }),
     screens,
     ...(theme && { theme }),
     ...(translations.length > 0 && { translations }),
@@ -974,7 +986,7 @@ export async function fetchRootScreenName(
   idToken: string,
   options?: FirestoreClientOptions,
 ): Promise<string | undefined> {
-  const project = process.env.ENSEMBLE_FIREBASE_PROJECT ?? DEFAULT_FIREBASE_PROJECT;
+  const project = getEnsembleFirebaseProject();
   const parent = `projects/${project}/databases/(default)/documents/apps/${appId}`;
   const url = `https://firestore.googleapis.com/v1/${parent}:runQuery`;
 
