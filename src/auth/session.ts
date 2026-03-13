@@ -139,13 +139,11 @@ export async function getValidAuthSession(): Promise<AuthSessionResult> {
       email: updatedUser.email,
       refreshed: true,
     };
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : 'Unknown refresh error';
+  } catch {
       return {
       ok: false,
       reason: 'expired',
-      message: `Session expired and automatic refresh failed: ${message}. Run \`ensemble login\` again.`,
+      message: `Session expired and automatic refresh failed. Run \`ensemble login\` again.`,
     };
   }
 }
