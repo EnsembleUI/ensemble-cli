@@ -112,10 +112,12 @@ releaseCmd
   .description('List releases for an app.')
   .option('--app <alias>', 'App alias to use (defaults to "default")')
   .option('--limit <n>', 'Maximum number of releases to show (default: 20)', (v) => Number(v), 20)
-  .action(async (options: { app?: string; limit?: number }) => {
+  .option('--json', 'Print releases as JSON (for scripts)', false)
+  .action(async (options: { app?: string; limit?: number; json?: boolean }) => {
     await releaseListCommand({
       appKey: options.app,
       limit: options.limit,
+      json: options.json,
     });
   });
 
@@ -196,6 +198,13 @@ program
   });
 
 function checkForUpdates(): void {
+  // Skip update checks in CI or when explicitly disabled.
+  const ci = process.env.CI;
+  const noCheck = process.env.ENSEMBLE_NO_UPDATE_CHECK;
+  if (ci || (noCheck && noCheck.trim() !== '' && noCheck.toLowerCase() !== '0')) {
+    return;
+  }
+
   // Use the user's existing npm + auth config to query GitHub Packages.
   exec(
     'npm view @ensembleui/cli version --registry=https://npm.pkg.github.com',

@@ -18,20 +18,20 @@ curl -fsSL https://raw.githubusercontent.com/EnsembleUI/ensemble-cli/main/script
 
 1. **Configure npm to use GitHub Packages for `@ensembleui`:**
 
-Add this to your `~/.npmrc` (global) or project `.npmrc`:
+   Add this to your `~/.npmrc` (global) or project `.npmrc`:
 
-```bash
-@ensembleui:registry=https://npm.pkg.github.com
-//npm.pkg.github.com/:_authToken=YOUR_GITHUB_TOKEN
-```
+   ```bash
+   @ensembleui:registry=https://npm.pkg.github.com
+   //npm.pkg.github.com/:_authToken=YOUR_GITHUB_TOKEN
+   ```
 
-Your GitHub token must have at least the `read:packages` scope.
+   Your GitHub token must have at least the `read:packages` scope.
 
 2. **Install the CLI globally:**
 
-```bash
-npm install -g @ensembleui/cli
-```
+   ```bash
+   npm install -g @ensembleui/cli
+   ```
 
 3. **Use the CLI:**
 
@@ -68,34 +68,81 @@ To release a new version, go to GitHub → Actions → run the workflow **Releas
 
 ## Commands
 
-| Command            | Description                                                              |
-| ------------------ | ------------------------------------------------------------------------ |
-| `ensemble login`   | Log in to Ensemble (opens browser)                                       |
-| `ensemble logout`  | Log out and clear local auth session                                     |
-| `ensemble token`   | Print token for CI (set as `ENSEMBLE_TOKEN`); run `ensemble login` first |
-| `ensemble init`    | Initialize or update `ensemble.config.json` in the project               |
-| `ensemble push`    | Scan the app directory and push changes to the cloud                     |
-| `ensemble pull`    | Pull artifacts from the cloud and overwrite local files                  |
-| `ensemble release` | Manage releases (snapshots) of your app.                                 |
-| `ensemble add`     | Add a new screen, widget, script, or translation scaffold                |
-| `ensemble update`  | Update the CLI to the latest version                                     |
+| Command            | Description                                                               |
+| ------------------ | ------------------------------------------------------------------------- |
+| `ensemble login`   | Log in to Ensemble (opens browser)                                        |
+| `ensemble logout`  | Log out and clear local auth session                                      |
+| `ensemble token`   | Print token for CI (set as `ENSEMBLE_TOKEN`); run `ensemble login` first  |
+| `ensemble init`    | Initialize or update `ensemble.config.json` in the project                |
+| `ensemble push`    | Scan the app directory and push changes to the cloud                      |
+| `ensemble pull`    | Pull artifacts from the cloud and overwrite local files                   |
+| `ensemble release` | Manage releases (snapshots) of your app (interactive menu or subcommands) |
+| `ensemble add`     | Add a new screen, widget, script, action, or translation scaffold         |
+| `ensemble update`  | Update the CLI to the latest version                                      |
 
 ### Options
 
+- **global** — `--debug` — Print full debug information and stack traces. Can also be enabled with `DEBUG=1`.
 - **login** — `--verbose` — Print auth config path
-- **push** — `--app <alias>` — App alias (default: `default`)
-- **push** — `--verbose` — Write collected data and diff/payload JSON files for debugging
+- **push** — `--app <alias>` — App alias / environment key from `ensemble.config.json` (default: `default`)
+- **push** — `--verbose` — Write collected data, diff, bundle, and payload JSON files for debugging
+- **push** — `--dry-run` — Show what would be pushed without sending anything to the cloud
 - **push** — `-y, --yes` — Skip confirmation prompt (useful for CI)
-- **pull** — `--app <alias>` — App alias (default: `default`)
+- **pull** — `--app <alias>` — App alias / environment key from `ensemble.config.json` (default: `default`)
 - **pull** — `--verbose` — Write fetched cloud JSON to disk
+- **pull** — `--dry-run` — Show what would change without modifying local files
 - **pull** — `-y, --yes` — Skip confirmation prompt (overwrite without asking)
 - **release create** — `--app <alias>` — App alias (default: `default`)
 - **release create** — `-m, --message <msg>` — Release message (skips prompt)
 - **release create** — `-y, --yes` — Skip message prompt (use empty message)
 - **release list** — `--app <alias>` — App alias (default: `default`)
 - **release list** — `--limit <n>` — Maximum number of releases to show (default: 20)
+- **release list** — `--json` — Print releases as machine-readable JSON (for scripts)
 - **release use** — `--app <alias>` — App alias (default: `default`)
 - **release use** — `--hash <hash>` — Non-interactive: use release by hash (printed by `release list`)
+
+### `ensemble add`
+
+`ensemble add` scaffolds common app artifacts in your project and updates `.manifest.json` when needed.
+
+- **Supported kinds**
+  - `screen`
+  - `widget`
+  - `script`
+  - `action`
+  - `translation`
+
+- **Usage**
+  - Interactive (prompts for kind and name):
+
+    ```bash
+    ensemble add
+    ```
+
+  - Non-interactive:
+
+    ```bash
+    ensemble add screen Home
+    ensemble add widget MyWidget
+    ensemble add script myUtility
+    ensemble add action ShowToast
+    ensemble add translation en_US
+    ```
+
+- **Naming rules**
+  - Artifact names are normalized (trimmed, repeated whitespace collapsed).
+  - Names **cannot contain spaces** in the final file name. If you pass a name with spaces, the CLI will suggest a version without spaces (for example, `\"My Screen\"` → `MyScreen`) and let you confirm in interactive mode.
+
+- **Files created**
+  - Screens: `screens/<Name>.yaml`
+  - Widgets: `widgets/<Name>.yaml`
+  - Actions: `actions/<Name>.yaml`
+  - Scripts: `scripts/<Name>.js`
+  - Translations: `translations/<Name>.yaml`
+
+- **Manifest behavior**
+  - For `widget`, `script`, `action`, and `translation`, `.manifest.json` is updated to include the new artifact.
+  - For the **first screen**, the CLI will offer to set it as `homeScreenName` in `.manifest.json`.
 
 ## Usage
 
@@ -111,6 +158,8 @@ You can save and use snapshots of your app state in the cloud:
 - **Create a release from cloud:** After you have pushed and verified that the app is working as expected, run **`ensemble release create`** to save a snapshot (release) of the **current cloud state** with an optional message.
 - **List releases:** Run **`ensemble release list`** to see recent releases.
 - **Use a release locally:** Run **`ensemble release use`** to choose a release and update **local files only** to that snapshot. Then run **`ensemble push`** to apply that state to the cloud.
+
+When you run `ensemble release` **without a subcommand** in an interactive terminal, the CLI opens an interactive menu that lets you choose between **create**, **list**, and **use**. In non-interactive environments (e.g. CI), you must call an explicit subcommand such as `ensemble release list` or `ensemble release use --hash <hash>`.
 
 Releases are retained for **30 days**; after that they are deleted automatically by Firestore TTL.
 
@@ -137,17 +186,23 @@ If `ENSEMBLE_TOKEN` is not set, the CLI uses the global config from `ensemble lo
 
 Without `-y`, both commands refuse to run when not attached to a TTY and exit with code 1. Use `--dry-run` in a validation job to inspect changes without applying them. The project must already have `ensemble.config.json`.
 
+> **Tip:** In CI, prefer `ensemble push --dry-run` / `ensemble pull --dry-run` in a validation job, and use `-y` only when you are ready to apply changes.
+
 ## Environment Variables
 
-| Variable                    | Purpose                                                                                                      |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `ENSEMBLE_TOKEN`            | Token for CI; the CLI uses it instead of global config. Get it with `ensemble token` after `ensemble login`. |
-| `ENSEMBLE_FIREBASE_PROJECT` | Firestore project (default: `ensemble-web-studio`)                                                           |
-| `ENSEMBLE_AUTH_BASE_URL`    | Auth sign-in URL (default: `https://studio.ensembleui.com/sign-in`)                                          |
+| Variable                          | Purpose                                                                                                      |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `ENSEMBLE_TOKEN`                  | Token for CI; the CLI uses it instead of global config. Get it with `ensemble token` after `ensemble login`. |
+| `ENSEMBLE_FIREBASE_PROJECT`       | Firestore project (default: `ensemble-web-studio`)                                                           |
+| `ENSEMBLE_AUTH_BASE_URL`          | Auth sign-in URL (default: `https://studio.ensembleui.com/sign-in`)                                          |
+| `ENSEMBLE_FIREBASE_API_KEY`       | Firebase API key used by the CLI (injected at build time; can be overridden for custom environments/tests).  |
+| `ENSEMBLE_VERBOSE` / `VERBOSE`    | When set to a truthy value (`1`, `true`, `yes`, `on`), enables verbose mode for commands that support it.    |
+| `DEBUG`                           | When set to a truthy value (`1`, `true`, `yes`, `on`), enables debug output (same as passing `--debug`).     |
+| `CI` / `ENSEMBLE_NO_UPDATE_CHECK` | When set to a truthy value, disables the automatic version check at startup.                                 |
 
 ## Project Structure
 
-```
+```text
 src/
 ├── auth/       # Session & token handling
 ├── cloud/      # Firestore API client

@@ -33,6 +33,8 @@ export interface ReleaseListOptions {
   appKey?: string;
   /** Max releases to show (default: 20) */
   limit?: number;
+  /** When true, print releases as JSON (for scripting) and omit formatted output. */
+  json?: boolean;
 }
 
 export interface ReleaseUseOptions {
@@ -185,6 +187,23 @@ export async function releaseListCommand(options: ReleaseListOptions = {}): Prom
       );
       versions = [...versions, ...next.versions];
       nextStartAfter = next.nextStartAfter;
+    }
+
+    if (options.json) {
+      // Machine-readable output for scripting. Keep structure stable.
+      // eslint-disable-next-line no-console
+      console.log(
+        JSON.stringify(
+          {
+            appKey,
+            appName: appConfig.name ?? appKey,
+            versions,
+          },
+          null,
+          2
+        )
+      );
+      return;
     }
 
     ui.heading(`Releases for app "${appConfig.name ?? appKey}":`);
