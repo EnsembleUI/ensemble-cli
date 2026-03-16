@@ -209,7 +209,7 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
     );
 
   const [access, cloudAppResult, localFiles, manifestExisting] = await withSpinner(
-    'Checking app access, fetching cloud app, and collecting files...',
+    'Preparing app for pull...',
     async () => {
       const [accessRes, cloudRes, files, manifest] = await Promise.all([
         checkAppAccess(appId, idToken, userId, firestoreOptions),

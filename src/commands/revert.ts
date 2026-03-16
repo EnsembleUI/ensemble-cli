@@ -101,7 +101,7 @@ export async function revertCommand(options: RevertOptions = {}): Promise<void> 
     const { selected } = await prompts({
       type: 'select',
       name: 'selected',
-      message: 'Choose a version to revert to (local files only):',
+      message: 'Choose a version to revert to:',
       choices,
       initial: 0,
     });

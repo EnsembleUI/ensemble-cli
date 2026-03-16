@@ -216,7 +216,7 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
     : undefined;
 
   const [access, dataWithLang, cloudAppResult] = await withSpinner(
-    'Checking app access, collecting files, and fetching cloud app...',
+    'Preparing app for push...',
     async () => {
       const [accessRes, filesAndLang, cloudRes] = await Promise.all([
         checkAppAccess(appId, idToken, userId, firestoreOptions),
