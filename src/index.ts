@@ -8,6 +8,7 @@ const LOCAL_VERSION = pkg.version;
 
 import { loginCommand } from './commands/login.js';
 import { logoutCommand } from './commands/logout.js';
+import { tokenCommand } from './commands/token.js';
 import { initCommand } from './commands/init.js';
 import { pushCommand } from './commands/push.js';
 import { addCommand } from './commands/add.js';
@@ -38,6 +39,13 @@ program
   .description('Log out of Ensemble.')
   .action(async () => {
     await logoutCommand();
+  });
+
+program
+  .command('token')
+  .description('Print refresh token for CI (use as ENSEMBLE_TOKEN). Run "ensemble login" first.')
+  .action(async () => {
+    await tokenCommand();
   });
 
 program

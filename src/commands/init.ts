@@ -11,6 +11,7 @@ export async function initCommand(): Promise<void> {
   const session = await getValidAuthSession();
   if (!session.ok) {
     ui.error(session.message);
+    process.exitCode = 1;
     return;
   }
   const { idToken, userId } = session;
@@ -31,6 +32,7 @@ export async function initCommand(): Promise<void> {
 
   if (!answers.alias || !answers.appId) {
     console.log('Alias or app id missing; init aborted.');
+    process.exitCode = 1;
     return;
   }
 
@@ -40,6 +42,7 @@ export async function initCommand(): Promise<void> {
   const access = await checkAppAccess(appId, idToken, userId);
   if (!access.ok) {
     ui.error(access.message);
+    process.exitCode = 1;
     return;
   }
 

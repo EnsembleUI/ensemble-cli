@@ -38,6 +38,7 @@ npm install -g @ensembleui/cli
 ```bash
 ensemble login
 ensemble logout
+ensemble token
 ensemble init
 ensemble push
 ensemble pull
@@ -71,6 +72,7 @@ To release a new version, go to GitHub → Actions → run the workflow **Releas
 |--------------------|-----------------------------------------------------------------------------|
 | `ensemble login`   | Log in to Ensemble (opens browser)                                         |
 | `ensemble logout`  | Log out and clear local auth session                                       |
+| `ensemble token`   | Print token for CI (set as `ENSEMBLE_TOKEN`); run `ensemble login` first |
 | `ensemble init`    | Initialize or update `ensemble.config.json` in the project                |
 | `ensemble push`   | Scan the app directory and push changes to the cloud                       |
 | `ensemble pull`   | Pull artifacts from the cloud and overwrite local files                    |
@@ -107,11 +109,28 @@ After a successful push, in interactive mode the CLI may prompt **"Create a vers
 - `1` — Error (e.g., not logged in, app not found, or no access).
 - `130` — User cancelled an interactive confirmation (push/pull/revert prompt).
 
+### CI/CD
+
+**Auth:** Set `ENSEMBLE_TOKEN` in your CI environment. To get the token:
+
+1. On your machine, run `ensemble login` (browser) once.
+2. Run `ensemble token` — it prints the token for CI.
+3. Add that value as a secret in your CI (e.g. GitHub Actions → Settings → Secrets → `ENSEMBLE_TOKEN`).
+
+If `ENSEMBLE_TOKEN` is not set, the CLI uses the global config from `ensemble login` (e.g. on your laptop).
+
+**Non-interactive:** Use `-y` so push and pull do not prompt:
+
+- `ensemble push -y` — Push without confirmation.
+- `ensemble pull -y` — Pull without confirmation.
+
+Without `-y`, both commands refuse to run when not attached to a TTY and exit with code 1. Use `--dry-run` in a validation job to inspect changes without applying them. The project must already have `ensemble.config.json`.
+
 ## Environment Variables
 
 | Variable | Purpose |
 |----------|---------|
-| `ENSEMBLE_FIREBASE_API_KEY` | Required for automatic token refresh. Without it, you must re-run `ensemble login` when the session expires. |
+| `ENSEMBLE_TOKEN` | Token for CI; the CLI uses it instead of global config. Get it with `ensemble token` after `ensemble login`. |
 | `ENSEMBLE_FIREBASE_PROJECT` | Firestore project (default: `ensemble-web-studio`) |
 | `ENSEMBLE_AUTH_BASE_URL` | Auth sign-in URL (default: `https://studio.ensembleui.com/sign-in`) |
 

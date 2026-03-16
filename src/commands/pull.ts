@@ -292,7 +292,15 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
     );
   }
 
+  const isInteractive = Boolean(process.stdout.isTTY && process.stdin.isTTY);
   let confirmed = options.yes ?? false;
+  if (!confirmed && !isInteractive) {
+    ui.error(
+      'Refusing to run pull non-interactively without --yes. Re-run with --dry-run to inspect changes.',
+    );
+    process.exitCode = 1;
+    return;
+  }
   if (!confirmed) {
     const { proceed } = await prompts({
       type: 'confirm',

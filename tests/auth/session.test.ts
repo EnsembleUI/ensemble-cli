@@ -22,14 +22,69 @@ function makeJwt(payload: Record<string, unknown>): string {
 
 describe('getValidAuthSession', () => {
   const originalEnv = process.env.ENSEMBLE_FIREBASE_API_KEY;
+  const originalToken = process.env.ENSEMBLE_TOKEN;
 
   beforeEach(() => {
     vi.mocked(globalConfig.readGlobalConfig).mockReset();
     process.env.ENSEMBLE_FIREBASE_API_KEY = 'test-api-key';
+    delete process.env.ENSEMBLE_TOKEN;
   });
 
   afterEach(() => {
     process.env.ENSEMBLE_FIREBASE_API_KEY = originalEnv;
+    if (originalToken !== undefined) process.env.ENSEMBLE_TOKEN = originalToken;
+    else delete process.env.ENSEMBLE_TOKEN;
+  });
+
+  it('returns session from ENSEMBLE_TOKEN when set and refresh succeeds', async () => {
+    process.env.ENSEMBLE_TOKEN = 'env-refresh-token';
+    const newToken = makeJwt({
+      userId: 'u2',
+      email: 'ci@example.com',
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    });
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        id_token: newToken,
+        refresh_token: 'env-refresh-token',
+        expires_in: '3600',
+      }),
+    });
+
+    const result = await getValidAuthSession();
+
+    globalThis.fetch = originalFetch;
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.idToken).toBe(newToken);
+      expect(result.userId).toBe('u2');
+      expect(result.email).toBe('ci@example.com');
+      expect(result.refreshed).toBe(true);
+    }
+    expect(globalConfig.readGlobalConfig).not.toHaveBeenCalled();
+  });
+
+  it('returns expired when ENSEMBLE_TOKEN is set but refresh fails', async () => {
+    process.env.ENSEMBLE_TOKEN = 'bad-refresh-token';
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      json: async () => ({ error: { message: 'INVALID_GRANT' } }),
+    });
+
+    const result = await getValidAuthSession();
+
+    globalThis.fetch = originalFetch;
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe('expired');
+      expect(result.message).toContain('ENSEMBLE_TOKEN');
+      expect(result.message).toContain('ensemble token');
+    }
+    expect(globalConfig.readGlobalConfig).not.toHaveBeenCalled();
   });
 
   it('returns not_logged_in when no config', async () => {

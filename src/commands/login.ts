@@ -188,6 +188,7 @@ export async function loginCommand(options: LoginOptions = {}): Promise<void> {
     callbackData = await tokenPromise;
   } catch (err) {
     ui.error(err instanceof Error ? err.message : 'Login failed.');
+    process.exitCode = 1;
     return;
   }
 

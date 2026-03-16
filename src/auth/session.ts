@@ -82,7 +82,44 @@ async function refreshIdToken(refreshToken: string): Promise<{
   };
 }
 
+const ENSEMBLE_TOKEN_ENV = 'ENSEMBLE_TOKEN';
+
+/**
+ * Use refresh token from environment (e.g. CI). Refreshes to get an id token;
+ * does not read or write global config.
+ */
+async function sessionFromEnvToken(): Promise<AuthSessionResult> {
+  const refreshToken = process.env[ENSEMBLE_TOKEN_ENV]?.trim();
+  if (!refreshToken) return { ok: false, reason: 'not_logged_in', message: '' };
+
+  try {
+    const refreshed = await refreshIdToken(refreshToken);
+    const claims = decodeIdTokenClaims(refreshed.idToken);
+    return {
+      ok: true,
+      idToken: refreshed.idToken,
+      userId: claims.uid ?? refreshed.userId ?? 'cli-user',
+      name: claims.name ?? undefined,
+      email: claims.email ?? undefined,
+      refreshed: true,
+    };
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : 'Token refresh failed.';
+    return {
+      ok: false,
+      reason: 'expired',
+      message: `${message} Check that ENSEMBLE_TOKEN is a valid refresh token (from \`ensemble token\`) and ENSEMBLE_FIREBASE_API_KEY is set.`,
+    };
+  }
+}
+
 export async function getValidAuthSession(): Promise<AuthSessionResult> {
+  const fromEnv = await sessionFromEnvToken();
+  if (fromEnv.ok) return fromEnv;
+  if (fromEnv.reason === 'expired') return fromEnv;
+  // Not set or empty: fall back to global config
+
   const config: EnsembleUserConfig = (await readGlobalConfig()) ?? {};
   const user = config.user;
 

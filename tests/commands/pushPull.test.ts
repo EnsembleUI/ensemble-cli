@@ -324,6 +324,42 @@ describe('push/pull integration (commands)', () => {
     errorSpy.mockRestore();
   });
 
+  it('pull without --yes in non-interactive mode refuses to run', async () => {
+    (cloudModuleMock.fetchCloudApp as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: 'app1',
+      name: 'App',
+      screens: [
+        {
+          id: 'screen-id-1',
+          name: 'Home',
+          content: 'home: from cloud',
+          type: 'screen',
+          isRoot: true,
+        },
+      ] as unknown[],
+      widgets: [] as unknown[],
+      scripts: [] as unknown[],
+      translations: [] as unknown[],
+      theme: undefined,
+    });
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await pullCommand({ verbose: false });
+
+    expect(
+      errorSpy.mock.calls.some(
+        ([msg]) =>
+          typeof msg === 'string' &&
+          msg.includes('Refusing to run pull non-interactively without --yes'),
+      ),
+    ).toBe(true);
+    expect(process.exitCode).toBe(1);
+
+    process.exitCode = 0;
+    errorSpy.mockRestore();
+  });
+
   it('pull writes artifacts and .manifest and is idempotent', async () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
