@@ -41,6 +41,7 @@ ensemble logout
 ensemble init
 ensemble push
 ensemble pull
+ensemble revert
 ensemble add
 ensemble update
 ```
@@ -66,15 +67,16 @@ To release a new version, go to GitHub → Actions → run the workflow **Releas
 
 ## Commands
 
-| Command           | Description                                                  |
-|-------------------|--------------------------------------------------------------|
-| `ensemble login`  | Log in to Ensemble (opens browser)                          |
-| `ensemble logout` | Log out and clear local auth session                        |
-| `ensemble init`   | Initialize or update `ensemble.config.json` in the project  |
-| `ensemble push`   | Scan the app directory and push changes to the cloud        |
-| `ensemble pull`   | Pull artifacts from the cloud and overwrite local files     |
-| `ensemble add`    | Add a new screen, widget, script, or translation scaffold   |
-| `ensemble update` | Update the CLI to the latest version                        |
+| Command            | Description                                                                 |
+|--------------------|-----------------------------------------------------------------------------|
+| `ensemble login`   | Log in to Ensemble (opens browser)                                         |
+| `ensemble logout`  | Log out and clear local auth session                                       |
+| `ensemble init`    | Initialize or update `ensemble.config.json` in the project                |
+| `ensemble push`   | Scan the app directory and push changes to the cloud                       |
+| `ensemble pull`   | Pull artifacts from the cloud and overwrite local files                    |
+| `ensemble revert` | Revert local files to a previous version (run `ensemble push` to sync cloud)|
+| `ensemble add`    | Add a new screen, widget, script, or translation scaffold                  |
+| `ensemble update` | Update the CLI to the latest version                                       |
 
 ### Options
 
@@ -85,6 +87,8 @@ To release a new version, go to GitHub → Actions → run the workflow **Releas
 - **pull** — `--app <alias>` — App alias (default: `default`)
 - **pull** — `--verbose` — Write fetched cloud JSON to disk
 - **pull** — `-y, --yes` — Skip confirmation prompt (overwrite without asking)
+- **revert** — `--app <alias>` — App alias (default: `default`)
+- **revert** — `--verbose` — Show full error details (e.g. Firestore index creation link)
 
 ## Usage
 
@@ -93,11 +97,15 @@ To release a new version, go to GitHub → Actions → run the workflow **Releas
 3. Run `ensemble push` to sync your local app (screens, widgets, scripts, etc.) with the cloud
 4. Optionally run `ensemble pull` to refresh local artifacts from the cloud when other collaborators change them
 
+### Versions (snapshots)
+
+After a successful push, in interactive mode the CLI may prompt **"Create a version (snapshot) of this state?"**. If you choose yes and enter an optional message, a full snapshot is saved in Firebase. Versions are retained for **30 days**; after that they are deleted automatically. Use **`ensemble revert`** to list recent versions and restore **local files only** to a selected snapshot. The cloud is not updated by revert; run **`ensemble push`** afterward to apply the reverted state to the cloud.
+
 ### Exit codes
 
 - `0` — Command completed successfully (including “Up to date. Nothing to push/pull.”).
 - `1` — Error (e.g., not logged in, app not found, or no access).
-- `130` — User cancelled an interactive confirmation (push/pull prompt).
+- `130` — User cancelled an interactive confirmation (push/pull/revert prompt).
 
 ## Environment Variables
 

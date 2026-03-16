@@ -4,6 +4,9 @@ import {
   fetchCloudApp,
   fetchRootScreenName,
   submitCliPush,
+  listVersions,
+  createVersion,
+  getVersion,
   FirestoreClientError,
   type FirestoreDebugEvent,
 } from '../../src/cloud/firestoreClient.js';
@@ -550,5 +553,271 @@ describe('Firestore client structured errors and debug logging', () => {
     });
 
     expect(events.length).toBeGreaterThan(0);
+  });
+});
+
+describe('listVersions', () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it('sends runQuery with parent in URL and only structuredQuery in body', async () => {
+    let capturedRequest: { url: string; body: string } | null = null;
+    const runQueryResponse = [
+      {
+        document: {
+          name: 'projects/p/databases/(default)/documents/apps/app1/versions/v1',
+          fields: {
+            message: { stringValue: 'First version' },
+            createdAt: { timestampValue: '2025-01-15T12:00:00Z' },
+            expiresAt: { timestampValue: '2025-02-15T12:00:00Z' },
+            createdBy: { referenceValue: 'projects/p/databases/(default)/documents/users/uid1' },
+            snapshot: { stringValue: '{"id":"app1","name":"App","screens":[]}' },
+          },
+        },
+      },
+    ];
+
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
+      if (urlStr.includes(':runQuery')) {
+        capturedRequest = { url: urlStr, body: (init?.body as string) ?? '' };
+        return new Response(JSON.stringify(runQueryResponse), { status: 200 });
+      }
+      return new Response('', { status: 404 });
+    };
+
+    const result = await listVersions('app1', 'token', { limit: 5 });
+
+    expect(capturedRequest).not.toBeNull();
+    expect(capturedRequest!.url).toContain('/documents/apps/app1:runQuery');
+    const body = JSON.parse(capturedRequest!.body);
+    expect(body).toHaveProperty('structuredQuery');
+    expect(body.structuredQuery.from).toEqual([{ collectionId: 'versions' }]);
+    expect(body.structuredQuery.orderBy).toEqual([{ field: { fieldPath: 'createdAt' }, direction: 'DESCENDING' }]);
+    expect(body.structuredQuery.limit).toBe(5);
+    expect(body).not.toHaveProperty('parent');
+
+    expect(result.versions).toHaveLength(1);
+    expect(result.versions[0]!.message).toBe('First version');
+    expect(result.versions[0]!.createdAt).toBe('2025-01-15T12:00:00Z');
+    expect(result.versions[0]!.snapshot).toEqual({ id: 'app1', name: 'App', screens: [] });
+    expect(result.nextStartAfter).toBeUndefined();
+  });
+
+  it('returns nextStartAfter when limit results returned', async () => {
+    const ts = '2025-01-15T12:00:00Z';
+    const runQueryResponse = Array.from({ length: 5 }, (_, i) => ({
+      document: {
+        name: `projects/p/databases/(default)/documents/apps/app1/versions/v${i}`,
+        fields: {
+          message: { stringValue: `Version ${i}` },
+          createdAt: { timestampValue: ts },
+          expiresAt: { timestampValue: '2025-02-15T12:00:00Z' },
+          snapshot: { stringValue: '{}' },
+        },
+      },
+    }));
+
+    globalThis.fetch = async (input: RequestInfo | URL) => {
+      const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
+      if (urlStr.includes(':runQuery')) {
+        return new Response(JSON.stringify(runQueryResponse), { status: 200 });
+      }
+      return new Response('', { status: 404 });
+    };
+
+    const result = await listVersions('app1', 'token', { limit: 5 });
+    expect(result.versions).toHaveLength(5);
+    expect(result.nextStartAfter).toBe(ts);
+  });
+
+  it('includes startAt in body when startAfter is provided', async () => {
+    let capturedBody: string | null = null;
+    globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit) => {
+      capturedBody = (init?.body as string) ?? null;
+      return new Response(JSON.stringify([]), { status: 200 });
+    };
+
+    await listVersions('app1', 'token', { limit: 5, startAfter: '2025-01-10T00:00:00Z' });
+
+    const body = JSON.parse(capturedBody!);
+    expect(body.structuredQuery.startAt).toEqual({
+      values: [{ timestampValue: '2025-01-10T00:00:00Z' }],
+      before: false,
+    });
+  });
+
+  it('returns no nextStartAfter when fewer than limit returned', async () => {
+    const runQueryResponse = [
+      {
+        document: {
+          name: 'projects/p/databases/(default)/documents/apps/app1/versions/v1',
+          fields: {
+            message: { stringValue: 'Only one' },
+            createdAt: { timestampValue: '2025-01-15T12:00:00Z' },
+            expiresAt: { timestampValue: '2025-02-15T12:00:00Z' },
+            snapshot: { stringValue: '{}' },
+          },
+        },
+      },
+    ];
+
+    globalThis.fetch = async (input: RequestInfo | URL) => {
+      const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
+      if (urlStr.includes(':runQuery')) {
+        return new Response(JSON.stringify(runQueryResponse), { status: 200 });
+      }
+      return new Response('', { status: 404 });
+    };
+
+    const result = await listVersions('app1', 'token', { limit: 5 });
+    expect(result.versions).toHaveLength(1);
+    expect(result.nextStartAfter).toBeUndefined();
+  });
+
+  it('throws FirestoreClientError on 403', async () => {
+    globalThis.fetch = async (input: RequestInfo | URL) => {
+      const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
+      if (urlStr.includes(':runQuery')) {
+        return new Response(JSON.stringify({ error: { code: 403, message: 'Permission denied' } }), { status: 403 });
+      }
+      return new Response('', { status: 404 });
+    };
+
+    await expect(listVersions('app1', 'token', { limit: 5 })).rejects.toThrow(FirestoreClientError);
+  });
+});
+
+describe('createVersion', () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it('POSTs to app versions collection and returns id', async () => {
+    let capturedUrl: string | null = null;
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
+      if (urlStr.includes('/versions') && init?.method === 'POST') {
+        capturedUrl = urlStr;
+        return new Response(JSON.stringify({}), { status: 200 });
+      }
+      return new Response('', { status: 404 });
+    };
+
+    const result = await createVersion('app1', 'token', {
+      message: 'Release 1',
+      createdAt: '2025-01-15T12:00:00Z',
+      expiresAt: '2025-02-15T12:00:00Z',
+      createdBy: { name: 'User', id: 'uid1' },
+      snapshot: { id: 'app1', name: 'App', screens: [] },
+    });
+
+    expect(typeof result.id).toBe('string');
+    expect(result.id.length).toBeGreaterThan(0);
+    expect(capturedUrl).toContain('/documents/apps/app1/versions');
+    expect(capturedUrl).toContain('documentId=');
+  });
+
+  it('throws FirestoreClientError on 403', async () => {
+    globalThis.fetch = async (input: RequestInfo | URL) => {
+      const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
+      if (urlStr.includes('/versions')) {
+        return new Response(JSON.stringify({ error: { code: 403 } }), { status: 403 });
+      }
+      return new Response('', { status: 404 });
+    };
+
+    await expect(
+      createVersion('app1', 'token', {
+        message: 'v1',
+        createdAt: '2025-01-15T12:00:00Z',
+        expiresAt: '2025-02-15T12:00:00Z',
+        createdBy: { name: 'User', id: 'uid1' },
+        snapshot: { id: 'app1', name: 'App' },
+      }),
+    ).rejects.toThrow(FirestoreClientError);
+  });
+});
+
+describe('getVersion', () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it('returns version doc with snapshot', async () => {
+    const versionDoc = {
+      name: 'projects/p/databases/(default)/documents/apps/app1/versions/ver-123',
+      fields: {
+        message: { stringValue: 'Saved state' },
+        createdAt: { timestampValue: '2025-01-15T12:00:00Z' },
+        expiresAt: { timestampValue: '2025-02-15T12:00:00Z' },
+        createdBy: { referenceValue: 'projects/p/databases/(default)/documents/users/uid1' },
+        snapshot: { stringValue: '{"id":"app1","name":"My App","screens":[]}' },
+      },
+    };
+
+    globalThis.fetch = async (input: RequestInfo | URL) => {
+      const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
+      if (urlStr.includes('/versions/ver-123')) {
+        return new Response(JSON.stringify(versionDoc), { status: 200 });
+      }
+      return new Response('', { status: 404 });
+    };
+
+    const result = await getVersion('app1', 'token', 'ver-123');
+    expect(result.id).toBe('ver-123');
+    expect(result.message).toBe('Saved state');
+    expect(result.createdAt).toBe('2025-01-15T12:00:00Z');
+    expect(result.snapshot).toEqual({ id: 'app1', name: 'My App', screens: [] });
+  });
+
+  it('throws FirestoreClientError with NOT_FOUND on 404', async () => {
+    globalThis.fetch = async () => new Response(JSON.stringify({}), { status: 404 });
+
+    let thrown: FirestoreClientError | undefined;
+    try {
+      await getVersion('app1', 'token', 'missing-id');
+    } catch (err) {
+      thrown = err as FirestoreClientError;
+    }
+    expect(thrown).toBeInstanceOf(FirestoreClientError);
+    expect(thrown!.code).toBe('NOT_FOUND');
+    expect(thrown!.message).toContain('missing-id');
+  });
+
+  it('throws FirestoreClientError when snapshot JSON is invalid', async () => {
+    const versionDoc = {
+      name: 'projects/p/databases/(default)/documents/apps/app1/versions/ver-123',
+      fields: {
+        message: { stringValue: 'v1' },
+        createdAt: { timestampValue: '2025-01-15T12:00:00Z' },
+        expiresAt: { timestampValue: '2025-02-15T12:00:00Z' },
+        snapshot: { stringValue: 'not valid json {{' },
+      },
+    };
+
+    globalThis.fetch = async (input: RequestInfo | URL) => {
+      const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
+      if (urlStr.includes('/versions/ver-123')) {
+        return new Response(JSON.stringify(versionDoc), { status: 200 });
+      }
+      return new Response('', { status: 404 });
+    };
+
+    let thrown: FirestoreClientError | undefined;
+    try {
+      await getVersion('app1', 'token', 'ver-123');
+    } catch (err) {
+      thrown = err as FirestoreClientError;
+    }
+    expect(thrown).toBeInstanceOf(FirestoreClientError);
+    expect(thrown!.message).toContain('snapshot data is invalid');
   });
 });

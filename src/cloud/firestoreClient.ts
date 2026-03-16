@@ -188,6 +188,29 @@ export type CloudApp = Pick<
   | 'translations'
 >;
 
+/** Metadata for a saved version (commit); snapshot stored in same doc. */
+export interface VersionMetadata {
+  id: string;
+  message: string;
+  createdAt: string;
+  createdBy: { name: string; email?: string; id: string };
+  expiresAt: string;
+}
+
+/** Full version doc as returned by getVersion (metadata + snapshot). */
+export interface VersionDoc extends VersionMetadata {
+  snapshot: CloudApp;
+}
+
+export interface CreateVersionParams {
+  message: string;
+  createdAt: string;
+  createdBy: { name: string; email?: string; id: string };
+  /** Must be Firestore Timestamp (e.g. 30 days from now). Use ISO string for timestampValue. */
+  expiresAt: string;
+  snapshot: CloudApp;
+}
+
 const ALLOWED_ROLES = new Set(['write', 'owner']);
 
 export interface AppInfo {
@@ -1039,4 +1062,221 @@ export async function fetchRootScreenName(
   if (!doc?.fields) return undefined;
 
   return parseFirestoreString(doc.fields.name as { stringValue?: string });
+}
+
+/** Generate a URL-safe ID for version documents. */
+function generateVersionId(): string {
+  return crypto.randomUUID().replace(/-/g, '');
+}
+
+/**
+ * Create a version (snapshot) document under apps/{appId}/versions.
+ * expiresAt must be stored as Firestore Timestamp for TTL policy to work.
+ */
+export async function createVersion(
+  appId: string,
+  idToken: string,
+  params: CreateVersionParams,
+  options?: FirestoreClientOptions,
+): Promise<{ id: string }> {
+  const project = getEnsembleFirebaseProject();
+  const versionId = generateVersionId();
+  const parent = `projects/${project}/databases/(default)/documents/apps/${appId}`;
+  const url = `https://firestore.googleapis.com/v1/${parent}/versions?documentId=${encodeURIComponent(versionId)}`;
+
+  const createdByVal = encodeUpdatedBy(params.createdBy);
+  const fields: Record<string, FirestoreValue> = {
+    message: { stringValue: params.message },
+    createdAt: { timestampValue: params.createdAt },
+    expiresAt: { timestampValue: params.expiresAt },
+    ...(createdByVal && { createdBy: createdByVal }),
+    snapshot: { stringValue: JSON.stringify(params.snapshot) },
+  };
+
+  logDebug(options, {
+    kind: 'request',
+    method: 'POST',
+    url,
+    context: 'createVersion',
+  });
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${idToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ fields }),
+  });
+
+  if (!res.ok) {
+    throw await toFirestoreError('create version', res, options);
+  }
+
+  logDebug(options, {
+    kind: 'response',
+    method: 'POST',
+    url,
+    status: res.status,
+    context: 'createVersion',
+  });
+  return { id: versionId };
+}
+
+function parseVersionDoc(doc: FirestoreDocument): VersionDoc | null {
+  if (!doc.name || !doc.fields) return null;
+  const fields = doc.fields as Record<string, FirestoreValue>;
+  const id = getDocId(doc.name);
+  const message = parseFirestoreString(fields.message as { stringValue?: string }) ?? '';
+  const createdAt = parseFirestoreTimestamp(fields.createdAt as { timestampValue?: string });
+  const expiresAt = parseFirestoreTimestamp(fields.expiresAt as { timestampValue?: string });
+  const createdBy = parseUpdatedBy(
+    fields.createdBy as { referenceValue?: string },
+  ) ?? { name: 'Unknown', id: '' };
+  const snapshotStr = parseFirestoreString(fields.snapshot as { stringValue?: string });
+  let snapshot: CloudApp;
+  try {
+    snapshot = JSON.parse(snapshotStr ?? '{}') as CloudApp;
+  } catch {
+    return null;
+  }
+  if (createdAt === undefined || expiresAt === undefined) return null;
+  return { id, message, createdAt, createdBy, expiresAt, snapshot };
+}
+
+export interface ListVersionsResult {
+  versions: VersionDoc[];
+  /** Pass as startAfter on next call to fetch the next page. Omitted when there are no more. */
+  nextStartAfter?: string;
+}
+
+/**
+ * List a page of version documents (newest first), 5 per page for efficient Firebase queries.
+ * Uses runQuery with orderBy createdAt desc. Requires a composite index on versions (createdAt desc).
+ */
+export async function listVersions(
+  appId: string,
+  idToken: string,
+  opts: { limit: number; startAfter?: string },
+  options?: FirestoreClientOptions,
+): Promise<ListVersionsResult> {
+  const project = getEnsembleFirebaseProject();
+  const parent = `projects/${project}/databases/(default)/documents/apps/${appId}`;
+  const url = `https://firestore.googleapis.com/v1/${parent}:runQuery`;
+
+  const structuredQuery: {
+    from: { collectionId: string }[];
+    orderBy: { field: { fieldPath: string }; direction: string }[];
+    limit: number;
+    startAt?: { values: { timestampValue: string }[]; before: boolean };
+  } = {
+    from: [{ collectionId: 'versions' }],
+    orderBy: [{ field: { fieldPath: 'createdAt' }, direction: 'DESCENDING' }],
+    limit: opts.limit,
+  };
+  if (opts.startAfter !== undefined && opts.startAfter !== '') {
+    structuredQuery.startAt = {
+      values: [{ timestampValue: opts.startAfter }],
+      before: false,
+    };
+  }
+
+  logDebug(options, {
+    kind: 'request',
+    method: 'POST',
+    url,
+    context: 'listVersions',
+  });
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${idToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ structuredQuery }),
+  });
+
+  if (!res.ok) {
+    throw await toFirestoreError('list versions', res, options);
+  }
+
+  const body = (await res.json()) as { document?: FirestoreDocument }[];
+  const items = Array.isArray(body) ? body : [body];
+  const versions: VersionDoc[] = [];
+  let lastCreatedAt: string | undefined;
+  for (const item of items) {
+    const doc = item.document;
+    if (!doc) continue;
+    const parsed = parseVersionDoc(doc);
+    if (parsed) {
+      versions.push(parsed);
+      lastCreatedAt = parsed.createdAt;
+    }
+  }
+  const nextStartAfter =
+    versions.length === opts.limit && lastCreatedAt !== undefined ? lastCreatedAt : undefined;
+  return { versions, nextStartAfter };
+}
+
+/**
+ * Fetch a single version document including snapshot.
+ */
+export async function getVersion(
+  appId: string,
+  idToken: string,
+  versionId: string,
+  options?: FirestoreClientOptions,
+): Promise<VersionDoc> {
+  const project = getEnsembleFirebaseProject();
+  const url = `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents/apps/${appId}/versions/${versionId}`;
+
+  logDebug(options, {
+    kind: 'request',
+    method: 'GET',
+    url,
+    context: 'getVersion',
+  });
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${idToken}` },
+  });
+
+  if (!res.ok) {
+    if (res.status === 404) {
+      throw new FirestoreClientError({
+        code: 'NOT_FOUND',
+        message: `Version "${versionId}" not found.`,
+        status: 404,
+        hint: 'It may have expired (versions are deleted after 30 days).',
+      });
+    }
+    throw await toFirestoreError('get version', res, options);
+  }
+
+  const doc = (await res.json()) as { name?: string; fields?: Record<string, FirestoreValue> };
+  const fields = doc?.fields ?? {};
+  const id = getDocId(doc.name ?? '');
+  const message = parseFirestoreString(fields.message as { stringValue?: string }) ?? '';
+  const createdAt = parseFirestoreTimestamp(fields.createdAt as { timestampValue?: string }) ?? '';
+  const expiresAt = parseFirestoreTimestamp(fields.expiresAt as { timestampValue?: string }) ?? '';
+  const createdBy = parseUpdatedBy(
+    fields.createdBy as { referenceValue?: string },
+  ) ?? { name: 'Unknown', id: '' };
+  const snapshotStr = parseFirestoreString(fields.snapshot as { stringValue?: string });
+  let snapshot: CloudApp;
+  try {
+    snapshot = JSON.parse(snapshotStr ?? '{}') as CloudApp;
+  } catch {
+    throw new FirestoreClientError({
+      code: 'UNKNOWN',
+      message: 'Version snapshot data is invalid.',
+    });
+  }
+
+  return {
+    id,
+    message,
+    createdAt,
+    createdBy,
+    expiresAt,
+    snapshot,
+  };
 }

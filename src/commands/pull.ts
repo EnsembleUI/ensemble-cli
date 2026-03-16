@@ -16,16 +16,13 @@ import { resolveVerboseFlag } from '../core/cliError.js';
 import { resolveAppContext } from '../config/projectConfig.js';
 import { getValidAuthSession } from '../auth/session.js';
 import { withSpinner } from '../lib/spinner.js';
-import { processWithConcurrency } from '../core/concurrency.js';
-import { safeFileName } from '../core/fileNames.js';
+import { applyCloudStateToFs } from '../core/applyToFs.js';
 import {
   type RootManifest,
-  buildAndWriteManifest,
   getCloudHomeScreenName,
   type BuildManifestOptions,
 } from '../core/manifest.js';
 import { writeVerboseJson } from '../core/debugFiles.js';
-import { ARTIFACT_FS_CONFIG } from '../core/artifacts.js';
 import { computePullPlan, type PullSummary } from '../core/sync.js';
 import { ui } from '../core/ui.js';
 
@@ -36,10 +33,6 @@ export interface PullOptions {
   yes?: boolean;
   /** Dry run: show what would change but do not modify files */
   dryRun?: boolean;
-}
-
-async function ensureDir(dir: string): Promise<void> {
-  await fs.mkdir(dir, { recursive: true });
 }
 
 const PULL_LABEL_TEXT = {
@@ -352,86 +345,13 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
   }
 
   await withSpinner('Writing local files...', async () => {
-    type WriteTask =
-      | { op: 'write'; filePath: string; content: string }
-      | { op: 'delete'; filePath: string };
-
-    const tasks: WriteTask[] = [];
-
-    for (const cfg of ARTIFACT_FS_CONFIG) {
-      const { prop, ext, isTheme } = cfg;
-      if (!enabledByProp[prop]) continue;
-
-      if (isTheme) {
-        const themePath = path.join(projectRoot, 'theme.yaml');
-        if (cloudApp.theme && cloudApp.theme.isArchived !== true) {
-          tasks.push({
-            op: 'write',
-            filePath: themePath,
-            content: cloudApp.theme.content ?? '',
-          });
-        } else {
-          tasks.push({ op: 'delete', filePath: themePath });
-        }
-        continue;
-      }
-
-      const baseDir = path.join(projectRoot, prop);
-      await ensureDir(baseDir);
-
-      const cloudItems = (cloudApp as Record<string, unknown>)[prop] as
-        | { name: string; content?: string; isArchived?: boolean }[]
-        | undefined;
-
-      const expected: Record<string, string> = {};
-      for (const item of cloudItems ?? []) {
-        if (item.isArchived === true) continue;
-        expected[safeFileName(item.name, ext!)] = item.content ?? '';
-      }
-
-      const actual = (localFiles as unknown as Record<string, unknown>)[
-        prop
-      ] as Record<string, string> | undefined;
-      const actualMap = actual ?? {};
-
-      const expectedKeys = new Set(Object.keys(expected));
-      const actualKeys = new Set(Object.keys(actualMap));
-
-      // Writes for new or modified files.
-      for (const file of expectedKeys) {
-        const content = expected[file] ?? '';
-        const filePath = path.join(baseDir, file);
-        if (!actualKeys.has(file) || actualMap[file] !== content) {
-          tasks.push({ op: 'write', filePath, content });
-        }
-      }
-
-      // Deletes for files that no longer exist in cloud.
-      for (const file of actualKeys) {
-        if (!expectedKeys.has(file)) {
-          const filePath = path.join(baseDir, file);
-          tasks.push({ op: 'delete', filePath });
-        }
-      }
-    }
-
-    let completed = 0;
-    const total = tasks.length;
-
-    await processWithConcurrency(tasks, async (task) => {
-      if (task.op === 'write') {
-        await fs.writeFile(task.filePath, task.content, 'utf8');
-      } else {
-        await fs.rm(task.filePath, { force: true });
-      }
-      completed += 1;
-      if (total > 0 && completed % 25 === 0) {
+    await applyCloudStateToFs(projectRoot, cloudApp, localFiles, enabledByProp, {
+      manifestOptions,
+      onProgress: (completed, total) => {
         // eslint-disable-next-line no-console
         console.log(`Writing files... (${completed}/${total})`);
-      }
+      },
     });
-
-    await buildAndWriteManifest(projectRoot, cloudApp, manifestOptions);
   });
 
   printPullSummary(pullSummary);

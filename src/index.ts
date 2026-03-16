@@ -12,6 +12,7 @@ import { initCommand } from './commands/init.js';
 import { pushCommand } from './commands/push.js';
 import { addCommand } from './commands/add.js';
 import { pullCommand } from './commands/pull.js';
+import { revertCommand } from './commands/revert.js';
 import { updateCommand } from './commands/update.js';
 import { printCliError, resolveDebugFlag } from './core/cliError.js';
 import { ui } from './core/ui.js';
@@ -76,6 +77,15 @@ program
       yes: options.yes,
       dryRun: options.dryRun,
     });
+  });
+
+program
+  .command('revert')
+  .description('Revert local files to a previous version (use "ensemble push" to apply to cloud).')
+  .option('--app <alias>', 'App alias to use (defaults to "default")')
+  .option('--verbose', 'Show full log messages')
+  .action(async (options: { app?: string; verbose?: boolean }) => {
+    await revertCommand({ appKey: options.app, verbose: options.verbose });
   });
 
 program

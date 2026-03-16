@@ -4,6 +4,7 @@ import prompts from 'prompts';
 
 import {
   checkAppAccess,
+  createVersion,
   fetchCloudApp,
   submitCliPush,
   FirestoreClientError,
@@ -442,5 +443,58 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
     }
 
     printPushSummary(summary, { verbose, isNoop: false });
+
+    if (isInteractive && !options.yes && bundle) {
+      const { createVersion: wantVersion } = await prompts({
+        type: 'confirm',
+        name: 'createVersion',
+        message: 'Create a version (snapshot) of this state?',
+        initial: false,
+      });
+      if (wantVersion) {
+        const { message: versionMessage } = await prompts({
+          type: 'text',
+          name: 'message',
+          message: 'Version message:',
+          initial: '',
+        });
+        const now = new Date();
+        const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
+        const snapshot: CloudApp = {
+          id: bundle.id,
+          name: bundle.name,
+          createdAt: bundle.createdAt ?? now.toISOString(),
+          updatedAt: bundle.updatedAt ?? now.toISOString(),
+          ...(bundle.screens && bundle.screens.length > 0 && { screens: bundle.screens }),
+          ...(bundle.widgets && bundle.widgets.length > 0 && { widgets: bundle.widgets }),
+          ...(bundle.scripts && bundle.scripts.length > 0 && { scripts: bundle.scripts }),
+          ...(bundle.actions && bundle.actions.length > 0 && { actions: bundle.actions }),
+          ...(bundle.translations && bundle.translations.length > 0 && { translations: bundle.translations }),
+          ...(bundle.theme && { theme: bundle.theme }),
+        };
+        try {
+          await createVersion(
+            appId,
+            idToken,
+            {
+              message: typeof versionMessage === 'string' ? versionMessage : '',
+              createdAt: now.toISOString(),
+              createdBy: updatedBy,
+              expiresAt,
+              snapshot,
+            },
+            firestoreOptions,
+          );
+          ui.success('Version saved. Run `ensemble revert` to revert to this version.');
+        } catch (versionErr) {
+          ui.warn('Push succeeded, but failed to save version.');
+          if (versionErr instanceof FirestoreClientError && versionErr.hint) {
+            ui.note(versionErr.hint);
+          } else if (verbose && versionErr instanceof Error) {
+            ui.note(versionErr.message);
+          }
+        }
+      }
+    }
   }
 }
