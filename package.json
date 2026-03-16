@@ -32,14 +32,15 @@
   "type": "commonjs",
   "dependencies": {
     "commander": "^12.1.0",
-    "prompts": "^2.4.2",
-    "picocolors": "^1.1.0"
+    "picocolors": "^1.1.0",
+    "prompts": "^2.4.2"
   },
   "devDependencies": {
     "@types/node": "^22.10.1",
     "@types/prompts": "^2.4.9",
     "@typescript-eslint/eslint-plugin": "^8.15.0",
     "@typescript-eslint/parser": "^8.15.0",
+    "dotenv": "^17.3.1",
     "eslint": "^8.57.0",
     "eslint-config-prettier": "^9.1.0",
     "husky": "^9.0.0",
