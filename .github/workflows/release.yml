@@ -56,13 +56,10 @@ jobs:
       - name: Push commit and tags
         run: git push --follow-tags
 
-      - name: Inject Ensemble environment config
-        run: npm run inject-env
-        env:
-          ENSEMBLE_FIREBASE_API_KEY: ${{ secrets.ENSEMBLE_FIREBASE_API_KEY }}
-
       - name: Build CLI (create dist/)
         run: npm run build
+        env:
+          ENSEMBLE_FIREBASE_API_KEY: ${{ secrets.ENSEMBLE_FIREBASE_API_KEY }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

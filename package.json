@@ -6,7 +6,7 @@
     "ensemble": "dist/index.js"
   },
   "scripts": {
-    "build": "tsc && chmod +x dist/index.js",
+    "build": "tsc && node scripts/inject-env.mjs && chmod +x dist/index.js",
     "inject-env": "node scripts/inject-env.mjs",
     "dev": "ts-node src/index.ts",
     "start": "node dist/index.js",
