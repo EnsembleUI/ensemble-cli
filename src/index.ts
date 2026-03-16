@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
 import { exec } from 'node:child_process';
+import prompts from 'prompts';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const pkg = require('../package.json') as { version: string };
@@ -13,7 +14,11 @@ import { initCommand } from './commands/init.js';
 import { pushCommand } from './commands/push.js';
 import { addCommand } from './commands/add.js';
 import { pullCommand } from './commands/pull.js';
-import { revertCommand } from './commands/revert.js';
+import {
+  releaseCreateCommand,
+  releaseListCommand,
+  releaseUseCommand,
+} from './commands/release.js';
 import { updateCommand } from './commands/update.js';
 import { printCliError, resolveDebugFlag } from './core/cliError.js';
 import { ui } from './core/ui.js';
@@ -87,14 +92,81 @@ program
     });
   });
 
-program
-  .command('revert')
-  .description('Revert local files to a previous version (use "ensemble push" to apply to cloud).')
+const releaseCmd = program
+  .command('release')
+  .description('Manage releases (snapshots) of your app.')
+  .option('--app <alias>', 'App alias to use (defaults to "default")');
+
+releaseCmd
+  .command('create')
+  .description('Create a release (snapshot) from the current cloud state (no push required).')
   .option('--app <alias>', 'App alias to use (defaults to "default")')
-  .option('--verbose', 'Show full log messages')
-  .action(async (options: { app?: string; verbose?: boolean }) => {
-    await revertCommand({ appKey: options.app, verbose: options.verbose });
+  .option('-m, --message <msg>', 'Release message (skips prompt)')
+  .option('-y, --yes', 'Skip message prompt (use empty message)')
+  .action(async (options: { app?: string; message?: string; yes?: boolean }) => {
+    await releaseCreateCommand({
+      appKey: options.app,
+      message: options.message,
+      yes: options.yes,
+    });
   });
+
+releaseCmd
+  .command('list')
+  .description('List releases for an app.')
+  .option('--app <alias>', 'App alias to use (defaults to "default")')
+  .option('--limit <n>', 'Maximum number of releases to show (default: 20)', (v) => Number(v), 20)
+  .action(async (options: { app?: string; limit?: number }) => {
+    await releaseListCommand({
+      appKey: options.app,
+      limit: options.limit,
+    });
+  });
+
+releaseCmd
+  .command('use')
+  .description('Use a release (snapshot) to update local files (run "ensemble push" to sync cloud).')
+  .option('--app <alias>', 'App alias to use (defaults to "default")')
+  .option('--hash <hash>', 'Release hash to use (non-interactive).')
+  .action(async (options: { app?: string; hash?: string }) => {
+    await releaseUseCommand({ appKey: options.app, hash: options.hash });
+  });
+
+// If user runs just `ensemble release`, offer an interactive menu.
+releaseCmd.action(async (options: { app?: string }) => {
+  const isInteractive = Boolean(process.stdout.isTTY && process.stdin.isTTY);
+  if (!isInteractive) {
+    ui.error('Subcommand required for non-interactive use. Try "ensemble release create|list|use".');
+    process.exitCode = 1;
+    return;
+  }
+
+  const { action } = await prompts({
+    type: 'select',
+    name: 'action',
+    message: 'What do you want to do?',
+    choices: [
+      { title: 'Create release (snapshot) from local state', value: 'create' },
+      { title: 'List releases', value: 'list' },
+      { title: 'Use release (update local files)', value: 'use' },
+    ],
+    initial: 0,
+  });
+
+  if (!action) {
+    ui.warn('Release command cancelled.');
+    process.exitCode = 130;
+    return;
+  }
+
+  if (action === 'create') {
+    await releaseCreateCommand({ appKey: options.app });
+  } else if (action === 'list') {
+    await releaseListCommand({ appKey: options.app });
+  } else if (action === 'use') {
+    await releaseUseCommand({ appKey: options.app });
+  }
+});
 
 program
   .command('add')

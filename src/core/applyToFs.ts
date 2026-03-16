@@ -1,6 +1,6 @@
 /**
  * Apply a cloud app state (or snapshot) to the local filesystem.
- * Used by pull and revert to overwrite local artifact files.
+ * Used by pull and release use to overwrite local artifact files.
  */
 
 import fs from 'fs/promises';
