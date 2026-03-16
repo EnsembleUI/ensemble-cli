@@ -58,12 +58,7 @@ export function resolveDebugFlag(fromOption: boolean | undefined): boolean {
   if (!env) return false;
 
   const normalized = env.trim().toLowerCase();
-  return (
-    normalized === '1' ||
-    normalized === 'true' ||
-    normalized === 'yes' ||
-    normalized === 'on'
-  );
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
 }
 
 /**
@@ -79,12 +74,7 @@ export function resolveVerboseFlag(fromOption: boolean | undefined): boolean {
   if (!env) return false;
 
   const normalized = env.trim().toLowerCase();
-  return (
-    normalized === '1' ||
-    normalized === 'true' ||
-    normalized === 'yes' ||
-    normalized === 'on'
-  );
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
 }
 
 /**
@@ -115,4 +105,3 @@ export function printCliError(err: unknown, options: PrintCliErrorOptions = {}):
     console.error('Cause:', cause);
   }
 }
-

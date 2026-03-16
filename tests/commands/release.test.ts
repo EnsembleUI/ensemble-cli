@@ -29,7 +29,7 @@ vi.mock('../../src/config/projectConfig.js', () => ({
           default: {
             appId: 'app1',
             name: 'App',
-          appHome: undefined,
+            appHome: undefined,
             options: appOptionsRef.value,
           },
         },
@@ -78,7 +78,11 @@ vi.mock('../../src/lib/spinner.js', () => ({
   withSpinner: vi.fn(async (_msg: string, fn: () => Promise<unknown>) => fn()),
 }));
 
-import { releaseCreateCommand, releaseListCommand, releaseUseCommand } from '../../src/commands/release.js';
+import {
+  releaseCreateCommand,
+  releaseListCommand,
+  releaseUseCommand,
+} from '../../src/commands/release.js';
 
 describe('release commands', () => {
   beforeEach(async () => {
@@ -91,7 +95,7 @@ describe('release commands', () => {
     await fs.writeFile(
       path.join(projectRoot, 'screens', 'Home.yaml'),
       'View:\n  body:\n    Text:\n      text: Hello',
-      'utf8',
+      'utf8'
     );
 
     checkAppAccessMock.mockResolvedValue({ ok: true as const, app: { name: 'App' } });
@@ -150,7 +154,7 @@ describe('release commands', () => {
     // We don't assert createVersionMock directly here (module wiring in ESM tests),
     // but we do verify the happy-path success message.
     expect(uiSuccessMock).toHaveBeenCalledWith(
-      'Release saved. Run "ensemble release use" to use it.',
+      'Release saved. Run "ensemble release use" to use it.'
     );
   });
 
@@ -168,7 +172,7 @@ describe('release commands', () => {
     await releaseListCommand({});
 
     expect(uiWarnMock).toHaveBeenCalledWith(
-      'No releases found. Create one with "ensemble release create".',
+      'No releases found. Create one with "ensemble release create".'
     );
   });
 
@@ -183,4 +187,3 @@ describe('release commands', () => {
     expect(uiErrorMock).not.toHaveBeenCalled();
   });
 });
-

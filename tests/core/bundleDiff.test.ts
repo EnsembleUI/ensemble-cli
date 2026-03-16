@@ -180,10 +180,7 @@ describe('buildPushPayload', () => {
       name: 'App',
       createdAt: '2025-01-01',
       updatedAt: '2025-01-02',
-      screens: [
-        screen('s1', 'Home', 'updated'),
-        screen('s2', 'About', 'new'),
-      ],
+      screens: [screen('s1', 'Home', 'updated'), screen('s2', 'About', 'new')],
       widgets: [widget('w1', 'Button', 'unchanged')],
     };
     const diff = computeBundleDiff(bundle, cloudApp);

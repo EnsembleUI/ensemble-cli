@@ -60,8 +60,7 @@ export async function loginCommand(options: LoginOptions = {}): Promise<void> {
   const idToken = existing?.user?.idToken;
   if (idToken && !isTokenExpired(idToken)) {
     const claims = decodeIdTokenClaims(idToken);
-    const normalizedExpiresAt =
-      existing.user?.expiresAt ?? getIdTokenExpiryMs(idToken);
+    const normalizedExpiresAt = existing.user?.expiresAt ?? getIdTokenExpiryMs(idToken);
     const mergedUser = {
       ...(existing.user ?? { uid: claims.uid ?? 'cli-user', idToken }),
       uid: existing.user?.uid ?? claims.uid ?? 'cli-user',
@@ -84,7 +83,7 @@ export async function loginCommand(options: LoginOptions = {}): Promise<void> {
 
     const currentEmail = mergedUser.email;
     ui.info(
-      currentEmail ? `You are already logged in as ${currentEmail}` : 'You are already logged in.',
+      currentEmail ? `You are already logged in as ${currentEmail}` : 'You are already logged in.'
     );
     if (verbose) {
       ui.note(`Auth config path: ${configPath}`);
@@ -139,10 +138,7 @@ export async function loginCommand(options: LoginOptions = {}): Promise<void> {
               server.close();
               resolve({
                 token: data.token,
-                refreshToken:
-                  typeof data.refreshToken === 'string'
-                    ? data.refreshToken
-                    : undefined,
+                refreshToken: typeof data.refreshToken === 'string' ? data.refreshToken : undefined,
                 expiresAt: normalizeExpiresAt(data.expiresAt),
               });
             } else {
@@ -167,7 +163,7 @@ export async function loginCommand(options: LoginOptions = {}): Promise<void> {
     server.listen(port, '127.0.0.1', () => {
       ui.heading('Sign in to Ensemble');
       ui.note(
-        'Opening your browser. Complete sign-in there; this window will close automatically.',
+        'Opening your browser. Complete sign-in there; this window will close automatically.'
       );
       openBrowser(loginUrl.toString());
     });

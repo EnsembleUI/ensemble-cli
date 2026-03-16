@@ -64,7 +64,7 @@ export interface PushPayload {
   screens?: YamlArtifactPushItem[];
   widgets?: YamlArtifactPushItem[];
   scripts?: YamlArtifactPushItem[];
-   actions?: YamlArtifactPushItem[];
+  actions?: YamlArtifactPushItem[];
   translations?: YamlArtifactPushItem[];
   theme?: YamlArtifactPushItem;
 }
@@ -85,7 +85,7 @@ export function normalizeContentForCompare(content: string): string {
 
 function diffArtifacts(
   bundleItems: ArtifactWithContent[] | undefined,
-  cloudItems: ArtifactWithContent[] | undefined,
+  cloudItems: ArtifactWithContent[] | undefined
 ): { changed: ArtifactWithContent[]; new: ArtifactWithContent[] } {
   const cloudById = new Map<string, ArtifactWithContent>();
   for (const item of cloudItems ?? []) {
@@ -146,15 +146,14 @@ const LABEL_TEXT = {
 export function formatDiffSummary(diff: BundleDiff): string[] {
   const lines: string[] = [];
   const pad = (label: string) => label.padEnd(LABEL_WIDTH);
-  const formatLabel = (raw: string, color: (value: string) => string) =>
-    color(pad(raw));
+  const formatLabel = (raw: string, color: (value: string) => string) => color(pad(raw));
 
   const addGroup = (
     title: string,
     changed: ArtifactWithContent[],
     added: ArtifactWithContent[],
     type: string,
-    ext: string,
+    ext: string
   ) => {
     if (changed.length === 0 && added.length === 0) return;
     lines.push(pc.cyan(pc.bold(`  ${title}:`)));
@@ -179,7 +178,13 @@ export function formatDiffSummary(diff: BundleDiff): string[] {
   addGroup('widgets', diff.widgets.changed, diff.widgets.new, 'widget', '.yaml');
   addGroup('scripts', diff.scripts.changed, diff.scripts.new, 'script', '.js');
   addGroup('actions', diff.actions.changed, diff.actions.new, 'action', '.yaml');
-  addGroup('translations', diff.translations.changed, diff.translations.new, 'translation', '.yaml');
+  addGroup(
+    'translations',
+    diff.translations.changed,
+    diff.translations.new,
+    'translation',
+    '.yaml'
+  );
 
   if (diff.themeChanged) {
     lines.push(pc.cyan(pc.bold('  theme:')));
@@ -194,25 +199,22 @@ export function formatDiffSummary(diff: BundleDiff): string[] {
  * Compute which artifacts in the bundle have changed compared to the cloud app.
  * Only changed and new items need to be pushed.
  */
-export function computeBundleDiff(
-  bundle: ApplicationDTO,
-  cloudApp: CloudApp,
-): BundleDiff {
+export function computeBundleDiff(bundle: ApplicationDTO, cloudApp: CloudApp): BundleDiff {
   const screens = diffArtifacts(
     bundle.screens as ArtifactWithContent[] | undefined,
-    cloudApp.screens as ArtifactWithContent[] | undefined,
+    cloudApp.screens as ArtifactWithContent[] | undefined
   );
   const widgets = diffArtifacts(
     bundle.widgets as ArtifactWithContent[] | undefined,
-    cloudApp.widgets as ArtifactWithContent[] | undefined,
+    cloudApp.widgets as ArtifactWithContent[] | undefined
   );
   const scripts = diffArtifacts(
     bundle.scripts as ArtifactWithContent[] | undefined,
-    cloudApp.scripts as ArtifactWithContent[] | undefined,
+    cloudApp.scripts as ArtifactWithContent[] | undefined
   );
   const actions = diffArtifacts(
     bundle.actions as ArtifactWithContent[] | undefined,
-    (cloudApp.actions as ArtifactWithContent[] | undefined) ?? [],
+    (cloudApp.actions as ArtifactWithContent[] | undefined) ?? []
   );
 
   const themeChanged =
@@ -223,7 +225,7 @@ export function computeBundleDiff(
 
   const translations = diffArtifacts(
     bundle.translations as ArtifactWithContent[] | undefined,
-    cloudApp.translations as ArtifactWithContent[] | undefined,
+    cloudApp.translations as ArtifactWithContent[] | undefined
   );
 
   return {
@@ -236,7 +238,14 @@ export function computeBundleDiff(
   };
 }
 
-function buildHistoryEntry(cloud: ArtifactWithContent & { type?: string; updatedAt?: string; updatedBy?: object; defaultLocale?: boolean }): HistoryEntry {
+function buildHistoryEntry(
+  cloud: ArtifactWithContent & {
+    type?: string;
+    updatedAt?: string;
+    updatedBy?: object;
+    defaultLocale?: boolean;
+  }
+): HistoryEntry {
   return {
     content: cloud.content,
     name: cloud.name,
@@ -251,7 +260,7 @@ function buildHistoryEntry(cloud: ArtifactWithContent & { type?: string; updated
 
 function buildPartialUpdates(
   cloud: ArtifactWithContent & { isRoot?: boolean; updatedAt?: string; updatedBy?: object },
-  bundle: ArtifactWithContent & { isRoot?: boolean; updatedAt?: string; updatedBy?: object },
+  bundle: ArtifactWithContent & { isRoot?: boolean; updatedAt?: string; updatedBy?: object }
 ): YamlUpdates {
   const updates: Record<string, unknown> = {};
   if (bundle.content !== cloud.content) updates.content = bundle.content;
@@ -262,18 +271,27 @@ function buildPartialUpdates(
   if (bundle.defaultLocale !== (cloud as { defaultLocale?: boolean }).defaultLocale) {
     updates.defaultLocale = bundle.defaultLocale;
   }
-  if (JSON.stringify(bundle.updatedBy) !== JSON.stringify(cloud.updatedBy)) updates.updatedBy = bundle.updatedBy;
+  if (JSON.stringify(bundle.updatedBy) !== JSON.stringify(cloud.updatedBy))
+    updates.updatedBy = bundle.updatedBy;
   return updates as YamlUpdates;
 }
 
 function buildYamlPushItems(
   diff: { changed: ArtifactWithContent[]; new: ArtifactWithContent[] },
   cloudItems: ArtifactWithContent[] | undefined,
-  bundleItems: (ArtifactWithContent & { type?: string; updatedAt?: string; updatedBy?: object })[] | undefined,
-  cloudById: Map<string, ArtifactWithContent & { type?: string; updatedAt?: string; updatedBy?: object }>,
-  cloudByName: Map<string, ArtifactWithContent & { type?: string; updatedAt?: string; updatedBy?: object }>,
+  bundleItems:
+    | (ArtifactWithContent & { type?: string; updatedAt?: string; updatedBy?: object })[]
+    | undefined,
+  cloudById: Map<
+    string,
+    ArtifactWithContent & { type?: string; updatedAt?: string; updatedBy?: object }
+  >,
+  cloudByName: Map<
+    string,
+    ArtifactWithContent & { type?: string; updatedAt?: string; updatedBy?: object }
+  >,
   now: string,
-  updatedBy: { name: string; email?: string; id: string },
+  updatedBy: { name: string; email?: string; id: string }
 ): YamlArtifactPushItem[] {
   const items: YamlArtifactPushItem[] = [];
   for (const doc of diff.new) {
@@ -290,7 +308,7 @@ function buildYamlPushItems(
         // createdBy is not part of YamlDocument DTO, but Firestore encoder
         // will look for it via a cast, so we attach it here.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ...( { createdBy: updatedBy } as any ),
+        ...({ createdBy: updatedBy } as any),
       },
     });
   }
@@ -325,7 +343,7 @@ export function buildPushPayload(
   bundle: ApplicationDTO,
   diff: BundleDiff,
   cloudApp: CloudApp,
-  updatedBy: { name: string; email?: string; id: string },
+  updatedBy: { name: string; email?: string; id: string }
 ): PushPayload {
   const now = bundle.updatedAt ?? new Date().toISOString();
 
@@ -337,67 +355,177 @@ export function buildPushPayload(
   const screens = buildYamlPushItems(
     diff.screens,
     cloudApp.screens as ArtifactWithContent[] | undefined,
-    bundle.screens as (ArtifactWithContent & { type?: string; updatedAt?: string; updatedBy?: object })[] | undefined,
-    cloudById(cloudApp.screens as { id: string; name: string; content: string; type?: string; updatedAt?: string; updatedBy?: object }[]),
-    cloudByName(cloudApp.screens as { id: string; name: string; content: string; type?: string; updatedAt?: string; updatedBy?: object }[]),
+    bundle.screens as
+      | (ArtifactWithContent & { type?: string; updatedAt?: string; updatedBy?: object })[]
+      | undefined,
+    cloudById(
+      cloudApp.screens as {
+        id: string;
+        name: string;
+        content: string;
+        type?: string;
+        updatedAt?: string;
+        updatedBy?: object;
+      }[]
+    ),
+    cloudByName(
+      cloudApp.screens as {
+        id: string;
+        name: string;
+        content: string;
+        type?: string;
+        updatedAt?: string;
+        updatedBy?: object;
+      }[]
+    ),
     now,
-    updatedBy,
+    updatedBy
   );
   const widgets = buildYamlPushItems(
     diff.widgets,
     cloudApp.widgets as ArtifactWithContent[] | undefined,
-    bundle.widgets as (ArtifactWithContent & { type?: string; updatedAt?: string; updatedBy?: object })[] | undefined,
-    cloudById(cloudApp.widgets as { id: string; name: string; content: string; type?: string; updatedAt?: string; updatedBy?: object }[]),
-    cloudByName(cloudApp.widgets as { id: string; name: string; content: string; type?: string; updatedAt?: string; updatedBy?: object }[]),
+    bundle.widgets as
+      | (ArtifactWithContent & { type?: string; updatedAt?: string; updatedBy?: object })[]
+      | undefined,
+    cloudById(
+      cloudApp.widgets as {
+        id: string;
+        name: string;
+        content: string;
+        type?: string;
+        updatedAt?: string;
+        updatedBy?: object;
+      }[]
+    ),
+    cloudByName(
+      cloudApp.widgets as {
+        id: string;
+        name: string;
+        content: string;
+        type?: string;
+        updatedAt?: string;
+        updatedBy?: object;
+      }[]
+    ),
     now,
-    updatedBy,
+    updatedBy
   );
   const scripts = buildYamlPushItems(
     diff.scripts,
     cloudApp.scripts as ArtifactWithContent[] | undefined,
-    bundle.scripts as (ArtifactWithContent & { type?: string; updatedAt?: string; updatedBy?: object })[] | undefined,
-    cloudById(cloudApp.scripts as { id: string; name: string; content: string; type?: string; updatedAt?: string; updatedBy?: object }[]),
-    cloudByName(cloudApp.scripts as { id: string; name: string; content: string; type?: string; updatedAt?: string; updatedBy?: object }[]),
+    bundle.scripts as
+      | (ArtifactWithContent & { type?: string; updatedAt?: string; updatedBy?: object })[]
+      | undefined,
+    cloudById(
+      cloudApp.scripts as {
+        id: string;
+        name: string;
+        content: string;
+        type?: string;
+        updatedAt?: string;
+        updatedBy?: object;
+      }[]
+    ),
+    cloudByName(
+      cloudApp.scripts as {
+        id: string;
+        name: string;
+        content: string;
+        type?: string;
+        updatedAt?: string;
+        updatedBy?: object;
+      }[]
+    ),
     now,
-    updatedBy,
+    updatedBy
   );
   const actions = buildYamlPushItems(
     diff.actions,
     (cloudApp.actions as ArtifactWithContent[] | undefined) ?? [],
-    bundle.actions as (ArtifactWithContent & { type?: string; updatedAt?: string; updatedBy?: object })[] | undefined,
+    bundle.actions as
+      | (ArtifactWithContent & { type?: string; updatedAt?: string; updatedBy?: object })[]
+      | undefined,
     cloudById(
-      (cloudApp.actions as { id: string; name: string; content: string; type?: string; updatedAt?: string; updatedBy?: object }[] | undefined) ?? [],
+      (cloudApp.actions as
+        | {
+            id: string;
+            name: string;
+            content: string;
+            type?: string;
+            updatedAt?: string;
+            updatedBy?: object;
+          }[]
+        | undefined) ?? []
     ),
     cloudByName(
-      (cloudApp.actions as { id: string; name: string; content: string; type?: string; updatedAt?: string; updatedBy?: object }[] | undefined) ?? [],
+      (cloudApp.actions as
+        | {
+            id: string;
+            name: string;
+            content: string;
+            type?: string;
+            updatedAt?: string;
+            updatedBy?: object;
+          }[]
+        | undefined) ?? []
     ),
     now,
-    updatedBy,
+    updatedBy
   );
   const translations = buildYamlPushItems(
     diff.translations,
     cloudApp.translations as ArtifactWithContent[] | undefined,
-    bundle.translations as (ArtifactWithContent & { type?: string; updatedAt?: string; updatedBy?: object })[] | undefined,
-    cloudById(cloudApp.translations as { id: string; name: string; content: string; type?: string; updatedAt?: string; updatedBy?: object }[]),
-    cloudByName(cloudApp.translations as { id: string; name: string; content: string; type?: string; updatedAt?: string; updatedBy?: object }[]),
+    bundle.translations as
+      | (ArtifactWithContent & { type?: string; updatedAt?: string; updatedBy?: object })[]
+      | undefined,
+    cloudById(
+      cloudApp.translations as {
+        id: string;
+        name: string;
+        content: string;
+        type?: string;
+        updatedAt?: string;
+        updatedBy?: object;
+      }[]
+    ),
+    cloudByName(
+      cloudApp.translations as {
+        id: string;
+        name: string;
+        content: string;
+        type?: string;
+        updatedAt?: string;
+        updatedBy?: object;
+      }[]
+    ),
     now,
-    updatedBy,
+    updatedBy
   );
 
   let theme: PushPayload['theme'];
   if (diff.themeChanged && bundle.theme) {
     if (cloudApp.theme) {
-      const cloudTheme = cloudApp.theme as ArtifactWithContent & { updatedAt?: string; updatedBy?: object };
-      const themeUpdates = buildPartialUpdates(
-        cloudTheme,
-        { ...bundle.theme, updatedAt: now, updatedBy } as ArtifactWithContent & { updatedAt?: string; updatedBy?: object },
-      );
+      const cloudTheme = cloudApp.theme as ArtifactWithContent & {
+        updatedAt?: string;
+        updatedBy?: object;
+      };
+      const themeUpdates = buildPartialUpdates(cloudTheme, {
+        ...bundle.theme,
+        updatedAt: now,
+        updatedBy,
+      } as ArtifactWithContent & { updatedAt?: string; updatedBy?: object });
       const themeUpdatedByChanged =
         !cloudTheme.updatedBy || JSON.stringify(updatedBy) !== JSON.stringify(cloudTheme.updatedBy);
       theme = {
         operation: 'update',
         id: cloudApp.theme.id,
-        history: buildHistoryEntry(cloudApp.theme as ArtifactWithContent & { type?: string; updatedAt?: string; updatedBy?: object }),
+        history: buildHistoryEntry(
+          cloudApp.theme as ArtifactWithContent & {
+            type?: string;
+            updatedAt?: string;
+            updatedBy?: object;
+          }
+        ),
         updates: {
           ...themeUpdates,
           updatedAt: now,
@@ -405,7 +533,10 @@ export function buildPushPayload(
         },
       };
     } else {
-      theme = { operation: 'create', document: { ...bundle.theme, updatedAt: now, updatedBy } as ThemeDTO };
+      theme = {
+        operation: 'create',
+        document: { ...bundle.theme, updatedAt: now, updatedBy } as ThemeDTO,
+      };
     }
   }
 

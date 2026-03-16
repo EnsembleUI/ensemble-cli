@@ -49,10 +49,7 @@ describe('globalConfig', () => {
           idToken: 'token',
         },
       };
-      await fs.writeFile(
-        path.join(configDir, 'cli-config.json'),
-        JSON.stringify(config),
-      );
+      await fs.writeFile(path.join(configDir, 'cli-config.json'), JSON.stringify(config));
 
       const result = await readGlobalConfig();
 
@@ -87,7 +84,7 @@ describe('globalConfig', () => {
         path.join(configDir, 'cli-config.json'),
         JSON.stringify({
           user: { uid: 'u1', idToken: 't' },
-        }),
+        })
       );
 
       await clearUserAuth();
@@ -104,7 +101,7 @@ describe('globalConfig', () => {
         JSON.stringify({
           user: { uid: 'u1', idToken: 't' },
           other: 'value',
-        }),
+        })
       );
 
       await clearUserAuth();

@@ -40,7 +40,7 @@ function printPushSummary(summary: PushSummary, options: { verbose?: boolean; is
 
   if (options.isNoop || totalChanges === 0) {
     ui.info(
-      `Pushed app "${appName}" to environment "${environment}" (no changes; already up to date).`,
+      `Pushed app "${appName}" to environment "${environment}" (no changes; already up to date).`
     );
     return;
   }
@@ -65,9 +65,7 @@ function printPushSummary(summary: PushSummary, options: { verbose?: boolean; is
     for (const [kind, c] of entries) {
       if (c.created === 0 && c.updated === 0 && c.deleted === 0) continue;
       // eslint-disable-next-line no-console
-      console.log(
-        `  ${kind}: ${c.created} created, ${c.updated} updated, ${c.deleted} deleted`,
-      );
+      console.log(`  ${kind}: ${c.created} created, ${c.updated} updated, ${c.deleted} deleted`);
     }
   }
 }
@@ -128,12 +126,16 @@ function hasManifestRelevantChanges(cloudApp: CloudApp, diff: BundleDiff): boole
   const translationsCloudById = new Map((cloudApp.translations ?? []).map((t) => [t.id, t]));
   const translationsCloudByName = new Map((cloudApp.translations ?? []).map((t) => [t.name, t]));
   for (const changed of diff.translations.changed) {
-    const cloud = translationsCloudById.get(changed.id) ?? translationsCloudByName.get(changed.name);
+    const cloud =
+      translationsCloudById.get(changed.id) ?? translationsCloudByName.get(changed.name);
     if (!cloud) continue;
     if ((changed.isArchived ?? false) !== (cloud.isArchived ?? false)) {
       return true;
     }
-    if ((changed as { defaultLocale?: boolean }).defaultLocale !== (cloud as { defaultLocale?: boolean }).defaultLocale) {
+    if (
+      (changed as { defaultLocale?: boolean }).defaultLocale !==
+      (cloud as { defaultLocale?: boolean }).defaultLocale
+    ) {
       return true;
     }
   }
@@ -162,7 +164,7 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
   const appName = (appConfig.name as string | undefined) ?? 'App';
   const appOptions = (appConfig.options ?? {}) as Record<string, unknown>;
   const enabledByProp = Object.fromEntries(
-    ArtifactProps.map((prop) => [prop, appOptions[prop] !== false]),
+    ArtifactProps.map((prop) => [prop, appOptions[prop] !== false])
   ) as Record<ArtifactProp, boolean>;
 
   const session = await getValidAuthSession();
@@ -207,8 +209,8 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
                 }),
               },
               null,
-              2,
-            ),
+              2
+            )
           );
         },
       }
@@ -220,12 +222,12 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
       const [accessRes, filesAndLang, cloudRes] = await Promise.all([
         checkAppAccess(appId, idToken, userId, firestoreOptions),
         Promise.all([collectAppFiles(root), readDefaultLanguage(root)]).then(
-          ([files, defLang]) => [files, defLang] as const,
+          ([files, defLang]) => [files, defLang] as const
         ),
         fetchCloudApp(appId, idToken, firestoreOptions).catch((e: unknown) => e),
       ]);
       return [accessRes, filesAndLang, cloudRes] as const;
-    },
+    }
   );
 
   if (!access.ok) {
@@ -245,7 +247,7 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
     appId,
     appName,
     appConfig.appHome as string | undefined,
-    defaultLanguage,
+    defaultLanguage
   );
   await writeVerboseJson(root, 'ensemble-local-app.json', localApp, {
     verbose,
@@ -305,8 +307,7 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
     });
 
     const summary = plan.summary;
-    const changedCount =
-      summary.counts.created + summary.counts.updated + summary.counts.deleted;
+    const changedCount = summary.counts.created + summary.counts.updated + summary.counts.deleted;
 
     if (changedCount === 0) {
       ui.info('Up to date. Nothing to push.');
@@ -358,17 +359,18 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
     if (!confirmed) {
       if (!isInteractive) {
         ui.error(
-          'Refusing to run push non-interactively without --yes. Re-run with --dry-run to inspect changes.',
+          'Refusing to run push non-interactively without --yes. Re-run with --dry-run to inspect changes.'
         );
         process.exitCode = 1;
         return;
       }
 
-      const headline = hasDeletes || largeChangeSet
-        ? `This will delete ${summary.counts.deleted} item(s) and apply ${
-            summary.counts.created + summary.counts.updated
-          } other change(s). Continue? [y/N]`
-        : 'Proceed with push?';
+      const headline =
+        hasDeletes || largeChangeSet
+          ? `This will delete ${summary.counts.deleted} item(s) and apply ${
+              summary.counts.created + summary.counts.updated
+            } other change(s). Continue? [y/N]`
+          : 'Proceed with push?';
 
       const { proceed } = await prompts({
         type: 'confirm',
@@ -390,7 +392,7 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
 
     try {
       await withSpinner('Pushing changes to cloud...', () =>
-        submitCliPush(appId, idToken, pushPayload, firestoreOptions),
+        submitCliPush(appId, idToken, pushPayload, firestoreOptions)
       );
 
       if (manifestNeedsRefresh && bundle) {
@@ -406,11 +408,9 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
         } catch (manifestErr) {
           if (verbose) {
             ui.warn(
-              'Push succeeded, but failed to refresh .manifest.json. You can run "ensemble pull" later to regenerate it.',
+              'Push succeeded, but failed to refresh .manifest.json. You can run "ensemble pull" later to regenerate it.'
             );
-            ui.note(
-              manifestErr instanceof Error ? manifestErr.message : String(manifestErr),
-            );
+            ui.note(manifestErr instanceof Error ? manifestErr.message : String(manifestErr));
           }
         }
       }

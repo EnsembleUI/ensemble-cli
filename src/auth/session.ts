@@ -3,11 +3,7 @@ import {
   writeGlobalConfig,
   type EnsembleUserConfig,
 } from '../config/globalConfig.js';
-import {
-  decodeIdTokenClaims,
-  getIdTokenExpiryMs,
-  isTokenExpired,
-} from './token.js';
+import { decodeIdTokenClaims, getIdTokenExpiryMs, isTokenExpired } from './token.js';
 import { getEnsembleFirebaseApiKey } from '../config/env.js';
 
 const DEFAULT_REFRESH_API_BASE = 'https://securetoken.googleapis.com/v1/token';
@@ -45,9 +41,7 @@ async function refreshIdToken(refreshToken: string): Promise<{
 }> {
   const apiKey = getEnsembleFirebaseApiKey();
   if (!apiKey) {
-    throw new Error(
-      'Missing Firebase API key for token refresh. Set ENSEMBLE_FIREBASE_API_KEY.'
-    );
+    throw new Error('Missing Firebase API key for token refresh. Set ENSEMBLE_FIREBASE_API_KEY.');
   }
 
   const refreshUrl = `${DEFAULT_REFRESH_API_BASE}?key=${encodeURIComponent(apiKey)}`;
@@ -104,8 +98,7 @@ async function sessionFromEnvToken(): Promise<AuthSessionResult> {
       refreshed: true,
     };
   } catch (err) {
-    const message =
-      err instanceof Error ? err.message : 'Token refresh failed.';
+    const message = err instanceof Error ? err.message : 'Token refresh failed.';
     return {
       ok: false,
       reason: 'expired',
@@ -146,8 +139,7 @@ export async function getValidAuthSession(): Promise<AuthSessionResult> {
     return {
       ok: false,
       reason: 'expired',
-      message:
-        'Session expired and no refresh token was found. Run `ensemble login` again.',
+      message: 'Session expired and no refresh token was found. Run `ensemble login` again.',
     };
   }
 
@@ -177,7 +169,7 @@ export async function getValidAuthSession(): Promise<AuthSessionResult> {
       refreshed: true,
     };
   } catch {
-      return {
+    return {
       ok: false,
       reason: 'expired',
       message: `Session expired and automatic refresh failed. Run \`ensemble login\` again.`,

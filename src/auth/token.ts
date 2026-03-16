@@ -65,11 +65,7 @@ export function normalizeExpiresAt(expiresAt: unknown): number | undefined {
   return undefined;
 }
 
-export function isTokenExpired(
-  idToken: string,
-  expiresAt?: number,
-  bufferSeconds = 60,
-): boolean {
+export function isTokenExpired(idToken: string, expiresAt?: number, bufferSeconds = 60): boolean {
   const expiry = normalizeExpiresAt(expiresAt) ?? getIdTokenExpiryMs(idToken);
   if (expiry === undefined) return true;
   return expiry <= Date.now() + bufferSeconds * 1000;

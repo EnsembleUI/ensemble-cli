@@ -41,7 +41,7 @@ export function buildDocumentsFromParsed(
   appName: string,
   appHome?: string,
   defaultLanguage?: string,
-  options: BuildDocumentsOptions = {},
+  options: BuildDocumentsOptions = {}
 ): ApplicationDTO {
   const now = new Date().toISOString();
   const { onStatus } = options;
@@ -58,42 +58,36 @@ export function buildDocumentsFromParsed(
     hasTheme: typeof parsed.theme === 'string',
   });
 
-  const screens: ScreenDTO[] = Object.entries(parsed.screens).map(
-    ([relativePath, content]) => {
-      const name = pathToName(relativePath);
-      return {
-        id: pathToId(`screens/${relativePath}`),
-        name,
-        content,
-        type: EnsembleDocumentType.Screen,
-        isRoot: appHome !== undefined ? name === appHome : undefined,
-        createdAt: now,
-        updatedAt: now,
-      };
-    },
-  );
-
-  const widgets: WidgetDTO[] = Object.entries(parsed.widgets).map(
-    ([relativePath, content]) => ({
-      id: pathToId(`widgets/${relativePath}`),
-      name: pathToName(relativePath),
+  const screens: ScreenDTO[] = Object.entries(parsed.screens).map(([relativePath, content]) => {
+    const name = pathToName(relativePath);
+    return {
+      id: pathToId(`screens/${relativePath}`),
+      name,
       content,
-      type: EnsembleDocumentType.Widget,
+      type: EnsembleDocumentType.Screen,
+      isRoot: appHome !== undefined ? name === appHome : undefined,
       createdAt: now,
       updatedAt: now,
-    }),
-  );
+    };
+  });
 
-  const scripts: ScriptDTO[] = Object.entries(parsed.scripts).map(
-    ([relativePath, content]) => ({
-      id: pathToId(`scripts/${relativePath}`),
-      name: pathToName(relativePath),
-      content,
-      type: EnsembleDocumentType.Script,
-      createdAt: now,
-      updatedAt: now,
-    }),
-  );
+  const widgets: WidgetDTO[] = Object.entries(parsed.widgets).map(([relativePath, content]) => ({
+    id: pathToId(`widgets/${relativePath}`),
+    name: pathToName(relativePath),
+    content,
+    type: EnsembleDocumentType.Widget,
+    createdAt: now,
+    updatedAt: now,
+  }));
+
+  const scripts: ScriptDTO[] = Object.entries(parsed.scripts).map(([relativePath, content]) => ({
+    id: pathToId(`scripts/${relativePath}`),
+    name: pathToName(relativePath),
+    content,
+    type: EnsembleDocumentType.Script,
+    createdAt: now,
+    updatedAt: now,
+  }));
 
   const actions: ActionDTO[] = Object.entries(parsed.actions ?? {}).map(
     ([relativePath, content]) => ({
@@ -103,7 +97,7 @@ export function buildDocumentsFromParsed(
       type: EnsembleDocumentType.Action,
       createdAt: now,
       updatedAt: now,
-    }),
+    })
   );
 
   const theme: ThemeDTO | undefined = parsed.theme
@@ -134,7 +128,7 @@ export function buildDocumentsFromParsed(
         createdAt: now,
         updatedAt: now,
       };
-    },
+    }
   );
 
   reportStatus('validating', {
@@ -154,7 +148,7 @@ export function buildDocumentsFromParsed(
           'Configured a home screen in app config, but no screens were found in the app.',
           'Add at least one screen file under "screens/" (for example "screens/Home.yaml"),',
           'or remove the "appHome" setting from your Ensemble config.',
-        ].join(' '),
+        ].join(' ')
       );
     }
 
@@ -165,14 +159,14 @@ export function buildDocumentsFromParsed(
           `Configured home screen "${appHome}" was not found among your screens.`,
           'Create a screen file whose base name matches the home screen',
           `(for example "screens/${appHome}.yaml") or update "appHome" in your Ensemble config.`,
-        ].join(' '),
+        ].join(' ')
       );
     }
   }
 
   if (typeof defaultLanguage === 'string' && defaultLanguage.trim() !== '') {
     const hasDefaultLanguage = translations.some(
-      (translation) => translation.name === defaultLanguage,
+      (translation) => translation.name === defaultLanguage
     );
 
     if (!hasDefaultLanguage) {
@@ -181,7 +175,7 @@ export function buildDocumentsFromParsed(
           `Default language "${defaultLanguage}" is configured, but no matching translation was found.`,
           'Create a translation file whose base name matches the default language',
           `(for example "translations/${defaultLanguage}.yaml") or update "defaultLanguage" in ".manifest.json".`,
-        ].join(' '),
+        ].join(' ')
       );
     }
   }
@@ -208,9 +202,9 @@ type UpdatedBy = { name: string; email?: string; id: string };
  * Deduplicate cloud items by name. Prefer non-archived (pull skips archived when building expected).
  * When both archived and active exist for same name, keep the non-archived one so push matches pull.
  */
-function deduplicateCloudByName<
-  T extends { name: string; isArchived?: boolean },
->(items: T[] | undefined): T[] {
+function deduplicateCloudByName<T extends { name: string; isArchived?: boolean }>(
+  items: T[] | undefined
+): T[] {
   if (!items?.length) return [];
   const byName = new Map<string, T>();
   for (const item of items) {
@@ -236,7 +230,7 @@ function mergeArtifacts<
   cloudItems: T[] | undefined,
   localItems: T[] | undefined,
   now: string,
-  updatedBy: UpdatedBy,
+  updatedBy: UpdatedBy
 ): T[] {
   const localByName = new Map<string, T>();
   for (const item of localItems ?? []) {
@@ -256,10 +250,12 @@ function mergeArtifacts<
       ...cloud,
       content: local?.content ?? cloud.content,
       isArchived: deletedLocally ? true : (localWithArchived?.isArchived ?? false),
-      isRoot: deletedLocally ? cloudWithRoot.isRoot : (localWithRoot?.isRoot ?? cloudWithRoot.isRoot),
+      isRoot: deletedLocally
+        ? cloudWithRoot.isRoot
+        : (localWithRoot?.isRoot ?? cloudWithRoot.isRoot),
       defaultLocale: deletedLocally
         ? cloudWithRoot.defaultLocale
-        : localWithRoot?.defaultLocale ?? cloudWithRoot.defaultLocale,
+        : (localWithRoot?.defaultLocale ?? cloudWithRoot.defaultLocale),
       ...(deletedLocally && {
         updatedAt: now,
         updatedBy,
@@ -302,7 +298,7 @@ function mergeArtifacts<
 export function buildMergedBundle(
   localApp: ApplicationDTO,
   cloudApp: CloudApp,
-  updatedBy: { name: string; email?: string; id: string },
+  updatedBy: { name: string; email?: string; id: string }
 ): ApplicationDTO {
   const now = new Date().toISOString();
 
@@ -310,31 +306,31 @@ export function buildMergedBundle(
     deduplicateCloudByName(cloudApp.screens as ScreenDTO[] | undefined),
     localApp.screens,
     now,
-    updatedBy,
+    updatedBy
   ) as ScreenDTO[];
   const widgets = mergeArtifacts(
     deduplicateCloudByName(cloudApp.widgets as WidgetDTO[] | undefined),
     localApp.widgets,
     now,
-    updatedBy,
+    updatedBy
   ) as WidgetDTO[];
   const scripts = mergeArtifacts(
     deduplicateCloudByName(cloudApp.scripts as ScriptDTO[] | undefined),
     localApp.scripts,
     now,
-    updatedBy,
+    updatedBy
   ) as ScriptDTO[];
   const actions = mergeArtifacts(
     deduplicateCloudByName(cloudApp.actions as ActionDTO[] | undefined),
     localApp.actions,
     now,
-    updatedBy,
+    updatedBy
   ) as ActionDTO[];
   const translations = mergeArtifacts(
     deduplicateCloudByName(cloudApp.translations as TranslationDTO[] | undefined),
     localApp.translations,
     now,
-    updatedBy,
+    updatedBy
   ) as TranslationDTO[];
 
   const theme = localApp.theme ?? cloudApp.theme;

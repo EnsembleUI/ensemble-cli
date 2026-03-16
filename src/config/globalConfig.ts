@@ -28,7 +28,12 @@ export async function readGlobalConfig(): Promise<EnsembleUserConfig | null> {
     const raw = await fs.readFile(filePath, 'utf8');
     return JSON.parse(raw) as EnsembleUserConfig;
   } catch (err: unknown) {
-    if (err && typeof err === 'object' && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT') {
+    if (
+      err &&
+      typeof err === 'object' &&
+      'code' in err &&
+      (err as NodeJS.ErrnoException).code === 'ENOENT'
+    ) {
       return null;
     }
     throw err;

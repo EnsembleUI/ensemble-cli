@@ -100,7 +100,7 @@ const ARTIFACT_CONFIG_BY_PROP: Record<ArtifactProp, ArtifactConfig> = ARTIFACT_C
     acc[cfg.prop] = cfg;
     return acc;
   },
-  {} as Record<ArtifactProp, ArtifactConfig>,
+  {} as Record<ArtifactProp, ArtifactConfig>
 );
 
 export function getArtifactConfig(prop: ArtifactProp): ArtifactConfig {
@@ -119,4 +119,3 @@ export const ARTIFACT_FS_CONFIG: readonly ArtifactFsConfig[] = ARTIFACT_CONFIGS.
   ext: cfg.isTheme ? undefined : cfg.fileExtension,
   isTheme: cfg.isTheme,
 }));
-

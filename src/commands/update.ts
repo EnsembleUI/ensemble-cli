@@ -25,4 +25,3 @@ export async function updateCommand(): Promise<void> {
     }
   });
 }
-

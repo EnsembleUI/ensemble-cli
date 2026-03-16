@@ -74,7 +74,7 @@ function computePushSummary(
   appId: string,
   appName: string,
   environment: string,
-  diff: BundleDiff,
+  diff: BundleDiff
 ): PushSummary {
   const screens = computeKindCounts(diff.screens);
   const widgets = computeKindCounts(diff.widgets);
@@ -219,7 +219,7 @@ export function computePullPlan({
     if (isTheme) {
       const expectedThemeContent =
         cloudApp.theme && cloudApp.theme.isArchived !== true
-          ? cloudApp.theme.content ?? ''
+          ? (cloudApp.theme.content ?? '')
           : undefined;
       let themeMatch = true;
       if (expectedThemeContent === undefined) {
@@ -242,9 +242,9 @@ export function computePullPlan({
       if (item.isArchived === true) continue;
       expected[`${item.name}${ext!}`] = item.content ?? '';
     }
-    const actual = (localFiles as unknown as Record<string, unknown>)[
-      prop
-    ] as Record<string, string> | undefined;
+    const actual = (localFiles as unknown as Record<string, unknown>)[prop] as
+      | Record<string, string>
+      | undefined;
     const actualMap = actual ?? {};
 
     const expectedKeys = Object.keys(expected).sort();
@@ -287,7 +287,7 @@ export function computePullPlan({
     if (isTheme) {
       const expectedThemeContent =
         cloudApp.theme && cloudApp.theme.isArchived !== true
-          ? cloudApp.theme.content ?? ''
+          ? (cloudApp.theme.content ?? '')
           : undefined;
       const actualTheme = localFiles.theme;
       if (
@@ -332,9 +332,9 @@ export function computePullPlan({
       if (item.isArchived === true) continue;
       expected[`${item.name}${ext!}`] = item.content ?? '';
     }
-    const actual = (localFiles as unknown as Record<string, unknown>)[
-      prop
-    ] as Record<string, string> | undefined;
+    const actual = (localFiles as unknown as Record<string, unknown>)[prop] as
+      | Record<string, string>
+      | undefined;
     const actualMap = actual ?? {};
 
     const expectedKeys = new Set(Object.keys(expected));
@@ -390,4 +390,3 @@ export function computePullPlan({
     manifestMatch,
   };
 }
-

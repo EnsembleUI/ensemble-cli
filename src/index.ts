@@ -14,11 +14,7 @@ import { initCommand } from './commands/init.js';
 import { pushCommand } from './commands/push.js';
 import { addCommand } from './commands/add.js';
 import { pullCommand } from './commands/pull.js';
-import {
-  releaseCreateCommand,
-  releaseListCommand,
-  releaseUseCommand,
-} from './commands/release.js';
+import { releaseCreateCommand, releaseListCommand, releaseUseCommand } from './commands/release.js';
 import { updateCommand } from './commands/update.js';
 import { printCliError, resolveDebugFlag } from './core/cliError.js';
 import { ui } from './core/ui.js';
@@ -125,7 +121,9 @@ releaseCmd
 
 releaseCmd
   .command('use')
-  .description('Use a release (snapshot) to update local files (run "ensemble push" to sync cloud).')
+  .description(
+    'Use a release (snapshot) to update local files (run "ensemble push" to sync cloud).'
+  )
   .option('--app <alias>', 'App alias to use (defaults to "default")')
   .option('--hash <hash>', 'Release hash to use (non-interactive).')
   .action(async (options: { app?: string; hash?: string }) => {
@@ -136,7 +134,9 @@ releaseCmd
 releaseCmd.action(async (options: { app?: string }) => {
   const isInteractive = Boolean(process.stdout.isTTY && process.stdin.isTTY);
   if (!isInteractive) {
-    ui.error('Subcommand required for non-interactive use. Try "ensemble release create|list|use".');
+    ui.error(
+      'Subcommand required for non-interactive use. Try "ensemble release create|list|use".'
+    );
     process.exitCode = 1;
     return;
   }
@@ -181,7 +181,7 @@ program
         normalizedKind = k;
       } else {
         throw new Error(
-          `Unknown artifact type "${kind}". Expected one of: screen, widget, script, translation.`,
+          `Unknown artifact type "${kind}". Expected one of: screen, widget, script, translation.`
         );
       }
     }
@@ -206,11 +206,9 @@ function checkForUpdates(): void {
       const latest = stdout.trim();
       if (!latest || latest === LOCAL_VERSION) return;
 
-      ui.warn(
-        `A new version of @ensembleui/cli is available (${LOCAL_VERSION} → ${latest}).`,
-      );
+      ui.warn(`A new version of @ensembleui/cli is available (${LOCAL_VERSION} → ${latest}).`);
       ui.note('Run "ensemble update" to upgrade.');
-    },
+    }
   );
 }
 

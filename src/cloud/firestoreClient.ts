@@ -123,7 +123,7 @@ function defaultHintForCode(code: FirestoreErrorCode): string | undefined {
 async function toFirestoreError(
   context: string,
   res: Response,
-  options?: FirestoreClientOptions,
+  options?: FirestoreClientOptions
 ): Promise<FirestoreClientError> {
   const text = await res.text();
   const code = mapStatusToErrorCode(res.status);
@@ -314,7 +314,7 @@ async function applyYamlOperationsForKind(
   idToken: string,
   project: string,
   ops: YamlArtifactPushOperation[] | undefined,
-  options?: FirestoreClientOptions,
+  options?: FirestoreClientOptions
 ): Promise<void> {
   if (!ops || ops.length === 0) return;
   const { collection } = artifactCollectionAndType(kind);
@@ -322,107 +322,107 @@ async function applyYamlOperationsForKind(
 
   const concurrency = getFirestoreConcurrency();
 
-  await processWithConcurrency(ops, async (op) => {
-    if (op.operation === 'create') {
-      const doc = op.document;
-      const fields = encodeYamlDocumentFields(kind, doc);
-      const createUrl = `${baseCollectionUrl}?documentId=${encodeURIComponent(doc.id)}`;
-      logDebug(options, {
-        kind: 'push_operation',
-        appId,
-        operation: 'create',
-        artifactKind: kind,
-        documentId: doc.id,
-      });
-      logDebug(options, {
-        kind: 'request',
-        method: 'POST',
-        url: createUrl,
-        context: 'submitCliPush/create',
-      });
-      const res = await fetch(createUrl, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${idToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ fields }),
-      });
-      if (!res.ok) {
-        throw await toFirestoreError(
-          `create ${kind.slice(0, -1)} "${doc.name}"`,
-          res,
-          options,
-        );
-      }
-    } else if (op.operation === 'update') {
-      const docId = op.id;
-      const docUrl = `${baseCollectionUrl}/${encodeURIComponent(docId)}`;
+  await processWithConcurrency(
+    ops,
+    async (op) => {
+      if (op.operation === 'create') {
+        const doc = op.document;
+        const fields = encodeYamlDocumentFields(kind, doc);
+        const createUrl = `${baseCollectionUrl}?documentId=${encodeURIComponent(doc.id)}`;
+        logDebug(options, {
+          kind: 'push_operation',
+          appId,
+          operation: 'create',
+          artifactKind: kind,
+          documentId: doc.id,
+        });
+        logDebug(options, {
+          kind: 'request',
+          method: 'POST',
+          url: createUrl,
+          context: 'submitCliPush/create',
+        });
+        const res = await fetch(createUrl, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${idToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ fields }),
+        });
+        if (!res.ok) {
+          throw await toFirestoreError(`create ${kind.slice(0, -1)} "${doc.name}"`, res, options);
+        }
+      } else if (op.operation === 'update') {
+        const docId = op.id;
+        const docUrl = `${baseCollectionUrl}/${encodeURIComponent(docId)}`;
 
-      // 1) Write history entry
-      const historyFields = encodeHistoryFields(op.history);
-      const historyUrl = `${docUrl}/history`;
-      logDebug(options, {
-        kind: 'push_operation',
-        appId,
-        operation: 'update',
-        artifactKind: kind,
-        documentId: docId,
-      });
-      logDebug(options, {
-        kind: 'request',
-        method: 'POST',
-        url: historyUrl,
-        context: 'submitCliPush/writeHistory',
-      });
-      const historyRes = await fetch(historyUrl, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${idToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ fields: historyFields }),
-      });
-      if (!historyRes.ok) {
-        throw await toFirestoreError(
-          `write history for ${kind.slice(0, -1)} "${op.history.name}"`,
-          historyRes,
-          options,
-        );
-      }
+        // 1) Write history entry
+        const historyFields = encodeHistoryFields(op.history);
+        const historyUrl = `${docUrl}/history`;
+        logDebug(options, {
+          kind: 'push_operation',
+          appId,
+          operation: 'update',
+          artifactKind: kind,
+          documentId: docId,
+        });
+        logDebug(options, {
+          kind: 'request',
+          method: 'POST',
+          url: historyUrl,
+          context: 'submitCliPush/writeHistory',
+        });
+        const historyRes = await fetch(historyUrl, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${idToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ fields: historyFields }),
+        });
+        if (!historyRes.ok) {
+          throw await toFirestoreError(
+            `write history for ${kind.slice(0, -1)} "${op.history.name}"`,
+            historyRes,
+            options
+          );
+        }
 
-      // 2) Patch main document with partial updates
-      const { fields: updateFields, fieldPaths } = encodeUpdateFields(kind, op.updates);
-      if (fieldPaths.length === 0) {
-        return;
+        // 2) Patch main document with partial updates
+        const { fields: updateFields, fieldPaths } = encodeUpdateFields(kind, op.updates);
+        if (fieldPaths.length === 0) {
+          return;
+        }
+        const params = fieldPaths
+          .map((p) => `updateMask.fieldPaths=${encodeURIComponent(p)}`)
+          .join('&');
+        const patchUrl = `${docUrl}?${params}`;
+        logDebug(options, {
+          kind: 'request',
+          method: 'PATCH',
+          url: patchUrl,
+          context: 'submitCliPush/patchDocument',
+        });
+        const patchRes = await fetch(patchUrl, {
+          method: 'PATCH',
+          headers: {
+            Authorization: `Bearer ${idToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ fields: updateFields }),
+        });
+        if (!patchRes.ok) {
+          throw await toFirestoreError(
+            `update ${kind.slice(0, -1)} "${op.history.name}"`,
+            patchRes,
+            options
+          );
+        }
       }
-      const params = fieldPaths
-        .map((p) => `updateMask.fieldPaths=${encodeURIComponent(p)}`)
-        .join('&');
-      const patchUrl = `${docUrl}?${params}`;
-      logDebug(options, {
-        kind: 'request',
-        method: 'PATCH',
-        url: patchUrl,
-        context: 'submitCliPush/patchDocument',
-      });
-      const patchRes = await fetch(patchUrl, {
-        method: 'PATCH',
-        headers: {
-          Authorization: `Bearer ${idToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ fields: updateFields }),
-      });
-      if (!patchRes.ok) {
-        throw await toFirestoreError(
-          `update ${kind.slice(0, -1)} "${op.history.name}"`,
-          patchRes,
-          options,
-        );
-      }
-    }
-  }, concurrency);
+    },
+    concurrency
+  );
 }
 
 /**
@@ -433,7 +433,7 @@ export async function submitCliPush(
   appId: string,
   idToken: string,
   payload: unknown,
-  options?: FirestoreClientOptions,
+  options?: FirestoreClientOptions
 ): Promise<void> {
   const project = getEnsembleFirebaseProject();
   assertValidPushPayload(payload);
@@ -443,7 +443,14 @@ export async function submitCliPush(
   await applyYamlOperationsForKind('widgets', appId, idToken, project, p.widgets, options);
   await applyYamlOperationsForKind('scripts', appId, idToken, project, p.scripts, options);
   await applyYamlOperationsForKind('actions', appId, idToken, project, p.actions, options);
-  await applyYamlOperationsForKind('translations', appId, idToken, project, p.translations, options);
+  await applyYamlOperationsForKind(
+    'translations',
+    appId,
+    idToken,
+    project,
+    p.translations,
+    options
+  );
   if (p.theme) {
     await applyYamlOperationsForKind('theme', appId, idToken, project, [p.theme], options);
   }
@@ -453,7 +460,9 @@ function parseFirestoreString(field: { stringValue?: string } | undefined): stri
   return typeof field?.stringValue === 'string' ? field.stringValue : undefined;
 }
 
-function parseFirestoreTimestamp(field: { timestampValue?: string } | undefined): string | undefined {
+function parseFirestoreTimestamp(
+  field: { timestampValue?: string } | undefined
+): string | undefined {
   const v = field?.timestampValue;
   return typeof v === 'string' ? v : undefined;
 }
@@ -463,7 +472,7 @@ function parseFirestoreBoolean(field: { booleanValue?: boolean } | undefined): b
 }
 
 function parseUpdatedBy(
-  field: { referenceValue?: string } | undefined,
+  field: { referenceValue?: string } | undefined
 ): { name: string; email?: string; id: string } | undefined {
   const ref = field?.referenceValue;
   if (typeof ref === 'string') {
@@ -474,9 +483,7 @@ function parseUpdatedBy(
 }
 
 function encodeUpdatedBy(
-  updatedBy:
-    | { name: string; email?: string; id: string }
-    | undefined,
+  updatedBy: { name: string; email?: string; id: string } | undefined
 ): FirestoreValue | undefined {
   if (!updatedBy) return undefined;
   const project = getEnsembleFirebaseProject();
@@ -500,7 +507,10 @@ function artifactCollectionAndType(kind: ArtifactProp): {
   };
 }
 
-function encodeYamlDocumentFields(kind: ArtifactProp, doc: CreateYamlOp['document']): FirestoreWriteFields {
+function encodeYamlDocumentFields(
+  kind: ArtifactProp,
+  doc: CreateYamlOp['document']
+): FirestoreWriteFields {
   const { typeValue } = artifactCollectionAndType(kind);
   const fields: FirestoreWriteFields = {
     name: { stringValue: doc.name },
@@ -531,8 +541,8 @@ function encodeYamlDocumentFields(kind: ArtifactProp, doc: CreateYamlOp['documen
   if (updatedByVal) {
     fields.updatedBy = updatedByVal;
   }
-   const createdByVal = encodeUpdatedBy(
-    (doc as { createdBy?: { name: string; email?: string; id: string } }).createdBy,
+  const createdByVal = encodeUpdatedBy(
+    (doc as { createdBy?: { name: string; email?: string; id: string } }).createdBy
   );
   if (createdByVal) {
     fields.createdBy = createdByVal;
@@ -568,7 +578,7 @@ function encodeHistoryFields(history: UpdateHistory): FirestoreWriteFields {
 
 function encodeUpdateFields(
   kind: ArtifactProp,
-  updates: UpdateUpdates,
+  updates: UpdateUpdates
 ): { fields: FirestoreWriteFields; fieldPaths: string[] } {
   const { typeValue } = artifactCollectionAndType(kind);
   const fields: FirestoreWriteFields = {};
@@ -654,14 +664,14 @@ function firestoreDocToEnsembleBase(doc: FirestoreDocument): {
     fields.updatedBy as {
       mapValue?: { fields?: Record<string, { stringValue?: string }> };
       referenceValue?: string;
-    },
+    }
   );
   if (updatedBy) base.updatedBy = updatedBy;
   const createdBy = parseUpdatedBy(
     fields.createdBy as {
       mapValue?: { fields?: Record<string, { stringValue?: string }> };
       referenceValue?: string;
-    },
+    }
   );
   if (createdBy) base.createdBy = createdBy;
   return base;
@@ -707,10 +717,7 @@ function toThemeDTO(doc: FirestoreDocument): ThemeDTO {
   };
 }
 
-function toTranslationDTO(
-  doc: FirestoreDocument,
-  defaultLocale: boolean,
-): TranslationDTO {
+function toTranslationDTO(doc: FirestoreDocument, defaultLocale: boolean): TranslationDTO {
   const base = firestoreDocToEnsembleBase(doc);
   return {
     ...base,
@@ -720,8 +727,10 @@ function toTranslationDTO(
 }
 
 function getCollaboratorRole(
-  collaboratorsField: { mapValue?: { fields?: Record<string, { stringValue?: string }> } } | undefined,
-  userKey: string,
+  collaboratorsField:
+    | { mapValue?: { fields?: Record<string, { stringValue?: string }> } }
+    | undefined,
+  userKey: string
 ): string | undefined {
   const mapFields = collaboratorsField?.mapValue?.fields;
   if (!mapFields || typeof mapFields !== 'object') return undefined;
@@ -736,7 +745,7 @@ export async function checkAppAccess(
   appId: string,
   idToken: string,
   userId: string,
-  options?: FirestoreClientOptions,
+  options?: FirestoreClientOptions
 ): Promise<AppAccessResult> {
   const project = getEnsembleFirebaseProject();
   const url = `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents/apps/${appId}`;
@@ -764,7 +773,10 @@ export async function checkAppAccess(
         context: 'checkAppAccess',
       });
       const doc = (await res.json()) as {
-        fields?: Record<string, { stringValue?: string; mapValue?: { fields?: Record<string, { stringValue?: string }> } }>;
+        fields?: Record<
+          string,
+          { stringValue?: string; mapValue?: { fields?: Record<string, { stringValue?: string }> } }
+        >;
       };
       const fields = doc?.fields ?? {};
 
@@ -845,7 +857,7 @@ async function listCollectionDocuments(
   collectionId: string,
   idToken: string,
   filter?: (doc: FirestoreDocument) => boolean,
-  options?: FirestoreClientOptions,
+  options?: FirestoreClientOptions
 ): Promise<FirestoreDocument[]> {
   const baseUrl = `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents/${parentPath}/${collectionId}`;
   const docs: FirestoreDocument[] = [];
@@ -895,7 +907,7 @@ async function fetchAppDocument(
   project: string,
   appId: string,
   idToken: string,
-  options?: FirestoreClientOptions,
+  options?: FirestoreClientOptions
 ): Promise<{ id: string; name?: string; createdAt?: string; updatedAt?: string }> {
   const url = `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents/apps/${appId}`;
   logDebug(options, {
@@ -908,13 +920,20 @@ async function fetchAppDocument(
   if (!res.ok) {
     throw await toFirestoreError('fetch app document', res, options);
   }
-  const doc = (await res.json()) as { name?: string; createTime?: string; updateTime?: string; fields?: FirestoreFields };
+  const doc = (await res.json()) as {
+    name?: string;
+    createTime?: string;
+    updateTime?: string;
+    fields?: FirestoreFields;
+  };
   const fields = doc?.fields ?? {};
   return {
     id: appId,
     name: parseFirestoreString(fields.name as { stringValue?: string }),
-    createdAt: doc.createTime ?? parseFirestoreTimestamp(fields.createdAt as { timestampValue?: string }),
-    updatedAt: doc.updateTime ?? parseFirestoreTimestamp(fields.updatedAt as { timestampValue?: string }),
+    createdAt:
+      doc.createTime ?? parseFirestoreTimestamp(fields.createdAt as { timestampValue?: string }),
+    updatedAt:
+      doc.updateTime ?? parseFirestoreTimestamp(fields.updatedAt as { timestampValue?: string }),
   };
 }
 
@@ -927,7 +946,7 @@ async function fetchAppDocument(
 export async function fetchCloudApp(
   appId: string,
   idToken: string,
-  options?: FirestoreClientOptions,
+  options?: FirestoreClientOptions
 ): Promise<CloudApp> {
   const project = getEnsembleFirebaseProject();
   const parentPath = `apps/${appId}`;
@@ -944,7 +963,7 @@ export async function fetchCloudApp(
         const docId = getDocId(doc.name);
         return docId !== 'resources';
       },
-      options,
+      options
     ),
   ]);
 
@@ -980,7 +999,7 @@ export async function fetchCloudApp(
     const isDefault = defaultLocaleField(doc);
     translations.push(
       // Only pass true/false when explicitly stored; otherwise leave undefined
-      toTranslationDTO(doc, isDefault === true),
+      toTranslationDTO(doc, isDefault === true)
     );
   }
 
@@ -1007,7 +1026,7 @@ export async function fetchCloudApp(
 export async function fetchRootScreenName(
   appId: string,
   idToken: string,
-  options?: FirestoreClientOptions,
+  options?: FirestoreClientOptions
 ): Promise<string | undefined> {
   const project = getEnsembleFirebaseProject();
   const parent = `projects/${project}/databases/(default)/documents/apps/${appId}`;
@@ -1077,7 +1096,7 @@ export async function createVersion(
   appId: string,
   idToken: string,
   params: CreateVersionParams,
-  options?: FirestoreClientOptions,
+  options?: FirestoreClientOptions
 ): Promise<{ id: string }> {
   const project = getEnsembleFirebaseProject();
   const versionId = generateVersionId();
@@ -1129,9 +1148,10 @@ function parseVersionDoc(doc: FirestoreDocument): VersionDoc | null {
   const message = parseFirestoreString(fields.message as { stringValue?: string }) ?? '';
   const createdAt = parseFirestoreTimestamp(fields.createdAt as { timestampValue?: string });
   const expiresAt = parseFirestoreTimestamp(fields.expiresAt as { timestampValue?: string });
-  const createdBy = parseUpdatedBy(
-    fields.createdBy as { referenceValue?: string },
-  ) ?? { name: 'Unknown', id: '' };
+  const createdBy = parseUpdatedBy(fields.createdBy as { referenceValue?: string }) ?? {
+    name: 'Unknown',
+    id: '',
+  };
   const snapshotStr = parseFirestoreString(fields.snapshot as { stringValue?: string });
   let snapshot: CloudApp;
   try {
@@ -1157,7 +1177,7 @@ export async function listVersions(
   appId: string,
   idToken: string,
   opts: { limit: number; startAfter?: string },
-  options?: FirestoreClientOptions,
+  options?: FirestoreClientOptions
 ): Promise<ListVersionsResult> {
   const project = getEnsembleFirebaseProject();
   const parent = `projects/${project}/databases/(default)/documents/apps/${appId}`;
@@ -1224,7 +1244,7 @@ export async function getVersion(
   appId: string,
   idToken: string,
   versionId: string,
-  options?: FirestoreClientOptions,
+  options?: FirestoreClientOptions
 ): Promise<VersionDoc> {
   const project = getEnsembleFirebaseProject();
   const url = `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents/apps/${appId}/versions/${versionId}`;
@@ -1257,9 +1277,10 @@ export async function getVersion(
   const message = parseFirestoreString(fields.message as { stringValue?: string }) ?? '';
   const createdAt = parseFirestoreTimestamp(fields.createdAt as { timestampValue?: string }) ?? '';
   const expiresAt = parseFirestoreTimestamp(fields.expiresAt as { timestampValue?: string }) ?? '';
-  const createdBy = parseUpdatedBy(
-    fields.createdBy as { referenceValue?: string },
-  ) ?? { name: 'Unknown', id: '' };
+  const createdBy = parseUpdatedBy(fields.createdBy as { referenceValue?: string }) ?? {
+    name: 'Unknown',
+    id: '',
+  };
   const snapshotStr = parseFirestoreString(fields.snapshot as { stringValue?: string });
   let snapshot: CloudApp;
   try {

@@ -30,9 +30,7 @@ describe('token command', () => {
     await tokenCommand();
 
     expect(logSpy).toHaveBeenCalledWith('my-refresh-token-for-ci');
-    expect(noteSpy).toHaveBeenCalledWith(
-      expect.stringContaining('ENSEMBLE_TOKEN'),
-    );
+    expect(noteSpy).toHaveBeenCalledWith(expect.stringContaining('ENSEMBLE_TOKEN'));
     logSpy.mockRestore();
     noteSpy.mockRestore();
   });
@@ -44,9 +42,7 @@ describe('token command', () => {
 
     await tokenCommand();
 
-    expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining('ensemble login'),
-    );
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('ensemble login'));
     expect(process.exitCode).toBe(1);
     errorSpy.mockRestore();
   });
@@ -63,9 +59,7 @@ describe('token command', () => {
 
     await tokenCommand();
 
-    expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining('No token found'),
-    );
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('No token found'));
     expect(process.exitCode).toBe(1);
     errorSpy.mockRestore();
   });

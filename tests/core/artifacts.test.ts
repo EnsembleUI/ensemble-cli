@@ -46,7 +46,7 @@ describe('artifact registry', () => {
 
   it('has matching fsDir entries for all non-theme YAML artifacts', () => {
     const yamlNonTheme = ARTIFACT_CONFIGS.filter(
-      (c) => !c.isTheme && c.fileExtension && c.fileExtension.endsWith('.yaml'),
+      (c) => !c.isTheme && c.fileExtension && c.fileExtension.endsWith('.yaml')
     );
     for (const cfg of yamlNonTheme) {
       expect(cfg.fsDir, `fsDir must be set for ${cfg.prop}`).toBeDefined();

@@ -120,7 +120,7 @@ export interface UpsertAppAliasOptions {
 export async function upsertAppAlias(
   alias: string,
   appId: string,
-  opts?: UpsertAppAliasOptions,
+  opts?: UpsertAppAliasOptions
 ): Promise<void> {
   const root = await findProjectRoot(process.cwd());
 

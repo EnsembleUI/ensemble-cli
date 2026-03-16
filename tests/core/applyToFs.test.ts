@@ -36,12 +36,24 @@ describe('applyCloudStateToFs', () => {
       id: 'app1',
       name: 'App',
       screens: [
-        { id: 's1', name: 'Home', content: 'View:\n  body:\n    Text:\n      text: Hi', type: EnsembleDocumentType.Screen, isRoot: true },
+        {
+          id: 's1',
+          name: 'Home',
+          content: 'View:\n  body:\n    Text:\n      text: Hi',
+          type: EnsembleDocumentType.Screen,
+          isRoot: true,
+        },
       ],
       widgets: [],
       scripts: [],
       translations: [
-        { id: 'i18n_en', name: 'en', content: 'en: content', type: EnsembleDocumentType.I18n, defaultLocale: true },
+        {
+          id: 'i18n_en',
+          name: 'en',
+          content: 'en: content',
+          type: EnsembleDocumentType.I18n,
+          defaultLocale: true,
+        },
       ],
     };
     const localFiles: ParsedAppFiles = {
@@ -93,7 +105,12 @@ describe('applyCloudStateToFs', () => {
       widgets: [],
       scripts: [],
       translations: [],
-      theme: { id: 't1', name: 'theme', content: 'colors:\n  primary: red', type: EnsembleDocumentType.Theme },
+      theme: {
+        id: 't1',
+        name: 'theme',
+        content: 'colors:\n  primary: red',
+        type: EnsembleDocumentType.Theme,
+      },
     };
     const localFiles: ParsedAppFiles = {
       screens: {},
@@ -124,7 +141,9 @@ describe('applyCloudStateToFs', () => {
     const cloudApp: CloudApp = {
       id: 'app1',
       name: 'App',
-      screens: [{ id: 's1', name: 'Home', content: 'x', type: EnsembleDocumentType.Screen, isRoot: true }],
+      screens: [
+        { id: 's1', name: 'Home', content: 'x', type: EnsembleDocumentType.Screen, isRoot: true },
+      ],
       widgets: [],
       scripts: [],
       translations: [],
@@ -168,7 +187,11 @@ describe('applyCloudStateToFs', () => {
 
     const manifestPath = path.join(projectRoot, '.manifest.json');
     const raw = await fs.readFile(manifestPath, 'utf8');
-    const manifest = JSON.parse(raw) as { homeScreenName?: string; scripts?: unknown[]; widgets?: unknown[] };
+    const manifest = JSON.parse(raw) as {
+      homeScreenName?: string;
+      scripts?: unknown[];
+      widgets?: unknown[];
+    };
     expect(manifest.homeScreenName).toBe('Home');
   });
 

@@ -71,18 +71,10 @@ export async function initCommand(): Promise<void> {
 
     if (typeof manifest.homeScreenName !== 'string') {
       manifest.homeScreenName = appHome;
-      await fs.writeFile(
-        manifestPath,
-        JSON.stringify(manifest, null, 2) + '\n',
-        'utf8',
-      );
+      await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
       ui.note(`Updated .manifest.json: homeScreenName set to "${appHome}".`);
     }
   }
-  ui.success(
-    `Initialized Ensemble config and linked alias "${alias}" to app "${appId}".`,
-  );
-  ui.note(
-    `You can now run \`ensemble push --app ${alias}\` or \`ensemble pull --app ${alias}\`.`,
-  );
+  ui.success(`Initialized Ensemble config and linked alias "${alias}" to app "${appId}".`);
+  ui.note(`You can now run \`ensemble push --app ${alias}\` or \`ensemble pull --app ${alias}\`.`);
 }

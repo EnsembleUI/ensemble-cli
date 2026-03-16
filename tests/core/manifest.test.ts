@@ -34,10 +34,7 @@ describe('getCloudHomeScreenName', () => {
   });
 
   it('returns first screen when no isRoot', () => {
-    const cloud = cloudAppWithScreens([
-      { name: 'Dashboard' },
-      { name: 'Settings' },
-    ]);
+    const cloud = cloudAppWithScreens([{ name: 'Dashboard' }, { name: 'Settings' }]);
     expect(getCloudHomeScreenName(cloud)).toBe('Dashboard');
   });
 
@@ -50,20 +47,14 @@ describe('getCloudHomeScreenName', () => {
 describe('buildManifestObject homeScreenName', () => {
   it('adds homeScreenName when manifest does not have it (from cloud)', () => {
     const existing: RootManifest = { widgets: [], scripts: [] };
-    const cloud = cloudAppWithScreens([
-      { name: 'Home', isRoot: true },
-      { name: 'About' },
-    ]);
+    const cloud = cloudAppWithScreens([{ name: 'Home', isRoot: true }, { name: 'About' }]);
     const merged = buildManifestObject(existing, cloud);
     expect(merged.homeScreenName).toBe('Home');
   });
 
   it('adds homeScreenName when manifest does not have it (prefer appHomeFromConfig)', () => {
     const existing: RootManifest = { widgets: [], scripts: [] };
-    const cloud = cloudAppWithScreens([
-      { name: 'Dashboard', isRoot: true },
-      { name: 'Home' },
-    ]);
+    const cloud = cloudAppWithScreens([{ name: 'Dashboard', isRoot: true }, { name: 'Home' }]);
     const merged = buildManifestObject(existing, cloud, {
       appHomeFromConfig: 'Home',
     });
@@ -76,10 +67,7 @@ describe('buildManifestObject homeScreenName', () => {
       scripts: [],
       homeScreenName: 'Dashboard',
     };
-    const cloud = cloudAppWithScreens([
-      { name: 'Home', isRoot: true },
-      { name: 'Dashboard' },
-    ]);
+    const cloud = cloudAppWithScreens([{ name: 'Home', isRoot: true }, { name: 'Dashboard' }]);
     const merged = buildManifestObject(existing, cloud);
     expect(merged.homeScreenName).toBe('Dashboard');
   });
@@ -90,10 +78,7 @@ describe('buildManifestObject homeScreenName', () => {
       scripts: [],
       homeScreenName: 'Dashboard',
     };
-    const cloud = cloudAppWithScreens([
-      { name: 'Home', isRoot: true },
-      { name: 'Dashboard' },
-    ]);
+    const cloud = cloudAppWithScreens([{ name: 'Home', isRoot: true }, { name: 'Dashboard' }]);
     const merged = buildManifestObject(existing, cloud, {
       homeScreenNameOverride: 'Settings',
     });

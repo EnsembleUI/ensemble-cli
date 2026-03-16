@@ -58,7 +58,7 @@ describe('projectConfig', () => {
     it('throws when default app has no appId', async () => {
       await fs.writeFile(
         path.join(tmpDir, CONFIG_FILENAME),
-        JSON.stringify({ default: 'dev', apps: { dev: {} } }),
+        JSON.stringify({ default: 'dev', apps: { dev: {} } })
       );
 
       await expect(loadProjectConfig()).rejects.toThrow(/appId/);

@@ -48,9 +48,7 @@ function formatReleaseLine(index: number, v: VersionDoc): string {
   return `${index + 1}. ${date} — ${msg} [hash: ${v.id}]`;
 }
 
-export async function releaseCreateCommand(
-  options: ReleaseCreateOptions = {},
-): Promise<void> {
+export async function releaseCreateCommand(options: ReleaseCreateOptions = {}): Promise<void> {
   const root = process.cwd();
   const { config, appKey, appId } = await resolveAppContext(options.appKey);
   const appConfig = config.apps[appKey];
@@ -97,13 +95,7 @@ export async function releaseCreateCommand(
   const appName = (appConfig.name as string | undefined) ?? 'App';
   const appHome = appConfig.appHome as string | undefined;
   const localFiles = await collectAppFiles(root);
-  const localApp = buildDocumentsFromParsed(
-    localFiles,
-    appId,
-    appName,
-    appHome,
-    undefined,
-  );
+  const localApp = buildDocumentsFromParsed(localFiles, appId, appName, appHome, undefined);
   const snapshot: CloudApp = {
     id: localApp.id,
     name: localApp.name,
@@ -129,7 +121,7 @@ export async function releaseCreateCommand(
         expiresAt,
         snapshot,
       },
-      firestoreOptions,
+      firestoreOptions
     );
     ui.success('Release saved. Run "ensemble release use" to use it.');
   } catch (err) {
@@ -143,9 +135,7 @@ export async function releaseCreateCommand(
   }
 }
 
-export async function releaseListCommand(
-  options: ReleaseListOptions = {},
-): Promise<void> {
+export async function releaseListCommand(options: ReleaseListOptions = {}): Promise<void> {
   const { config, appKey, appId } = await resolveAppContext(options.appKey);
   const appConfig = config.apps[appKey];
   if (!appConfig) {
@@ -170,7 +160,7 @@ export async function releaseListCommand(
       Promise.all([
         checkAppAccess(appId, idToken, userId, firestoreOptions),
         listVersions(appId, idToken, { limit }, firestoreOptions),
-      ]),
+      ])
     );
     const access = accessAndFirst[0];
     let { versions, nextStartAfter } = accessAndFirst[1];
@@ -191,7 +181,7 @@ export async function releaseListCommand(
         appId,
         idToken,
         { limit: limit - versions.length, startAfter: nextStartAfter },
-        firestoreOptions,
+        firestoreOptions
       );
       versions = [...versions, ...next.versions];
       nextStartAfter = next.nextStartAfter;
@@ -212,9 +202,7 @@ export async function releaseListCommand(
   }
 }
 
-export async function releaseUseCommand(
-  options: ReleaseUseOptions = {},
-): Promise<void> {
+export async function releaseUseCommand(options: ReleaseUseOptions = {}): Promise<void> {
   const { projectRoot, config, appKey, appId } = await resolveAppContext(options.appKey);
   const appConfig = config.apps[appKey];
   if (!appConfig) {
@@ -224,7 +212,7 @@ export async function releaseUseCommand(
   }
   const appOptions = (appConfig.options ?? {}) as Record<string, unknown>;
   const enabledByProp = Object.fromEntries(
-    ArtifactProps.map((prop) => [prop, appOptions[prop] !== false]),
+    ArtifactProps.map((prop) => [prop, appOptions[prop] !== false])
   ) as Record<ArtifactProp, boolean>;
 
   const session = await getValidAuthSession();
@@ -248,14 +236,14 @@ export async function releaseUseCommand(
         return;
       }
       versionDoc = await withSpinner('Loading release...', () =>
-        getVersion(appId, idToken, options.hash!, firestoreOptions),
+        getVersion(appId, idToken, options.hash!, firestoreOptions)
       );
     } else {
       // Interactive picker over recent releases.
       const isInteractive = Boolean(process.stdout.isTTY && process.stdin.isTTY);
       if (!isInteractive) {
         ui.error(
-          'Release use requires either interactive mode or --hash <hash> for non-interactive use.',
+          'Release use requires either interactive mode or --hash <hash> for non-interactive use.'
         );
         process.exitCode = 1;
         return;
@@ -264,17 +252,20 @@ export async function releaseUseCommand(
       const PAGE_SIZE = 5;
       const SHOW_MORE_VALUE = '__show_more__';
 
-      const { access, versions: initialVersions, nextStartAfter: initialNext } =
-        await withSpinner('Loading releases...', () =>
-          Promise.all([
-            checkAppAccess(appId, idToken, userId, firestoreOptions),
-            listVersions(appId, idToken, { limit: PAGE_SIZE }, firestoreOptions),
-          ]).then(([accessRes, listRes]) => ({
-            access: accessRes,
-            versions: listRes.versions,
-            nextStartAfter: listRes.nextStartAfter,
-          })),
-        );
+      const {
+        access,
+        versions: initialVersions,
+        nextStartAfter: initialNext,
+      } = await withSpinner('Loading releases...', () =>
+        Promise.all([
+          checkAppAccess(appId, idToken, userId, firestoreOptions),
+          listVersions(appId, idToken, { limit: PAGE_SIZE }, firestoreOptions),
+        ]).then(([accessRes, listRes]) => ({
+          access: accessRes,
+          versions: listRes.versions,
+          nextStartAfter: listRes.nextStartAfter,
+        }))
+      );
 
       if (!access.ok) {
         ui.error(access.message);
@@ -290,12 +281,10 @@ export async function releaseUseCommand(
       let allVersions = initialVersions;
       let nextStartAfter: string | undefined = initialNext;
       for (;;) {
-        const choices: { title: string; value: number | string }[] = allVersions.map(
-          (v, i) => ({
-            title: formatReleaseLine(i, v),
-            value: i,
-          }),
-        );
+        const choices: { title: string; value: number | string }[] = allVersions.map((v, i) => ({
+          title: formatReleaseLine(i, v),
+          value: i,
+        }));
         if (nextStartAfter !== undefined) {
           choices.push({ title: 'Show more (next 5)', value: SHOW_MORE_VALUE });
         }
@@ -319,8 +308,8 @@ export async function releaseUseCommand(
               appId,
               idToken,
               { limit: PAGE_SIZE, startAfter: nextStartAfter },
-              firestoreOptions,
-            ),
+              firestoreOptions
+            )
           );
           allVersions = [...allVersions, ...nextPage.versions];
           nextStartAfter = nextPage.nextStartAfter;
@@ -334,23 +323,19 @@ export async function releaseUseCommand(
     const localFiles = await collectAppFiles(projectRoot);
     const appHome = appConfig.appHome as string | undefined;
     await withSpinner('Writing local files...', () =>
-      applyCloudStateToFs(
-        projectRoot,
-        versionDoc.snapshot,
-        localFiles,
-        enabledByProp,
-        {
-          manifestOptions: { appHomeFromConfig: appHome },
-          onProgress: (completed, total) => {
-            if (total > 0 && completed % 25 === 0) {
-              // eslint-disable-next-line no-console
-              console.log(`Writing files... (${completed}/${total})`);
-            }
-          },
+      applyCloudStateToFs(projectRoot, versionDoc.snapshot, localFiles, enabledByProp, {
+        manifestOptions: { appHomeFromConfig: appHome },
+        onProgress: (completed, total) => {
+          if (total > 0 && completed % 25 === 0) {
+            // eslint-disable-next-line no-console
+            console.log(`Writing files... (${completed}/${total})`);
+          }
         },
-      ),
+      })
     );
-    ui.success('Local files updated to selected release. Run "ensemble push" to apply to the cloud.');
+    ui.success(
+      'Local files updated to selected release. Run "ensemble push" to apply to the cloud.'
+    );
   } catch (err) {
     if (err instanceof FirestoreClientError) {
       ui.error(err.message);
@@ -361,4 +346,3 @@ export async function releaseUseCommand(
     process.exitCode = 1;
   }
 }
-

@@ -21,4 +21,3 @@ for (const { placeholder, value } of replacements) {
 }
 
 fs.writeFileSync(envPath, text, 'utf8');
-

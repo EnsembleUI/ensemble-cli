@@ -28,7 +28,7 @@ export interface BuildManifestOptions {
 /** Preserve existing manifest entries by name; only add minimal { name } for new ones. */
 function mergeByName<T extends { name: string }>(
   existing: T[] | undefined,
-  cloudNames: string[],
+  cloudNames: string[]
 ): T[] {
   const existingByName = new Map((existing ?? []).map((e) => [e.name, e]));
   return cloudNames.map((name) => existingByName.get(name) ?? ({ name } as T));
@@ -37,7 +37,7 @@ function mergeByName<T extends { name: string }>(
 export function buildManifestObject(
   existing: RootManifest,
   cloudApp: CloudApp,
-  options: BuildManifestOptions = {},
+  options: BuildManifestOptions = {}
 ): RootManifest {
   const { appHomeFromConfig, homeScreenNameOverride } = options;
 
@@ -91,7 +91,7 @@ export function buildManifestObject(
 export async function buildAndWriteManifest(
   projectRoot: string,
   cloudApp: CloudApp,
-  options: BuildManifestOptions = {},
+  options: BuildManifestOptions = {}
 ): Promise<void> {
   const manifestPath = path.join(projectRoot, '.manifest.json');
   let existing: RootManifest = {};
@@ -122,7 +122,7 @@ async function writeRootManifest(manifestPath: string, manifest: RootManifest): 
 export async function upsertManifestEntry(
   projectRoot: string,
   kind: 'widget' | 'script' | 'action' | 'translation',
-  name: string,
+  name: string
 ): Promise<void> {
   const manifestPath = path.join(projectRoot, '.manifest.json');
   const manifest = await readRootManifest(manifestPath);
@@ -151,5 +151,3 @@ export async function upsertManifestEntry(
 
   await writeRootManifest(manifestPath, manifest);
 }
-
-

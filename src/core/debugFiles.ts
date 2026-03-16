@@ -13,10 +13,14 @@ export async function writeVerboseJson(
   rootDir: string,
   fileName: string,
   payload: unknown,
-  options: WriteVerboseJsonOptions,
+  options: WriteVerboseJsonOptions
 ): Promise<void> {
-  const { verbose, truncateLargeContent = true, contentKey = 'content', contentLimit = 2000 } =
-    options;
+  const {
+    verbose,
+    truncateLargeContent = true,
+    contentKey = 'content',
+    contentLimit = 2000,
+  } = options;
 
   if (!verbose) return;
 
@@ -38,4 +42,3 @@ export async function writeVerboseJson(
   // eslint-disable-next-line no-console
   console.log(`Wrote ${filePath}`);
 }
-

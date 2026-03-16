@@ -68,17 +68,17 @@ To release a new version, go to GitHub → Actions → run the workflow **Releas
 
 ## Commands
 
-| Command            | Description                                                                 |
-|--------------------|-----------------------------------------------------------------------------|
-| `ensemble login`   | Log in to Ensemble (opens browser)                                         |
-| `ensemble logout`  | Log out and clear local auth session                                       |
+| Command            | Description                                                              |
+| ------------------ | ------------------------------------------------------------------------ |
+| `ensemble login`   | Log in to Ensemble (opens browser)                                       |
+| `ensemble logout`  | Log out and clear local auth session                                     |
 | `ensemble token`   | Print token for CI (set as `ENSEMBLE_TOKEN`); run `ensemble login` first |
-| `ensemble init`    | Initialize or update `ensemble.config.json` in the project                |
-| `ensemble push`   | Scan the app directory and push changes to the cloud                       |
-| `ensemble pull`   | Pull artifacts from the cloud and overwrite local files                    |
-| `ensemble release` | Manage releases (snapshots) of your app.                                  |
-| `ensemble add`    | Add a new screen, widget, script, or translation scaffold                  |
-| `ensemble update` | Update the CLI to the latest version                                       |
+| `ensemble init`    | Initialize or update `ensemble.config.json` in the project               |
+| `ensemble push`    | Scan the app directory and push changes to the cloud                     |
+| `ensemble pull`    | Pull artifacts from the cloud and overwrite local files                  |
+| `ensemble release` | Manage releases (snapshots) of your app.                                 |
+| `ensemble add`     | Add a new screen, widget, script, or translation scaffold                |
+| `ensemble update`  | Update the CLI to the latest version                                     |
 
 ### Options
 
@@ -139,11 +139,11 @@ Without `-y`, both commands refuse to run when not attached to a TTY and exit wi
 
 ## Environment Variables
 
-| Variable | Purpose |
-|----------|---------|
-| `ENSEMBLE_TOKEN` | Token for CI; the CLI uses it instead of global config. Get it with `ensemble token` after `ensemble login`. |
-| `ENSEMBLE_FIREBASE_PROJECT` | Firestore project (default: `ensemble-web-studio`) |
-| `ENSEMBLE_AUTH_BASE_URL` | Auth sign-in URL (default: `https://studio.ensembleui.com/sign-in`) |
+| Variable                    | Purpose                                                                                                      |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `ENSEMBLE_TOKEN`            | Token for CI; the CLI uses it instead of global config. Get it with `ensemble token` after `ensemble login`. |
+| `ENSEMBLE_FIREBASE_PROJECT` | Firestore project (default: `ensemble-web-studio`)                                                           |
+| `ENSEMBLE_AUTH_BASE_URL`    | Auth sign-in URL (default: `https://studio.ensembleui.com/sign-in`)                                          |
 
 ## Project Structure
 

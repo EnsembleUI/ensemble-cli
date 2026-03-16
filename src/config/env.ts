@@ -13,4 +13,3 @@ export function getEnsembleAuthBaseUrl(): string {
 export function getEnsembleFirebaseApiKey(): string | undefined {
   return process.env.ENSEMBLE_FIREBASE_API_KEY ?? DEFAULT_FIREBASE_API_KEY;
 }
-

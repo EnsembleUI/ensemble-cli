@@ -84,9 +84,7 @@ describe('push/pull integration (commands)', () => {
   const originalCwd = process.cwd();
 
   beforeEach(async () => {
-    projectRoot = await fs.mkdtemp(
-      path.join(os.tmpdir(), 'ensemble-cli-push-pull-'),
-    );
+    projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ensemble-cli-push-pull-'));
     process.chdir(projectRoot);
     // Ensure minimal project structure
     await fs.mkdir(path.join(projectRoot, 'screens'), { recursive: true });
@@ -102,21 +100,9 @@ describe('push/pull integration (commands)', () => {
 
   it('push uses defaultLanguage from .manifest and sends correct translation payload', async () => {
     // Arrange: create a minimal Home screen, translation files, and manifest
-    await fs.writeFile(
-      path.join(projectRoot, 'screens', 'Home.yaml'),
-      'home: content',
-      'utf8',
-    );
-    await fs.writeFile(
-      path.join(projectRoot, 'translations', 'en.yaml'),
-      'en: content',
-      'utf8',
-    );
-    await fs.writeFile(
-      path.join(projectRoot, 'translations', 'ar.yaml'),
-      'ar: محتوى',
-      'utf8',
-    );
+    await fs.writeFile(path.join(projectRoot, 'screens', 'Home.yaml'), 'home: content', 'utf8');
+    await fs.writeFile(path.join(projectRoot, 'translations', 'en.yaml'), 'en: content', 'utf8');
+    await fs.writeFile(path.join(projectRoot, 'translations', 'ar.yaml'), 'ar: محتوى', 'utf8');
     await fs.writeFile(
       path.join(projectRoot, '.manifest.json'),
       JSON.stringify(
@@ -128,9 +114,9 @@ describe('push/pull integration (commands)', () => {
           languages: ['ar', 'en'],
         },
         null,
-        2,
+        2
       ) + '\n',
-      'utf8',
+      'utf8'
     );
 
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -143,22 +129,17 @@ describe('push/pull integration (commands)', () => {
       submitCliPush: ReturnType<typeof vi.fn>;
     };
     expect(submitCliPush).toHaveBeenCalledTimes(1);
-    const [appId, , payload] = submitCliPush.mock.calls[0] as [
-      string,
-      string,
-      unknown,
-    ];
+    const [appId, , payload] = submitCliPush.mock.calls[0] as [string, string, unknown];
     expect(appId).toBe('app1');
     const p = payload as {
-      translations?: { operation: string; document: { id: string; name: string; defaultLocale?: boolean } }[];
+      translations?: {
+        operation: string;
+        document: { id: string; name: string; defaultLocale?: boolean };
+      }[];
     };
     expect(p.translations).toBeDefined();
-    const ar = p.translations!.find(
-      (t) => t.operation === 'create' && t.document.name === 'ar',
-    );
-    const en = p.translations!.find(
-      (t) => t.operation === 'create' && t.document.name === 'en',
-    );
+    const ar = p.translations!.find((t) => t.operation === 'create' && t.document.name === 'ar');
+    const en = p.translations!.find((t) => t.operation === 'create' && t.document.name === 'en');
     expect(ar).toBeDefined();
     expect(en).toBeDefined();
     expect(ar!.document.id).toBe('i18n_ar');
@@ -169,10 +150,8 @@ describe('push/pull integration (commands)', () => {
     // Should print a success summary with counts.
     expect(
       logSpy.mock.calls.some(
-        ([msg]) =>
-          typeof msg === 'string' &&
-          msg.includes('Pushed app "App" to environment "dev"'),
-      ),
+        ([msg]) => typeof msg === 'string' && msg.includes('Pushed app "App" to environment "dev"')
+      )
     ).toBe(true);
 
     logSpy.mockRestore();
@@ -203,11 +182,7 @@ describe('push/pull integration (commands)', () => {
     });
 
     // Arrange: create a minimal Home screen so buildDocumentsFromParsed succeeds.
-    await fs.writeFile(
-      path.join(projectRoot, 'screens', 'Home.yaml'),
-      'home: content',
-      'utf8',
-    );
+    await fs.writeFile(path.join(projectRoot, 'screens', 'Home.yaml'), 'home: content', 'utf8');
 
     // Cloud app has screens, but they should be ignored due to options.
     (cloudModuleMock.fetchCloudApp as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
@@ -246,16 +221,8 @@ describe('push/pull integration (commands)', () => {
 
   it('push dry run shows diff but does not submit payload', async () => {
     // Arrange: create a minimal Home screen plus a simple local file and cloud app with no existing artifacts.
-    await fs.writeFile(
-      path.join(projectRoot, 'screens', 'Home.yaml'),
-      'home: content',
-      'utf8',
-    );
-    await fs.writeFile(
-      path.join(projectRoot, 'translations', 'en.yaml'),
-      'en: content',
-      'utf8',
-    );
+    await fs.writeFile(path.join(projectRoot, 'screens', 'Home.yaml'), 'home: content', 'utf8');
+    await fs.writeFile(path.join(projectRoot, 'translations', 'en.yaml'), 'en: content', 'utf8');
 
     (cloudModuleMock.fetchCloudApp as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       id: 'app1',
@@ -281,8 +248,8 @@ describe('push/pull integration (commands)', () => {
     expect(lines.some((l) => l.includes('Push dry run'))).toBe(true);
     expect(
       lines.some((l) =>
-        l.includes('Run `ensemble push` without `--dry-run` to apply these changes.'),
-      ),
+        l.includes('Run `ensemble push` without `--dry-run` to apply these changes.')
+      )
     ).toBe(true);
 
     logSpy.mockRestore();
@@ -290,16 +257,8 @@ describe('push/pull integration (commands)', () => {
 
   it('push without --yes in non-interactive mode refuses to run', async () => {
     // Arrange: create a minimal Home screen and a simple local file so there is at least one change to push.
-    await fs.writeFile(
-      path.join(projectRoot, 'screens', 'Home.yaml'),
-      'home: content',
-      'utf8',
-    );
-    await fs.writeFile(
-      path.join(projectRoot, 'translations', 'en.yaml'),
-      'en: content',
-      'utf8',
-    );
+    await fs.writeFile(path.join(projectRoot, 'screens', 'Home.yaml'), 'home: content', 'utf8');
+    await fs.writeFile(path.join(projectRoot, 'translations', 'en.yaml'), 'en: content', 'utf8');
 
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const { submitCliPush } = cloudModuleMock as {
@@ -315,8 +274,8 @@ describe('push/pull integration (commands)', () => {
       errorSpy.mock.calls.some(
         ([msg]) =>
           typeof msg === 'string' &&
-          msg.includes('Refusing to run push non-interactively without --yes'),
-      ),
+          msg.includes('Refusing to run push non-interactively without --yes')
+      )
     ).toBe(true);
 
     // Reset exit code for other tests.
@@ -351,8 +310,8 @@ describe('push/pull integration (commands)', () => {
       errorSpy.mock.calls.some(
         ([msg]) =>
           typeof msg === 'string' &&
-          msg.includes('Refusing to run pull non-interactively without --yes'),
-      ),
+          msg.includes('Refusing to run pull non-interactively without --yes')
+      )
     ).toBe(true);
     expect(process.exitCode).toBe(1);
 
@@ -428,10 +387,7 @@ describe('push/pull integration (commands)', () => {
     expect(Object.keys(files.translations)).toContain('en.yaml');
     expect(files.theme).toBe(themeContent);
 
-    const manifestRaw = await fs.readFile(
-      path.join(projectRoot, '.manifest.json'),
-      'utf8',
-    );
+    const manifestRaw = await fs.readFile(path.join(projectRoot, '.manifest.json'), 'utf8');
     const manifest = JSON.parse(manifestRaw) as {
       widgets?: { name: string }[];
       scripts?: { name: string }[];
@@ -453,11 +409,8 @@ describe('push/pull integration (commands)', () => {
     const messages = logSpy.mock.calls.map((args) => args[0]);
     expect(
       messages.some(
-        (m) =>
-          typeof m === 'string' &&
-          m.includes('Pulled app') &&
-          m.includes('applied'),
-      ),
+        (m) => typeof m === 'string' && m.includes('Pulled app') && m.includes('applied')
+      )
     ).toBe(true);
 
     logSpy.mockRestore();
@@ -490,9 +443,7 @@ describe('push/pull integration (commands)', () => {
       ] as unknown[],
       theme: undefined,
     };
-    (cloudModuleMock.fetchCloudApp as ReturnType<typeof vi.fn>).mockResolvedValue(
-      cloudApp,
-    );
+    (cloudModuleMock.fetchCloudApp as ReturnType<typeof vi.fn>).mockResolvedValue(cloudApp);
 
     await pullCommand({ verbose: false, yes: true });
     const { submitCliPush } = cloudModuleMock as {
@@ -506,11 +457,8 @@ describe('push/pull integration (commands)', () => {
     const messages = logSpy.mock.calls.map((args) => args[0]);
     expect(
       messages.some(
-        (m) =>
-          typeof m === 'string' &&
-          m.includes('Up to date') &&
-          m.includes('Nothing to push'),
-      ),
+        (m) => typeof m === 'string' && m.includes('Up to date') && m.includes('Nothing to push')
+      )
     ).toBe(true);
 
     logSpy.mockRestore();
@@ -544,9 +492,7 @@ describe('push/pull integration (commands)', () => {
       translations: [] as unknown[],
       theme: undefined,
     };
-    (cloudModuleMock.fetchCloudApp as ReturnType<typeof vi.fn>).mockResolvedValue(
-      cloudApp,
-    );
+    (cloudModuleMock.fetchCloudApp as ReturnType<typeof vi.fn>).mockResolvedValue(cloudApp);
 
     await pullCommand({ verbose: false, yes: true });
     const { submitCliPush } = cloudModuleMock as {
@@ -560,11 +506,8 @@ describe('push/pull integration (commands)', () => {
     const messages = logSpy.mock.calls.map((args) => args[0]);
     expect(
       messages.some(
-        (m) =>
-          typeof m === 'string' &&
-          m.includes('Up to date') &&
-          m.includes('Nothing to push'),
-      ),
+        (m) => typeof m === 'string' && m.includes('Up to date') && m.includes('Nothing to push')
+      )
     ).toBe(true);
 
     logSpy.mockRestore();
@@ -632,26 +575,16 @@ describe('push/pull integration (commands)', () => {
     const messages = logSpy.mock.calls.map((args) => args[0]);
     expect(
       messages.some(
-        (m) =>
-          typeof m === 'string' &&
-          m.includes('Pull plan for') &&
-          m.includes('(dev)'),
-      ),
+        (m) => typeof m === 'string' && m.includes('Pull plan for') && m.includes('(dev)')
+      )
+    ).toBe(true);
+    expect(
+      messages.some((m) => typeof m === 'string' && m.includes('🍀 new') && m.includes('Home.yaml'))
     ).toBe(true);
     expect(
       messages.some(
-        (m) =>
-          typeof m === 'string' &&
-          m.includes('🍀 new') &&
-          m.includes('Home.yaml'),
-      ),
-    ).toBe(true);
-    expect(
-      messages.some(
-        (m) =>
-          typeof m === 'string' &&
-          m.includes('Dry run only: no files were changed.'),
-      ),
+        (m) => typeof m === 'string' && m.includes('Dry run only: no files were changed.')
+      )
     ).toBe(true);
 
     logSpy.mockRestore();
@@ -663,12 +596,12 @@ describe('push/pull integration (commands)', () => {
     await fs.writeFile(
       path.join(projectRoot, 'screens', 'Home.yaml'),
       'home: local-changes',
-      'utf8',
+      'utf8'
     );
     await fs.writeFile(
       path.join(projectRoot, 'screens', 'Stale.yaml'),
       'stale: to-be-deleted',
-      'utf8',
+      'utf8'
     );
 
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -694,27 +627,18 @@ describe('push/pull integration (commands)', () => {
     await pullCommand({ verbose: false, yes: true });
 
     const messages = logSpy.mock.calls.map((args) => args[0]);
+    expect(messages.some((m) => typeof m === 'string' && m.includes('Changes to be pulled:'))).toBe(
+      true
+    );
     expect(
       messages.some(
-        (m) =>
-          typeof m === 'string' &&
-          m.includes('Changes to be pulled:'),
-      ),
+        (m) => typeof m === 'string' && m.includes('removed') && m.includes('Stale.yaml')
+      )
     ).toBe(true);
     expect(
       messages.some(
-        (m) =>
-          typeof m === 'string' &&
-          m.includes('removed') &&
-          m.includes('Stale.yaml'),
-      ),
-    ).toBe(true);
-    expect(
-      messages.some(
-        (m) =>
-          typeof m === 'string' &&
-          m.includes('re-run with `--dry-run` to inspect the plan'),
-      ),
+        (m) => typeof m === 'string' && m.includes('re-run with `--dry-run` to inspect the plan')
+      )
     ).toBe(true);
 
     logSpy.mockRestore();
@@ -784,8 +708,7 @@ describe('push/pull integration (commands)', () => {
 
     (cloudModuleMock.checkAppAccess as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: false as const,
-      message:
-        'You do not have access to this app. Ask an Ensemble admin to grant you access.',
+      message: 'You do not have access to this app. Ask an Ensemble admin to grant you access.',
     });
 
     await pushCommand({ verbose: false, yes: true });
@@ -809,8 +732,7 @@ describe('push/pull integration (commands)', () => {
 
     (cloudModuleMock.checkAppAccess as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: false as const,
-      message:
-        'You do not have access to this app. Ask an Ensemble admin to grant you access.',
+      message: 'You do not have access to this app. Ask an Ensemble admin to grant you access.',
     });
 
     await pullCommand({ verbose: false, yes: true });
@@ -826,4 +748,3 @@ describe('push/pull integration (commands)', () => {
     errorSpy.mockRestore();
   });
 });
-

@@ -1,8 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  buildDocumentsFromParsed,
-  buildMergedBundle,
-} from '../../src/core/buildDocuments.js';
+import { buildDocumentsFromParsed, buildMergedBundle } from '../../src/core/buildDocuments.js';
 import { EnsembleDocumentType } from '../../src/core/dto.js';
 import type { ApplicationDTO, ScreenDTO } from '../../src/core/dto.js';
 import type { ParsedAppFiles } from '../../src/core/appCollector.js';

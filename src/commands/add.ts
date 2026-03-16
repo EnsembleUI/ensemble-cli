@@ -19,16 +19,11 @@ function nameWithoutSpaces(name: string): string {
   return name.replace(/\s+/g, '');
 }
 
-async function resolveNameWithSpaces(
-  name: string,
-  interactive: boolean,
-): Promise<string> {
+async function resolveNameWithSpaces(name: string, interactive: boolean): Promise<string> {
   if (!/\s/.test(name)) return name;
   const suggestion = nameWithoutSpaces(name);
   if (!interactive) {
-    throw new Error(
-      `Artifact names cannot contain spaces. Did you mean "${suggestion}"?`,
-    );
+    throw new Error(`Artifact names cannot contain spaces. Did you mean "${suggestion}"?`);
   }
   const { useSuggestion } = await prompts({
     type: 'confirm',
@@ -38,7 +33,7 @@ async function resolveNameWithSpaces(
   });
   if (!useSuggestion) {
     throw new Error(
-      `Artifact names cannot contain spaces. Try again with a name like "${suggestion}".`,
+      `Artifact names cannot contain spaces. Try again with a name like "${suggestion}".`
     );
   }
   return suggestion;
@@ -60,7 +55,7 @@ async function fileExists(filePath: string): Promise<boolean> {
 async function maybeSetHomeScreenName(
   projectRoot: string,
   screenName: string,
-  interactive: boolean,
+  interactive: boolean
 ): Promise<boolean> {
   const manifestPath = path.join(projectRoot, '.manifest.json');
   let manifest: RootManifest = {};
@@ -89,11 +84,7 @@ async function maybeSetHomeScreenName(
   if (!shouldSet) return false;
 
   manifest.homeScreenName = screenName;
-  await fs.writeFile(
-    manifestPath,
-    JSON.stringify(manifest, null, 2) + '\n',
-    'utf8',
-  );
+  await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
   return true;
 }
 
@@ -247,7 +238,7 @@ export async function addCommand(kindArg?: AddKind, rawNameArg?: string): Promis
     default:
       // This should be unreachable if commander validates input.
       throw new Error(
-        `Unknown artifact type "${kind}". Expected one of: screen, widget, script, translation.`,
+        `Unknown artifact type "${kind}". Expected one of: screen, widget, script, translation.`
       );
   }
 
@@ -263,20 +254,17 @@ export async function addCommand(kindArg?: AddKind, rawNameArg?: string): Promis
     await upsertManifestEntry(
       projectRoot,
       kind as 'widget' | 'script' | 'action' | 'translation',
-      name,
+      name
     );
   }
 
   const homeUpdated =
-    kind === 'screen'
-      ? await maybeSetHomeScreenName(projectRoot, name, interactive)
-      : false;
+    kind === 'screen' ? await maybeSetHomeScreenName(projectRoot, name, interactive) : false;
 
   ui.success(
     `Created ${kind} "${name}" at ${path.relative(
       projectRoot,
-      filePath,
-    )}${updateManifest ? ' and updated .manifest.json' : ''}${homeUpdated ? ' (set as homeScreenName)' : ''}.`,
+      filePath
+    )}${updateManifest ? ' and updated .manifest.json' : ''}${homeUpdated ? ' (set as homeScreenName)' : ''}.`
   );
 }
-

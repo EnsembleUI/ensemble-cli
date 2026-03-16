@@ -47,7 +47,10 @@ const PULL_LINE_PREFIX = '        ';
 /** Format pull changes as grouped lines with icons. Used for both dry run and actual run. */
 function formatPullSummary(changes: PullSummary['changes']): string[] {
   const lines: string[] = [];
-  const byKind = new Map<string, { operation: PullSummary['changes'][number]['operation']; file: string }[]>();
+  const byKind = new Map<
+    string,
+    { operation: PullSummary['changes'][number]['operation']; file: string }[]
+  >();
   for (const c of changes) {
     if (c.kind === 'manifest') continue; // Manifest is a generated file, never show in summary
     const list = byKind.get(c.kind) ?? [];
@@ -64,12 +67,14 @@ function formatPullSummary(changes: PullSummary['changes']): string[] {
   const kindOrder = ['screen', 'widget', 'script', 'translation', 'theme'];
   const processed = new Set<string>();
   const pad = (label: string) => label.padEnd(PULL_LABEL_WIDTH);
-  const formatLabel = (raw: string, color: (value: string) => string) =>
-    color(pad(raw));
+  const formatLabel = (raw: string, color: (value: string) => string) => color(pad(raw));
   const sortByOp = (list: { operation: string; file: string }[]) =>
     [...list].sort((a, b) => {
       const order = { delete: 0, update: 1, create: 2 };
-      return (order[a.operation as keyof typeof order] ?? 3) - (order[b.operation as keyof typeof order] ?? 3);
+      return (
+        (order[a.operation as keyof typeof order] ?? 3) -
+        (order[b.operation as keyof typeof order] ?? 3)
+      );
     });
   for (const kind of kindOrder) {
     const list = byKind.get(kind);
@@ -110,7 +115,7 @@ function printPullDryRun(summary: PullSummary): void {
   if (changes.length === 0) {
     ui.info('No changes. Local files are already up to date with the cloud app.');
     ui.note(
-      'Dry run only: no files were changed. Run `ensemble pull` without `--dry-run` when you are ready to apply remote changes.',
+      'Dry run only: no files were changed. Run `ensemble pull` without `--dry-run` when you are ready to apply remote changes.'
     );
     return;
   }
@@ -121,7 +126,7 @@ function printPullDryRun(summary: PullSummary): void {
     console.log(line);
   }
   ui.note(
-    '\nDry run only: no files were changed. Run `ensemble pull` without `--dry-run` to apply these changes.',
+    '\nDry run only: no files were changed. Run `ensemble pull` without `--dry-run` to apply these changes.'
   );
 }
 
@@ -131,13 +136,13 @@ function printPullSummary(summary: PullSummary): void {
 
   if (total === 0) {
     ui.info(
-      `Pulled app ${appName} (${environment}): no file changes were applied (metadata may have been updated).`,
+      `Pulled app ${appName} (${environment}): no file changes were applied (metadata may have been updated).`
     );
   } else {
     ui.success(
       `Pulled app ${appName} (${environment}): applied ${total} change${
         total === 1 ? '' : 's'
-      } (created: ${created}, updated: ${updated}, deleted: ${deleted}, skipped: ${skipped}).`,
+      } (created: ${created}, updated: ${updated}, deleted: ${deleted}, skipped: ${skipped}).`
     );
   }
 }
@@ -150,7 +155,7 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
   const environment = appKey;
   const appOptions = (appConfig.options ?? {}) as Record<string, unknown>;
   const enabledByProp = Object.fromEntries(
-    ArtifactProps.map((prop) => [prop, appOptions[prop] !== false]),
+    ArtifactProps.map((prop) => [prop, appOptions[prop] !== false])
   ) as Record<ArtifactProp, boolean>;
 
   const session = await getValidAuthSession();
@@ -194,8 +199,8 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
                 }),
               },
               null,
-              2,
-            ),
+              2
+            )
           );
         },
       }
@@ -205,7 +210,7 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
   const readManifest = (): Promise<RootManifest> =>
     fs.readFile(manifestPath, 'utf8').then(
       (raw) => JSON.parse(raw) as RootManifest,
-      () => ({}),
+      () => ({})
     );
 
   const [access, cloudAppResult, localFiles, manifestExisting] = await withSpinner(
@@ -218,7 +223,7 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
         readManifest(),
       ]);
       return [accessRes, cloudRes, files, manifest] as const;
-    },
+    }
   );
 
   if (!access.ok) {
@@ -288,7 +293,7 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
 
   if (pullSummary.updated > 0 || pullSummary.deleted > 0) {
     ui.note(
-      'If you are unsure, cancel this pull and re-run with `--dry-run` to inspect the plan, or back up your local changes first.',
+      'If you are unsure, cancel this pull and re-run with `--dry-run` to inspect the plan, or back up your local changes first.'
     );
   }
 
@@ -296,7 +301,7 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
   let confirmed = options.yes ?? false;
   if (!confirmed && !isInteractive) {
     ui.error(
-      'Refusing to run pull non-interactively without --yes. Re-run with --dry-run to inspect changes.',
+      'Refusing to run pull non-interactively without --yes. Re-run with --dry-run to inspect changes.'
     );
     process.exitCode = 1;
     return;
@@ -321,10 +326,7 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
   const cloudHome = getCloudHomeScreenName(cloudApp);
   const existingHome = manifestExisting.homeScreenName;
   const hasHomeConflict =
-    typeof existingHome === 'string' &&
-    cloudHome &&
-    appHome &&
-    cloudHome !== appHome;
+    typeof existingHome === 'string' && cloudHome && appHome && cloudHome !== appHome;
 
   let manifestOptions: BuildManifestOptions = {
     appHomeFromConfig: appHome,
@@ -364,4 +366,3 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
 
   printPullSummary(pullSummary);
 }
-

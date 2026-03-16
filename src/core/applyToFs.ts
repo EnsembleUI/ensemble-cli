@@ -12,10 +12,7 @@ import { ARTIFACT_FS_CONFIG } from './artifacts.js';
 import type { ArtifactProp } from './artifacts.js';
 import { processWithConcurrency } from './concurrency.js';
 import { safeFileName } from './fileNames.js';
-import {
-  buildAndWriteManifest,
-  type BuildManifestOptions,
-} from './manifest.js';
+import { buildAndWriteManifest, type BuildManifestOptions } from './manifest.js';
 
 async function ensureDir(dir: string): Promise<void> {
   await fs.mkdir(dir, { recursive: true });
@@ -29,8 +26,8 @@ export interface ApplyCloudStateToFsOptions {
 }
 
 type WriteTask =
-    | { op: 'write'; filePath: string; content: string }
-    | { op: 'delete'; filePath: string };
+  | { op: 'write'; filePath: string; content: string }
+  | { op: 'delete'; filePath: string };
 
 /**
  * Write local artifact files to match the given cloud/snapshot state.
@@ -41,7 +38,7 @@ export async function applyCloudStateToFs(
   cloudApp: CloudApp,
   localFiles: ParsedAppFiles,
   enabledByProp: Record<ArtifactProp, boolean>,
-  options: ApplyCloudStateToFsOptions = {},
+  options: ApplyCloudStateToFsOptions = {}
 ): Promise<void> {
   const { manifestOptions, onProgress } = options;
 
@@ -78,9 +75,9 @@ export async function applyCloudStateToFs(
       expected[safeFileName(item.name, ext!)] = item.content ?? '';
     }
 
-    const actual = (localFiles as unknown as Record<string, unknown>)[
-      prop
-    ] as Record<string, string> | undefined;
+    const actual = (localFiles as unknown as Record<string, unknown>)[prop] as
+      | Record<string, string>
+      | undefined;
     const actualMap = actual ?? {};
 
     const expectedKeys = new Set(Object.keys(expected));

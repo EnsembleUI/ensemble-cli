@@ -38,7 +38,8 @@ describe('checkAppAccess', () => {
     };
 
     globalThis.fetch = async (input: RequestInfo | URL) => {
-      const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      const urlStr =
+        typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       if (urlStr.includes('/documents/apps/')) {
         return new Response(JSON.stringify(firestoreDoc), { status: 200 });
       }
@@ -69,7 +70,8 @@ describe('checkAppAccess', () => {
     };
 
     globalThis.fetch = async (input: RequestInfo | URL) => {
-      const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      const urlStr =
+        typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       if (urlStr.includes('/documents/apps/')) {
         return new Response(JSON.stringify(firestoreDoc), { status: 200 });
       }
@@ -96,7 +98,8 @@ describe('checkAppAccess', () => {
     };
 
     globalThis.fetch = async (input: RequestInfo | URL) => {
-      const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      const urlStr =
+        typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       if (urlStr.includes('/documents/apps/')) {
         return new Response(JSON.stringify(firestoreDoc), { status: 200 });
       }
@@ -200,21 +203,20 @@ describe('fetchCloudApp', () => {
     ];
 
     globalThis.fetch = async (input: RequestInfo | URL) => {
-      const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-      if (urlStr.includes('/documents/apps/app-1') && !urlStr.includes('/internal_artifacts') && !urlStr.includes('/artifacts')) {
+      const urlStr =
+        typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      if (
+        urlStr.includes('/documents/apps/app-1') &&
+        !urlStr.includes('/internal_artifacts') &&
+        !urlStr.includes('/artifacts')
+      ) {
         return new Response(JSON.stringify(appDoc), { status: 200 });
       }
       if (urlStr.includes('internal_artifacts')) {
-        return new Response(
-          JSON.stringify({ documents: internalArtifacts }),
-          { status: 200 },
-        );
+        return new Response(JSON.stringify({ documents: internalArtifacts }), { status: 200 });
       }
       if (urlStr.includes('/artifacts')) {
-        return new Response(
-          JSON.stringify({ documents: artifacts }),
-          { status: 200 },
-        );
+        return new Response(JSON.stringify({ documents: artifacts }), { status: 200 });
       }
       return new Response('Not found', { status: 404 });
     };
@@ -259,11 +261,7 @@ describe('fetchCloudApp', () => {
 
     globalThis.fetch = async (input: RequestInfo | URL) => {
       const urlStr =
-        typeof input === 'string'
-          ? input
-          : input instanceof URL
-            ? input.toString()
-            : input.url;
+        typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       if (urlStr.includes('/documents/apps/app-1') && !urlStr.includes('/artifacts')) {
         return new Response(JSON.stringify(appDoc), { status: 200 });
       }
@@ -299,11 +297,7 @@ describe('fetchCloudApp', () => {
 
     globalThis.fetch = async (input: RequestInfo | URL) => {
       const urlStr =
-        typeof input === 'string'
-          ? input
-          : input instanceof URL
-            ? input.toString()
-            : input.url;
+        typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       if (urlStr.includes('/documents/apps/app-1') && !urlStr.includes('/artifacts')) {
         return new Response(JSON.stringify(appDoc), { status: 200 });
       }
@@ -329,38 +323,34 @@ describe('fetchRootScreenName', () => {
     globalThis.fetch = originalFetch;
   });
 
-describe('submitCliPush', () => {
-  const originalFetch = globalThis.fetch;
+  describe('submitCliPush', () => {
+    const originalFetch = globalThis.fetch;
 
-  beforeEach(() => {
-    globalThis.fetch = originalFetch;
-  });
+    beforeEach(() => {
+      globalThis.fetch = originalFetch;
+    });
 
-  afterEach(() => {
-    globalThis.fetch = originalFetch;
-    vi.restoreAllMocks();
-  });
+    afterEach(() => {
+      globalThis.fetch = originalFetch;
+      vi.restoreAllMocks();
+    });
 
-  it('creates translation with correct id, defaultLocale and user references', async () => {
-    type CapturedBody = {
-      fields: {
-        defaultLocale?: { booleanValue: boolean };
-        updatedBy?: { referenceValue: string };
-        createdBy?: { referenceValue: string };
+    it('creates translation with correct id, defaultLocale and user references', async () => {
+      type CapturedBody = {
+        fields: {
+          defaultLocale?: { booleanValue: boolean };
+          updatedBy?: { referenceValue: string };
+          createdBy?: { referenceValue: string };
+          [key: string]: unknown;
+        };
         [key: string]: unknown;
       };
-      [key: string]: unknown;
-    };
 
-    const calls: { url: string; body: CapturedBody }[] = [];
+      const calls: { url: string; body: CapturedBody }[] = [];
 
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const urlStr =
-          typeof input === 'string'
-            ? input
-            : input instanceof URL
-              ? input.toString()
-            : input.url;
+          typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
         if (init?.method === 'POST' && urlStr.includes('/artifacts')) {
           const parsedBody = init.body
             ? (JSON.parse(String(init.body)) as CapturedBody)
@@ -373,48 +363,47 @@ describe('submitCliPush', () => {
         }
         // For other calls (screens/widgets/scripts/theme) that won't be used in this test.
         return new Response(JSON.stringify({}), { status: 200 });
-      },
-    ) as unknown as typeof fetch;
+      }) as unknown as typeof fetch;
 
-    const payload = {
-      id: 'app1',
-      name: 'App',
-      updatedAt: new Date().toISOString(),
-      translations: [
-        {
-          operation: 'create' as const,
-          document: {
-            id: 'i18n_en',
-            name: 'en',
-            content: 'en: content',
-            type: 'i18n',
-            defaultLocale: true,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-            updatedBy: { name: 'User', email: 'u@test.com', id: 'uid1' },
-            createdBy: { name: 'User', email: 'u@test.com', id: 'uid1' },
+      const payload = {
+        id: 'app1',
+        name: 'App',
+        updatedAt: new Date().toISOString(),
+        translations: [
+          {
+            operation: 'create' as const,
+            document: {
+              id: 'i18n_en',
+              name: 'en',
+              content: 'en: content',
+              type: 'i18n',
+              defaultLocale: true,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+              updatedBy: { name: 'User', email: 'u@test.com', id: 'uid1' },
+              createdBy: { name: 'User', email: 'u@test.com', id: 'uid1' },
+            },
           },
-        },
-      ],
-    };
+        ],
+      };
 
-    await submitCliPush('app1', 'token', payload);
+      await submitCliPush('app1', 'token', payload);
 
-    expect(calls.length).toBe(1);
-    const { url, body } = calls[0]!;
-    expect(url).toContain('/apps/app1/artifacts');
-    expect(url).toContain('documentId=i18n_en');
-    expect(body).toHaveProperty('fields');
-    expect(body.fields.defaultLocale).toEqual({ booleanValue: true });
-    expect(body.fields.updatedBy).toBeDefined();
-    expect(body.fields.createdBy).toBeDefined();
+      expect(calls.length).toBe(1);
+      const { url, body } = calls[0]!;
+      expect(url).toContain('/apps/app1/artifacts');
+      expect(url).toContain('documentId=i18n_en');
+      expect(body).toHaveProperty('fields');
+      expect(body.fields.defaultLocale).toEqual({ booleanValue: true });
+      expect(body.fields.updatedBy).toBeDefined();
+      expect(body.fields.createdBy).toBeDefined();
 
-    const updatedByRef = body.fields.updatedBy!.referenceValue as string;
-    const createdByRef = body.fields.createdBy!.referenceValue as string;
-    expect(updatedByRef).toContain('/users/uid1');
-    expect(createdByRef).toContain('/users/uid1');
+      const updatedByRef = body.fields.updatedBy!.referenceValue as string;
+      const createdByRef = body.fields.createdBy!.referenceValue as string;
+      expect(updatedByRef).toContain('/users/uid1');
+      expect(createdByRef).toContain('/users/uid1');
+    });
   });
-});
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
@@ -435,7 +424,8 @@ describe('submitCliPush', () => {
     ];
 
     globalThis.fetch = async (input: RequestInfo | URL) => {
-      const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      const urlStr =
+        typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       if (urlStr.includes(':runQuery')) {
         return new Response(JSON.stringify(runQueryResponse), { status: 200 });
       }
@@ -448,7 +438,8 @@ describe('submitCliPush', () => {
 
   it('returns undefined when no root screen', async () => {
     globalThis.fetch = async (input: RequestInfo | URL) => {
-      const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      const urlStr =
+        typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       if (urlStr.includes(':runQuery')) {
         return new Response(JSON.stringify([]), { status: 200 });
       }
@@ -503,9 +494,9 @@ describe('Firestore client structured errors and debug logging', () => {
       ],
     };
 
-    await expect(
-      submitCliPush('app1', 'token', payload),
-    ).rejects.toBeInstanceOf(FirestoreClientError);
+    await expect(submitCliPush('app1', 'token', payload)).rejects.toBeInstanceOf(
+      FirestoreClientError
+    );
   });
 
   it('submitCliPush invokes debug logger when provided', async () => {
@@ -513,11 +504,7 @@ describe('Firestore client structured errors and debug logging', () => {
 
     globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const urlStr =
-        typeof input === 'string'
-          ? input
-          : input instanceof URL
-            ? input.toString()
-            : input.url;
+        typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       if (init?.method === 'POST' && urlStr.includes('/artifacts')) {
         return new Response(JSON.stringify({}), { status: 200 });
       }
@@ -581,7 +568,12 @@ describe('listVersions', () => {
     ];
 
     globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-      const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
+      const urlStr =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : (input as Request).url;
       if (urlStr.includes(':runQuery')) {
         capturedRequest = { url: urlStr, body: (init?.body as string) ?? '' };
         return new Response(JSON.stringify(runQueryResponse), { status: 200 });
@@ -596,7 +588,9 @@ describe('listVersions', () => {
     const body = JSON.parse(capturedRequest!.body);
     expect(body).toHaveProperty('structuredQuery');
     expect(body.structuredQuery.from).toEqual([{ collectionId: 'versions' }]);
-    expect(body.structuredQuery.orderBy).toEqual([{ field: { fieldPath: 'createdAt' }, direction: 'DESCENDING' }]);
+    expect(body.structuredQuery.orderBy).toEqual([
+      { field: { fieldPath: 'createdAt' }, direction: 'DESCENDING' },
+    ]);
     expect(body.structuredQuery.limit).toBe(5);
     expect(body).not.toHaveProperty('parent');
 
@@ -622,7 +616,12 @@ describe('listVersions', () => {
     }));
 
     globalThis.fetch = async (input: RequestInfo | URL) => {
-      const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
+      const urlStr =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : (input as Request).url;
       if (urlStr.includes(':runQuery')) {
         return new Response(JSON.stringify(runQueryResponse), { status: 200 });
       }
@@ -666,7 +665,12 @@ describe('listVersions', () => {
     ];
 
     globalThis.fetch = async (input: RequestInfo | URL) => {
-      const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
+      const urlStr =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : (input as Request).url;
       if (urlStr.includes(':runQuery')) {
         return new Response(JSON.stringify(runQueryResponse), { status: 200 });
       }
@@ -680,9 +684,17 @@ describe('listVersions', () => {
 
   it('throws FirestoreClientError on 403', async () => {
     globalThis.fetch = async (input: RequestInfo | URL) => {
-      const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
+      const urlStr =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : (input as Request).url;
       if (urlStr.includes(':runQuery')) {
-        return new Response(JSON.stringify({ error: { code: 403, message: 'Permission denied' } }), { status: 403 });
+        return new Response(
+          JSON.stringify({ error: { code: 403, message: 'Permission denied' } }),
+          { status: 403 }
+        );
       }
       return new Response('', { status: 404 });
     };
@@ -701,7 +713,12 @@ describe('createVersion', () => {
   it('POSTs to app versions collection and returns id', async () => {
     let capturedUrl: string | null = null;
     globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-      const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
+      const urlStr =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : (input as Request).url;
       if (urlStr.includes('/versions') && init?.method === 'POST') {
         capturedUrl = urlStr;
         return new Response(JSON.stringify({}), { status: 200 });
@@ -725,7 +742,12 @@ describe('createVersion', () => {
 
   it('throws FirestoreClientError on 403', async () => {
     globalThis.fetch = async (input: RequestInfo | URL) => {
-      const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
+      const urlStr =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : (input as Request).url;
       if (urlStr.includes('/versions')) {
         return new Response(JSON.stringify({ error: { code: 403 } }), { status: 403 });
       }
@@ -739,7 +761,7 @@ describe('createVersion', () => {
         expiresAt: '2025-02-15T12:00:00Z',
         createdBy: { name: 'User', id: 'uid1' },
         snapshot: { id: 'app1', name: 'App' },
-      }),
+      })
     ).rejects.toThrow(FirestoreClientError);
   });
 });
@@ -764,7 +786,12 @@ describe('getVersion', () => {
     };
 
     globalThis.fetch = async (input: RequestInfo | URL) => {
-      const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
+      const urlStr =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : (input as Request).url;
       if (urlStr.includes('/versions/ver-123')) {
         return new Response(JSON.stringify(versionDoc), { status: 200 });
       }
@@ -804,7 +831,12 @@ describe('getVersion', () => {
     };
 
     globalThis.fetch = async (input: RequestInfo | URL) => {
-      const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
+      const urlStr =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : (input as Request).url;
       if (urlStr.includes('/versions/ver-123')) {
         return new Response(JSON.stringify(versionDoc), { status: 200 });
       }

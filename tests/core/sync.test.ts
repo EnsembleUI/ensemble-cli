@@ -27,7 +27,7 @@ function screen(
   id: string,
   name: string,
   content: string,
-  opts?: { isArchived?: boolean; isRoot?: boolean },
+  opts?: { isArchived?: boolean; isRoot?: boolean }
 ) {
   return {
     id,
@@ -39,12 +39,7 @@ function screen(
   };
 }
 
-function widget(
-  id: string,
-  name: string,
-  content: string,
-  opts?: { isArchived?: boolean },
-) {
+function widget(id: string, name: string, content: string, opts?: { isArchived?: boolean }) {
   return {
     id,
     name,
@@ -87,12 +82,7 @@ describe('computePullPlan + computePushPlan consistency', () => {
     });
     expect(pullPlan.allArtifactsMatch).toBe(true);
 
-    const localApp = buildDocumentsFromParsed(
-      localFiles,
-      'app1',
-      'App',
-      'Home',
-    );
+    const localApp = buildDocumentsFromParsed(localFiles, 'app1', 'App', 'Home');
     const pushPlan = computePushPlan({
       appId: 'app1',
       appName: 'App',
@@ -138,12 +128,7 @@ describe('computePullPlan + computePushPlan consistency', () => {
     });
     expect(pullPlan.allArtifactsMatch).toBe(true);
 
-    const localApp = buildDocumentsFromParsed(
-      localFiles,
-      'app1',
-      'App',
-      'Home',
-    );
+    const localApp = buildDocumentsFromParsed(localFiles, 'app1', 'App', 'Home');
     const pushPlan = computePushPlan({
       appId: 'app1',
       appName: 'App',
@@ -187,12 +172,7 @@ describe('computePullPlan + computePushPlan consistency', () => {
     });
     expect(pullPlan.allArtifactsMatch).toBe(true);
 
-    const localApp = buildDocumentsFromParsed(
-      localFiles,
-      'app1',
-      'App',
-      'Home',
-    );
+    const localApp = buildDocumentsFromParsed(localFiles, 'app1', 'App', 'Home');
     const pushPlan = computePushPlan({
       appId: 'app1',
       appName: 'App',
@@ -238,12 +218,7 @@ describe('computePullPlan + computePushPlan consistency', () => {
     });
     expect(pullPlan.allArtifactsMatch).toBe(true);
 
-    const localApp = buildDocumentsFromParsed(
-      localFiles,
-      'app1',
-      'App',
-      'Home',
-    );
+    const localApp = buildDocumentsFromParsed(localFiles, 'app1', 'App', 'Home');
     const pushPlan = computePushPlan({
       appId: 'app1',
       appName: 'App',
@@ -291,12 +266,7 @@ describe('computePullPlan + computePushPlan consistency', () => {
     });
     expect(pullPlan.allArtifactsMatch).toBe(true);
 
-    const localApp = buildDocumentsFromParsed(
-      localFiles,
-      'app1',
-      'App',
-      'Home',
-    );
+    const localApp = buildDocumentsFromParsed(localFiles, 'app1', 'App', 'Home');
     const pushPlan = computePushPlan({
       appId: 'app1',
       appName: 'App',
@@ -338,12 +308,7 @@ describe('computePullPlan + computePushPlan consistency', () => {
     });
     expect(pullPlan.allArtifactsMatch).toBe(false);
 
-    const localApp = buildDocumentsFromParsed(
-      localFiles,
-      'app1',
-      'App',
-      'Home',
-    );
+    const localApp = buildDocumentsFromParsed(localFiles, 'app1', 'App', 'Home');
     const pushPlan = computePushPlan({
       appId: 'app1',
       appName: 'App',

@@ -58,7 +58,7 @@ describe('collectAppFiles', () => {
   it('skips ensemble.config.json', async () => {
     await fs.writeFile(
       path.join(tmpDir, 'ensemble.config.json'),
-      JSON.stringify({ default: 'dev', apps: {} }),
+      JSON.stringify({ default: 'dev', apps: {} })
     );
     await fs.mkdir(path.join(tmpDir, 'screens'), { recursive: true });
     await fs.writeFile(path.join(tmpDir, 'screens', 'Home.yaml'), 'screen');

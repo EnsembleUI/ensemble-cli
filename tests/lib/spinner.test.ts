@@ -5,7 +5,9 @@ describe('withSpinner', () => {
   let writeSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
-    writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true) as ReturnType<typeof vi.spyOn>;
+    writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true) as ReturnType<
+      typeof vi.spyOn
+    >;
   });
 
   afterEach(() => {
@@ -25,14 +27,16 @@ describe('withSpinner', () => {
 
     expect(writeSpy).toHaveBeenCalled();
     const calls = writeSpy.mock.calls.map((c) => c[0]);
-    expect(calls.some((s) => typeof s === 'string' && s.includes('✓') && s.includes('Test'))).toBe(true);
+    expect(calls.some((s) => typeof s === 'string' && s.includes('✓') && s.includes('Test'))).toBe(
+      true
+    );
   });
 
   it('rethrows when function throws', async () => {
     await expect(
       withSpinner('Fail', async () => {
         throw new Error('oops');
-      }),
+      })
     ).rejects.toThrow('oops');
 
     const calls = writeSpy.mock.calls.map((c) => c[0]);

@@ -3,4 +3,3 @@ export function safeFileName(name: string, ext: string): string {
   const base = name.replace(/[\\/]/g, '_');
   return `${base}${ext}`;
 }
-

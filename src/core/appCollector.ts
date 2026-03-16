@@ -39,7 +39,7 @@ async function readTextFile(filePath: string): Promise<string> {
 export async function collectAppFiles(
   rootDir: string,
   collectOptions: CollectOptions = {},
-  hooks: CollectAppFilesHooks = {},
+  hooks: CollectAppFilesHooks = {}
 ): Promise<ParsedAppFiles> {
   const include = (prop: ArtifactProp) => shouldInclude(prop, collectOptions);
   const { onStatus } = hooks;

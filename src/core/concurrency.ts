@@ -1,7 +1,7 @@
 export async function processWithConcurrency<T>(
   items: readonly T[],
   worker: (item: T) => Promise<void>,
-  concurrency = 16,
+  concurrency = 16
 ): Promise<void> {
   if (items.length === 0) return;
 
@@ -20,10 +20,9 @@ export async function processWithConcurrency<T>(
           // eslint-disable-next-line no-await-in-loop
           await worker(items[currentIndex]!);
         }
-      })(),
+      })()
     );
   }
 
   await Promise.all(runners);
 }
-

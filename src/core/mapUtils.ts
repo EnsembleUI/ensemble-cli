@@ -1,6 +1,6 @@
 export function mapsEqual(
   expected: Record<string, string>,
-  actual: Record<string, string>,
+  actual: Record<string, string>
 ): boolean {
   const expectedKeys = Object.keys(expected).sort();
   const actualKeys = Object.keys(actual).sort();
@@ -12,4 +12,3 @@ export function mapsEqual(
   }
   return true;
 }
-

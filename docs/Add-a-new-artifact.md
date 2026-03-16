@@ -30,9 +30,7 @@ export type JobDTO = EnsembleLabeledDocument & {
 Expose it on `ApplicationDTO`:
 
 ```ts
-export interface ApplicationDTO
-  extends Omit<EnsembleDocument, 'type' | 'content'>,
-    HasManifest {
+export interface ApplicationDTO extends Omit<EnsembleDocument, 'type' | 'content'>, HasManifest {
   // ...
   readonly jobs?: JobDTO[]; // new
 }
@@ -68,29 +66,29 @@ Add a new `ArtifactConfig` entry to `ARTIFACT_CONFIGS_ARRAY`:
 const ARTIFACT_CONFIGS_ARRAY: readonly ArtifactConfig[] = [
   // existing configs...
   {
-    prop: 'jobs',                  // property on ApplicationDTO / CloudApp
-    label: 'job',                  // singular label for logs/UI
-    fsDir: 'jobs',                 // top-level directory name under project root
-    fileExtension: '.yaml',        // or '.js' / '.json' etc.
+    prop: 'jobs', // property on ApplicationDTO / CloudApp
+    label: 'job', // singular label for logs/UI
+    fsDir: 'jobs', // top-level directory name under project root
+    fileExtension: '.yaml', // or '.js' / '.json' etc.
     firestoreCollection: 'internal_artifacts', // 'artifacts' or 'internal_artifacts'
-    firestoreType: EnsembleDocumentType.Job,   // Firestore type field value
+    firestoreType: EnsembleDocumentType.Job, // Firestore type field value
   },
 ];
 ```
 
 Once this is in place:
 
-* `ArtifactProps` includes `'jobs'`
-* `ARTIFACT_FS_CONFIG` has an entry for `'jobs'`
-* `getArtifactConfig('jobs')` returns collection/type/FS info
+- `ArtifactProps` includes `'jobs'`
+- `ARTIFACT_FS_CONFIG` has an entry for `'jobs'`
+- `getArtifactConfig('jobs')` returns collection/type/FS info
 
 ### What this automatically wires
 
-* Per-app options (`enabledByProp`) for **push/pull**
-* Push diff gating in `computePushPlan`
-* Pull diff + FS comparison in `computePullPlan`
-* Firestore collection/type mapping when pushing YAML artifacts
-* Collector behavior via `fsDir` and `fileExtension`
+- Per-app options (`enabledByProp`) for **push/pull**
+- Push diff gating in `computePushPlan`
+- Pull diff + FS comparison in `computePullPlan`
+- Firestore collection/type mapping when pushing YAML artifacts
+- Collector behavior via `fsDir` and `fileExtension`
 
 ---
 
@@ -109,7 +107,7 @@ export interface ParsedAppFiles {
   widgets: Record<string, string>;
   actions: Record<string, string>;
   translations: Record<string, string>;
-  jobs: Record<string, string>;      // new
+  jobs: Record<string, string>; // new
   theme?: string;
 }
 ```
@@ -123,7 +121,7 @@ const result: ParsedAppFiles = {
   widgets: {},
   actions: {},
   translations: {},
-  jobs: {},          // new
+  jobs: {}, // new
   theme: undefined,
 };
 ```
@@ -166,8 +164,8 @@ switch (task.kind) {
 
 The **inclusion/exclusion of the `jobs` directory** is already driven via:
 
-* `ARTIFACT_CONFIGS`
-* `fsDirToProp`
+- `ARTIFACT_CONFIGS`
+- `fsDirToProp`
 
 ---
 
@@ -187,16 +185,14 @@ reportStatus('building', {
 ## Map Parsed Files Into DTOs
 
 ```ts
-const jobs: JobDTO[] = Object.entries(parsed.jobs ?? {}).map(
-  ([relativePath, content]) => ({
-    id: pathToId(`jobs/${relativePath}`),
-    name: pathToName(relativePath),
-    content,
-    type: EnsembleDocumentType.Job,
-    createdAt: now,
-    updatedAt: now,
-  }),
-);
+const jobs: JobDTO[] = Object.entries(parsed.jobs ?? {}).map(([relativePath, content]) => ({
+  id: pathToId(`jobs/${relativePath}`),
+  name: pathToName(relativePath),
+  content,
+  type: EnsembleDocumentType.Job,
+  createdAt: now,
+  updatedAt: now,
+}));
 ```
 
 ## Include in Validation Status
@@ -225,9 +221,9 @@ const application: ApplicationDTO = {
 
 Update `buildMergedBundle` to merge the new list just like:
 
-* widgets
-* scripts
-* actions
+- widgets
+- scripts
+- actions
 
 Include **ID generation** if they need `randomUUID` on first push.
 
@@ -252,7 +248,7 @@ export type CloudApp = Pick<
   | 'screens'
   | 'theme'
   | 'translations'
-  | 'jobs'          // new
+  | 'jobs' // new
 >;
 ```
 
@@ -260,9 +256,9 @@ When fetching Firestore documents, route `internal_job` into `jobs: JobDTO[]` (s
 
 ### No Changes Needed To
 
-* `artifactCollectionAndType`
-* `encodeYamlDocumentFields`
-* `encodeUpdateFields`
+- `artifactCollectionAndType`
+- `encodeYamlDocumentFields`
+- `encodeUpdateFields`
 
 These rely on the **registry + ArtifactProp**.
 
@@ -279,13 +275,7 @@ If you want `ensemble add` to support the new type:
 ## Extend `AddKind`
 
 ```ts
-export type AddKind =
-  | 'screen'
-  | 'widget'
-  | 'script'
-  | 'action'
-  | 'translation'
-  | 'job';
+export type AddKind = 'screen' | 'widget' | 'script' | 'action' | 'translation' | 'job';
 ```
 
 ## Add a Template Function
@@ -324,8 +314,8 @@ case 'job':
 
 If you want `.manifest.json` entries:
 
-* Extend `upsertManifestEntry` in `core/manifest.ts`
-* Pass the right kind from `addCommand` when `updateManifest` is `true`.
+- Extend `upsertManifestEntry` in `core/manifest.ts`
+- Pass the right kind from `addCommand` when `updateManifest` is `true`.
 
 ---
 
@@ -340,7 +330,7 @@ export type RootManifest = Record<string, unknown> & {
   scripts?: { name: string }[];
   widgets?: { name: string }[];
   actions?: { name: string }[];
-  jobs?: { name: string }[];       // optional
+  jobs?: { name: string }[]; // optional
 };
 ```
 
@@ -348,8 +338,8 @@ Update `buildManifestObject` to merge names from cloud into the manifest (simila
 
 Update `upsertManifestEntry`:
 
-* Add `'job'` to the kind union
-* Update `listKeyByKind` mapping
+- Add `'job'` to the kind union
+- Update `listKeyByKind` mapping
 
 This allows `addCommand` to register jobs in `.manifest.json`.
 
@@ -367,8 +357,8 @@ Ensure the new artifact is collected into `ApplicationDTO`.
 
 ### Diff / Sync
 
-* `tests/core/sync.test.ts` – pull/push consistency scenarios
-* `tests/core/bundleDiff.test.ts` – content normalization behavior
+- `tests/core/sync.test.ts` – pull/push consistency scenarios
+- `tests/core/bundleDiff.test.ts` – content normalization behavior
 
 ---
 
@@ -378,15 +368,15 @@ Ensure the new artifact is collected into `ApplicationDTO`.
 
 Verify:
 
-* new prop exists
-* config values are correct
+- new prop exists
+- config values are correct
 
 ---
 
 ### Commands
 
-* `tests/commands/pushPull.test.ts` – integration coverage
-* `tests/core/appCollector.test.ts` – ensure `collectAppFiles` sees the new directory
+- `tests/commands/pushPull.test.ts` – integration coverage
+- `tests/core/appCollector.test.ts` – ensure `collectAppFiles` sees the new directory
 
 ---
 
@@ -396,43 +386,42 @@ When adding a new artifact kind, verify:
 
 ### Data Model
 
-* `EnsembleDocumentType`
-* `XxxDTO`
-* `ApplicationDTO` field
+- `EnsembleDocumentType`
+- `XxxDTO`
+- `ApplicationDTO` field
 
 ### Registry
 
-* `ArtifactProps`
-* `ARTIFACT_CONFIGS_ARRAY` entry with:
-
-  * `prop`
-  * `label`
-  * `fsDir`
-  * `fileExtension`
-  * `firestoreCollection`
-  * `firestoreType`
+- `ArtifactProps`
+- `ARTIFACT_CONFIGS_ARRAY` entry with:
+  - `prop`
+  - `label`
+  - `fsDir`
+  - `fileExtension`
+  - `firestoreCollection`
+  - `firestoreType`
 
 ### Collector
 
-* `ParsedAppFiles` field
-* tasks
-* switch case
+- `ParsedAppFiles` field
+- tasks
+- switch case
 
 ### Builder
 
-* `buildDocumentsFromParsed` creates DTOs
-* DTOs attached to `ApplicationDTO`
+- `buildDocumentsFromParsed` creates DTOs
+- DTOs attached to `ApplicationDTO`
 
 ### Cloud
 
-* `CloudApp` includes the field
-* Firestore fetch maps documents → DTOs
+- `CloudApp` includes the field
+- Firestore fetch maps documents → DTOs
 
 ### Optional UX
 
-* `addCommand`
-* `.manifest.json` integration
-* tests
+- `addCommand`
+- `.manifest.json` integration
+- tests
 
 ---
 
