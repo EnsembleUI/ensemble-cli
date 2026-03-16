@@ -25,13 +25,24 @@ export interface BuildManifestOptions {
   homeScreenNameOverride?: string;
 }
 
-/** Preserve existing manifest entries by name; only add minimal { name } for new ones. */
+/** Preserve existing manifest entries by name and order; only add minimal { name } for new ones. */
 function mergeByName<T extends { name: string }>(
   existing: T[] | undefined,
   cloudNames: string[]
 ): T[] {
-  const existingByName = new Map((existing ?? []).map((e) => [e.name, e]));
-  return cloudNames.map((name) => existingByName.get(name) ?? ({ name } as T));
+  const existingList = existing ?? [];
+  const cloudNameSet = new Set(cloudNames);
+
+  // 1. Keep existing entries that still exist in cloud, in the same order as manifest.
+  const keptExisting: T[] = existingList.filter((e) => cloudNameSet.has(e.name));
+
+  // 2. Append any new cloud names that are not already present.
+  const keptNames = new Set(keptExisting.map((e) => e.name));
+  const appended: T[] = cloudNames
+    .filter((name) => !keptNames.has(name))
+    .map((name) => ({ name }) as T);
+
+  return [...keptExisting, ...appended];
 }
 
 export function buildManifestObject(

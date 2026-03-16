@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import prompts from 'prompts';
 
 import {
@@ -10,6 +11,11 @@ import {
   type FirestoreClientOptions,
   type VersionDoc,
 } from '../cloud/firestoreClient.js';
+import {
+  downloadReleaseSnapshotJson,
+  StorageClientError,
+  uploadReleaseSnapshot,
+} from '../cloud/storageClient.js';
 import { applyCloudStateToFs } from '../core/applyToFs.js';
 import { buildDocumentsFromParsed } from '../core/buildDocuments.js';
 import { ArtifactProps, type ArtifactProp } from '../core/artifacts.js';
@@ -26,6 +32,8 @@ export interface ReleaseCreateOptions {
   message?: string;
   /** Skip message prompt (use empty message) */
   yes?: boolean;
+  /** Show verbose error details */
+  verbose?: boolean;
 }
 
 export interface ReleaseListOptions {
@@ -113,6 +121,12 @@ export async function releaseCreateCommand(options: ReleaseCreateOptions = {}): 
   };
 
   try {
+    const snapshotJson = JSON.stringify(snapshot);
+    const versionId = crypto.randomUUID().replace(/-/g, '');
+    const upload = await withSpinner('Uploading snapshot to storage...', () =>
+      uploadReleaseSnapshot(appId, idToken, versionId, snapshotJson)
+    );
+
     await createVersion(
       appId,
       idToken,
@@ -121,7 +135,7 @@ export async function releaseCreateCommand(options: ReleaseCreateOptions = {}): 
         createdAt: now.toISOString(),
         createdBy: { name: session.name ?? 'User', id: userId },
         expiresAt,
-        snapshot,
+        snapshotPath: upload.objectPath,
       },
       firestoreOptions
     );
@@ -130,6 +144,19 @@ export async function releaseCreateCommand(options: ReleaseCreateOptions = {}): 
     if (err instanceof FirestoreClientError) {
       ui.error(err.message);
       if (err.hint) ui.note(err.hint);
+      if (options.verbose && err.cause) {
+        ui.note('Firestore response:');
+        // eslint-disable-next-line no-console
+        console.log(typeof err.cause === 'string' ? err.cause : String(err.cause));
+      }
+    } else if (err instanceof StorageClientError) {
+      ui.error(err.message);
+      if (err.hint) ui.note(err.hint);
+      if (options.verbose && err.cause) {
+        ui.note('Storage response:');
+        // eslint-disable-next-line no-console
+        console.log(typeof err.cause === 'string' ? err.cause : String(err.cause));
+      }
     } else {
       ui.error(err instanceof Error ? err.message : String(err));
     }
@@ -339,10 +366,15 @@ export async function releaseUseCommand(options: ReleaseUseOptions = {}): Promis
       }
     }
 
+    const snapshotJson = await withSpinner('Downloading snapshot...', () =>
+      downloadReleaseSnapshotJson(idToken, versionDoc.snapshotPath)
+    );
+    const snapshot = JSON.parse(snapshotJson) as CloudApp;
+
     const localFiles = await collectAppFiles(projectRoot);
     const appHome = appConfig.appHome as string | undefined;
     await withSpinner('Writing local files...', () =>
-      applyCloudStateToFs(projectRoot, versionDoc.snapshot, localFiles, enabledByProp, {
+      applyCloudStateToFs(projectRoot, snapshot, localFiles, enabledByProp, {
         manifestOptions: { appHomeFromConfig: appHome },
         onProgress: (completed, total) => {
           if (total > 0 && completed % 25 === 0) {

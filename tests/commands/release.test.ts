@@ -10,6 +10,8 @@ const checkAppAccessMock = vi.hoisted(() => vi.fn());
 const createVersionMock = vi.hoisted(() => vi.fn());
 const listVersionsMock = vi.hoisted(() => vi.fn());
 const getVersionMock = vi.hoisted(() => vi.fn());
+const uploadReleaseSnapshotMock = vi.hoisted(() => vi.fn());
+const downloadReleaseSnapshotJsonMock = vi.hoisted(() => vi.fn());
 const promptsMock = vi.hoisted(() => vi.fn());
 const uiErrorMock = vi.hoisted(() => vi.fn());
 const uiWarnMock = vi.hoisted(() => vi.fn());
@@ -62,6 +64,12 @@ vi.mock('../../src/cloud/firestoreClient.js', async (importOriginal) => {
   };
 });
 
+vi.mock('../../src/cloud/storageClient.js', () => ({
+  uploadReleaseSnapshot: (...args: unknown[]) => uploadReleaseSnapshotMock(...args),
+  downloadReleaseSnapshotJson: (...args: unknown[]) => downloadReleaseSnapshotJsonMock(...args),
+  StorageClientError: class StorageClientError extends Error {},
+}));
+
 vi.mock('prompts', () => ({ default: promptsMock }));
 
 vi.mock('../../src/core/ui.js', () => ({
@@ -108,14 +116,7 @@ describe('release commands', () => {
           createdAt: '2025-01-15T12:00:00Z',
           createdBy: { name: 'User', id: 'uid1' },
           expiresAt: '2025-02-15T12:00:00Z',
-          snapshot: {
-            id: 'app1',
-            name: 'App',
-            screens: [],
-            widgets: [],
-            scripts: [],
-            translations: [],
-          },
+          snapshotPath: 'releases/app1/hash-1.json',
         },
       ],
       nextStartAfter: undefined,
@@ -126,15 +127,13 @@ describe('release commands', () => {
       createdAt: '2025-01-15T12:00:00Z',
       createdBy: { name: 'User', id: 'uid1' },
       expiresAt: '2025-02-15T12:00:00Z',
-      snapshot: {
-        id: 'app1',
-        name: 'App',
-        screens: [],
-        widgets: [],
-        scripts: [],
-        translations: [],
-      },
+      snapshotPath: 'releases/app1/hash-1.json',
     });
+    uploadReleaseSnapshotMock.mockResolvedValue({
+      bucket: 'bucket',
+      objectPath: 'releases/app1/ver-123.json',
+    });
+    downloadReleaseSnapshotJsonMock.mockResolvedValue('{"id":"app1","name":"App","screens":[]}');
     promptsMock.mockResolvedValue({ message: 'My release' });
     uiErrorMock.mockImplementation(() => {});
     uiWarnMock.mockImplementation(() => {});
@@ -184,6 +183,10 @@ describe('release commands', () => {
     await releaseUseCommand({ hash: 'hash-1' });
 
     expect(getVersionMock).toHaveBeenCalledWith('app1', 'token', 'hash-1', undefined);
+    expect(downloadReleaseSnapshotJsonMock).toHaveBeenCalledWith(
+      'token',
+      'releases/app1/hash-1.json'
+    );
     expect(uiErrorMock).not.toHaveBeenCalled();
   });
 });

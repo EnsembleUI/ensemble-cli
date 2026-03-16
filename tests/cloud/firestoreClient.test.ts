@@ -561,7 +561,7 @@ describe('listVersions', () => {
             createdAt: { timestampValue: '2025-01-15T12:00:00Z' },
             expiresAt: { timestampValue: '2025-02-15T12:00:00Z' },
             createdBy: { referenceValue: 'projects/p/databases/(default)/documents/users/uid1' },
-            snapshot: { stringValue: '{"id":"app1","name":"App","screens":[]}' },
+            snapshotPath: { stringValue: 'releases/app1/ver-1.json' },
           },
         },
       },
@@ -597,7 +597,7 @@ describe('listVersions', () => {
     expect(result.versions).toHaveLength(1);
     expect(result.versions[0]!.message).toBe('First version');
     expect(result.versions[0]!.createdAt).toBe('2025-01-15T12:00:00Z');
-    expect(result.versions[0]!.snapshot).toEqual({ id: 'app1', name: 'App', screens: [] });
+    expect(result.versions[0]!.snapshotPath).toEqual('releases/app1/ver-1.json');
     expect(result.nextStartAfter).toBeUndefined();
   });
 
@@ -610,7 +610,7 @@ describe('listVersions', () => {
           message: { stringValue: `Version ${i}` },
           createdAt: { timestampValue: ts },
           expiresAt: { timestampValue: '2025-02-15T12:00:00Z' },
-          snapshot: { stringValue: '{}' },
+          snapshotPath: { stringValue: 'releases/app1/ver-1.json' },
         },
       },
     }));
@@ -658,7 +658,7 @@ describe('listVersions', () => {
             message: { stringValue: 'Only one' },
             createdAt: { timestampValue: '2025-01-15T12:00:00Z' },
             expiresAt: { timestampValue: '2025-02-15T12:00:00Z' },
-            snapshot: { stringValue: '{}' },
+            snapshotPath: { stringValue: 'releases/app1/ver-1.json' },
           },
         },
       },
@@ -731,7 +731,7 @@ describe('createVersion', () => {
       createdAt: '2025-01-15T12:00:00Z',
       expiresAt: '2025-02-15T12:00:00Z',
       createdBy: { name: 'User', id: 'uid1' },
-      snapshot: { id: 'app1', name: 'App', screens: [] },
+      snapshotPath: 'releases/app1/ver-123.json',
     });
 
     expect(typeof result.id).toBe('string');
@@ -760,7 +760,7 @@ describe('createVersion', () => {
         createdAt: '2025-01-15T12:00:00Z',
         expiresAt: '2025-02-15T12:00:00Z',
         createdBy: { name: 'User', id: 'uid1' },
-        snapshot: { id: 'app1', name: 'App' },
+        snapshotPath: 'releases/app1/ver-123.json',
       })
     ).rejects.toThrow(FirestoreClientError);
   });
@@ -773,7 +773,7 @@ describe('getVersion', () => {
     globalThis.fetch = originalFetch;
   });
 
-  it('returns version doc with snapshot', async () => {
+  it('returns version doc metadata with snapshotPath', async () => {
     const versionDoc = {
       name: 'projects/p/databases/(default)/documents/apps/app1/versions/ver-123',
       fields: {
@@ -781,7 +781,7 @@ describe('getVersion', () => {
         createdAt: { timestampValue: '2025-01-15T12:00:00Z' },
         expiresAt: { timestampValue: '2025-02-15T12:00:00Z' },
         createdBy: { referenceValue: 'projects/p/databases/(default)/documents/users/uid1' },
-        snapshot: { stringValue: '{"id":"app1","name":"My App","screens":[]}' },
+        snapshotPath: { stringValue: 'releases/app1/ver-123.json' },
       },
     };
 
@@ -802,7 +802,7 @@ describe('getVersion', () => {
     expect(result.id).toBe('ver-123');
     expect(result.message).toBe('Saved state');
     expect(result.createdAt).toBe('2025-01-15T12:00:00Z');
-    expect(result.snapshot).toEqual({ id: 'app1', name: 'My App', screens: [] });
+    expect(result.snapshotPath).toBe('releases/app1/ver-123.json');
   });
 
   it('throws FirestoreClientError with NOT_FOUND on 404', async () => {
@@ -819,14 +819,14 @@ describe('getVersion', () => {
     expect(thrown!.message).toContain('missing-id');
   });
 
-  it('throws FirestoreClientError when snapshot JSON is invalid', async () => {
+  it('throws FirestoreClientError when version doc metadata is invalid', async () => {
     const versionDoc = {
       name: 'projects/p/databases/(default)/documents/apps/app1/versions/ver-123',
       fields: {
         message: { stringValue: 'v1' },
         createdAt: { timestampValue: '2025-01-15T12:00:00Z' },
         expiresAt: { timestampValue: '2025-02-15T12:00:00Z' },
-        snapshot: { stringValue: 'not valid json {{' },
+        snapshotPath: { stringValue: '' },
       },
     };
 
@@ -850,6 +850,6 @@ describe('getVersion', () => {
       thrown = err as FirestoreClientError;
     }
     expect(thrown).toBeInstanceOf(FirestoreClientError);
-    expect(thrown!.message).toContain('snapshot data is invalid');
+    expect(thrown!.message).toContain('metadata is invalid');
   });
 });

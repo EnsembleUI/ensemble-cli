@@ -173,6 +173,7 @@ type FirestoreValue =
   | { stringValue: string }
   | { booleanValue: boolean }
   | { timestampValue: string }
+  | { integerValue: string }
   | { mapValue: { fields: Record<string, FirestoreValue> } }
   | { referenceValue: string };
 
@@ -200,12 +201,11 @@ export interface VersionMetadata {
   createdAt: string;
   createdBy: { name: string; email?: string; id: string };
   expiresAt: string;
+  snapshotPath: string;
 }
 
-/** Full version doc as returned by getVersion (metadata + snapshot). */
-export interface VersionDoc extends VersionMetadata {
-  snapshot: CloudApp;
-}
+/** Version doc metadata (snapshot stored in Storage). */
+export type VersionDoc = VersionMetadata;
 
 export interface CreateVersionParams {
   message: string;
@@ -213,7 +213,7 @@ export interface CreateVersionParams {
   createdBy: { name: string; email?: string; id: string };
   /** Must be Firestore Timestamp (e.g. 30 days from now). Use ISO string for timestampValue. */
   expiresAt: string;
-  snapshot: CloudApp;
+  snapshotPath: string;
 }
 
 const ALLOWED_ROLES = new Set(['write', 'owner']);
@@ -1114,7 +1114,7 @@ export async function createVersion(
     createdAt: { timestampValue: params.createdAt },
     expiresAt: { timestampValue: params.expiresAt },
     ...(createdByVal && { createdBy: createdByVal }),
-    snapshot: { stringValue: JSON.stringify(params.snapshot) },
+    snapshotPath: { stringValue: params.snapshotPath },
   };
 
   logDebug(options, {
@@ -1157,15 +1157,18 @@ function parseVersionDoc(doc: FirestoreDocument): VersionDoc | null {
     name: 'Unknown',
     id: '',
   };
-  const snapshotStr = parseFirestoreString(fields.snapshot as { stringValue?: string });
-  let snapshot: CloudApp;
-  try {
-    snapshot = JSON.parse(snapshotStr ?? '{}') as CloudApp;
-  } catch {
-    return null;
-  }
   if (createdAt === undefined || expiresAt === undefined) return null;
-  return { id, message, createdAt, createdBy, expiresAt, snapshot };
+  const snapshotPath = parseFirestoreString(fields.snapshotPath as { stringValue?: string });
+  if (!snapshotPath) return null;
+
+  return {
+    id,
+    message,
+    createdAt,
+    createdBy,
+    expiresAt,
+    snapshotPath,
+  };
 }
 
 export interface ListVersionsResult {
@@ -1276,33 +1279,13 @@ export async function getVersion(
     throw await toFirestoreError('get version', res, options);
   }
 
-  const doc = (await res.json()) as { name?: string; fields?: Record<string, FirestoreValue> };
-  const fields = doc?.fields ?? {};
-  const id = getDocId(doc.name ?? '');
-  const message = parseFirestoreString(fields.message as { stringValue?: string }) ?? '';
-  const createdAt = parseFirestoreTimestamp(fields.createdAt as { timestampValue?: string }) ?? '';
-  const expiresAt = parseFirestoreTimestamp(fields.expiresAt as { timestampValue?: string }) ?? '';
-  const createdBy = parseUpdatedBy(fields.createdBy as { referenceValue?: string }) ?? {
-    name: 'Unknown',
-    id: '',
-  };
-  const snapshotStr = parseFirestoreString(fields.snapshot as { stringValue?: string });
-  let snapshot: CloudApp;
-  try {
-    snapshot = JSON.parse(snapshotStr ?? '{}') as CloudApp;
-  } catch {
+  const doc = (await res.json()) as FirestoreDocument;
+  const parsed = parseVersionDoc(doc);
+  if (!parsed) {
     throw new FirestoreClientError({
       code: 'UNKNOWN',
-      message: 'Version snapshot data is invalid.',
+      message: 'Version metadata is invalid.',
     });
   }
-
-  return {
-    id,
-    message,
-    createdAt,
-    createdBy,
-    expiresAt,
-    snapshot,
-  };
+  return parsed;
 }

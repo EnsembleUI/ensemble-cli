@@ -98,10 +98,12 @@ To release a new version, go to GitHub → Actions → run the workflow **Releas
 - **release create** — `--app <alias>` — App alias (default: `default`)
 - **release create** — `-m, --message <msg>` — Release message (skips prompt)
 - **release create** — `-y, --yes` — Skip message prompt (use empty message)
+- **release create** — `--verbose` — Show full Firestore/Storage error response text (debugging)
 - **release list** — `--app <alias>` — App alias (default: `default`)
 - **release list** — `--limit <n>` — Maximum number of releases to show (default: 20)
 - **release list** — `--json` — Print releases as machine-readable JSON (for scripts)
 - **release use** — `--app <alias>` — App alias (default: `default`)
+- **release use** — `--hash <hash>` — Non-interactive: use release by hash
 - **release use** — `--hash <hash>` — Non-interactive: use release by hash (printed by `release list`)
 
 ### `ensemble add`
@@ -158,13 +160,11 @@ To release a new version, go to GitHub → Actions → run the workflow **Releas
 
 You can save and use snapshots of your app state in the cloud:
 
-- **Create a release from cloud:** After you have pushed and verified that the app is working as expected, run **`ensemble release create`** to save a snapshot (release) of the **current cloud state** with an optional message.
+- **Create a release from local state:** After you have local changes you want to “tag”, run **`ensemble release create`** to save a snapshot (release) of the **current local app state** with an optional message.
 - **List releases:** Run **`ensemble release list`** to see recent releases.
 - **Use a release locally:** Run **`ensemble release use`** to choose a release and update **local files only** to that snapshot. Then run **`ensemble push`** to apply that state to the cloud.
 
 When you run `ensemble release` **without a subcommand** in an interactive terminal, the CLI opens an interactive menu that lets you choose between **create**, **list**, and **use**. In non-interactive environments (e.g. CI), you must call an explicit subcommand such as `ensemble release list` or `ensemble release use --hash <hash>`.
-
-Releases are retained for **30 days**; after that they are deleted automatically by Firestore TTL.
 
 ### Exit codes
 
