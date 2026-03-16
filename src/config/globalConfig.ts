@@ -43,8 +43,17 @@ export async function readGlobalConfig(): Promise<EnsembleUserConfig | null> {
 export async function writeGlobalConfig(config: EnsembleUserConfig): Promise<void> {
   const filePath = getGlobalConfigPath();
   const dir = path.dirname(filePath);
-  await fs.mkdir(dir, { recursive: true });
+  // Ensure the global config directory exists; on POSIX, prefer user-only permissions.
+  await fs.mkdir(dir, { recursive: true, mode: 0o700 });
   await fs.writeFile(filePath, JSON.stringify(config, null, 2) + '\n', 'utf8');
+  // On POSIX systems, restrict the config file so only the current user can read/write it.
+  if (process.platform !== 'win32') {
+    try {
+      await fs.chmod(filePath, 0o600);
+    } catch {
+      // Best-effort: if chmod fails, continue without breaking login/logout flows.
+    }
+  }
 }
 
 export async function clearUserAuth(): Promise<void> {

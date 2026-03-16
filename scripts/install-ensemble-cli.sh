@@ -3,6 +3,11 @@ set -euo pipefail
 
 echo "This script will configure npm to use GitHub Packages for @ensembleui and install @ensembleui/cli globally."
 echo
+echo "IMPORTANT:"
+echo "  - The GitHub token (GH_TOKEN) you provide is a sensitive secret."
+echo "  - It should have the minimum required scope (typically: read:packages)."
+echo "  - Your npm config (~/.npmrc) MUST NOT be committed to source control or shared."
+echo
 
 # First, check if npm is already authenticated for GitHub Packages.
 if npm view @ensembleui/cli --registry=https://npm.pkg.github.com >/dev/null 2>&1; then

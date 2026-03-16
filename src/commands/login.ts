@@ -1,6 +1,7 @@
 import { exec } from 'child_process';
 import http from 'http';
 import { createServer, type Server } from 'net';
+import crypto from 'node:crypto';
 
 import {
   getGlobalConfigPath,
@@ -18,7 +19,7 @@ import { resolveVerboseFlag } from '../core/cliError.js';
 import { getEnsembleAuthBaseUrl } from '../config/env.js';
 import { ui } from '../core/ui.js';
 
-const CALLBACK_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+const CALLBACK_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
 
 export interface LoginOptions {
   verbose?: boolean;
@@ -92,8 +93,10 @@ export async function loginCommand(options: LoginOptions = {}): Promise<void> {
   }
 
   const port = await findAvailablePort();
+  const state = crypto.randomBytes(32).toString('hex');
   const loginUrl = new URL(baseUrl);
   loginUrl.searchParams.set('cliCallbackPort', String(port));
+  loginUrl.searchParams.set('cliState', state);
 
   const tokenPromise = new Promise<{
     token: string;
@@ -127,8 +130,14 @@ export async function loginCommand(options: LoginOptions = {}): Promise<void> {
               token?: string;
               refreshToken?: string;
               expiresAt?: number | string;
+              state?: string;
             };
-            if (data.token && typeof data.token === 'string') {
+            if (
+              data.token &&
+              typeof data.token === 'string' &&
+              typeof data.state === 'string' &&
+              data.state === state
+            ) {
               clearTimeout(timeout);
               res.writeHead(200, {
                 ...cors,
@@ -146,7 +155,14 @@ export async function loginCommand(options: LoginOptions = {}): Promise<void> {
                 ...cors,
                 'Content-Type': 'application/json',
               });
-              res.end(JSON.stringify({ error: 'Missing token' }));
+              res.end(
+                JSON.stringify({
+                  error:
+                    !data.token || typeof data.token !== 'string'
+                      ? 'Missing token'
+                      : 'Invalid state',
+                })
+              );
             }
           } catch {
             res.writeHead(400, { ...cors, 'Content-Type': 'application/json' });

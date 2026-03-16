@@ -83,6 +83,11 @@ export type FirestoreDebugEvent =
     };
 
 export interface FirestoreClientOptions {
+  /**
+   * Optional debug hook for Firestore requests.
+   * IMPORTANT: Implementations must NEVER log Authorization headers, ID tokens,
+   * refresh tokens, or other sensitive values.
+   */
   debug?: (event: FirestoreDebugEvent) => void;
 }
 

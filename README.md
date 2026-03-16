@@ -25,7 +25,10 @@ curl -fsSL https://raw.githubusercontent.com/EnsembleUI/ensemble-cli/main/script
    //npm.pkg.github.com/:_authToken=YOUR_GITHUB_TOKEN
    ```
 
-   Your GitHub token must have at least the `read:packages` scope.
+   Your GitHub token must have at least the `read:packages` scope. Treat this token as a **secret**:
+   - Do not commit `.npmrc` to source control.
+   - Prefer the minimum required scopes (typically `read:packages`).
+   - Rotate the token promptly if you suspect it has been exposed.
 
 2. **Install the CLI globally:**
 
@@ -199,6 +202,23 @@ Without `-y`, both commands refuse to run when not attached to a TTY and exit wi
 | `ENSEMBLE_VERBOSE` / `VERBOSE`    | When set to a truthy value (`1`, `true`, `yes`, `on`), enables verbose mode for commands that support it.    |
 | `DEBUG`                           | When set to a truthy value (`1`, `true`, `yes`, `on`), enables debug output (same as passing `--debug`).     |
 | `CI` / `ENSEMBLE_NO_UPDATE_CHECK` | When set to a truthy value, disables the automatic version check at startup.                                 |
+
+## Security considerations
+
+- **Secrets and tokens**
+  - `ENSEMBLE_TOKEN` (CI token) is a long-lived Firebase refresh token. Store it only in CI secret stores (e.g. GitHub Actions secrets), never in source control or logs.
+  - The local auth file at `~/.ensemble/cli-config.json` contains ID tokens and refresh tokens for your user account. Anyone who can read this file can act as you in the CLI.
+  - The CLI now writes `~/.ensemble/cli-config.json` with user-only permissions on POSIX systems (`0700` directory, `0600` file), but you should still treat it as sensitive.
+  - GitHub tokens used in `.npmrc` (for GitHub Packages) must not be committed or shared; use least-privilege scopes (`read:packages`) and rotate if exposed.
+- **Auth and authorization model**
+  - Authentication is handled via browser sign-in to Ensemble (backed by Firebase). The CLI stores tokens locally and refreshes them via Firebase’s secure token API.
+  - Authorization is enforced server-side using Firestore security rules and app-level roles (`write`/`owner`). The CLI passes your Firebase ID token as a Bearer token and does not make its own trust decisions beyond handling HTTP responses.
+- **Local login callback**
+  - The `ensemble login` flow uses a loopback HTTP callback on `127.0.0.1` with a short timeout and a random `state` value to bind the browser flow to the CLI.
+  - Only complete login flows in a browser you trust on the same machine; untrusted local processes with full user access may still interfere, as with most loopback-based OAuth flows.
+- **Shell and network usage**
+  - All shell commands used by the CLI (`npm view`, `npm install -g`, `open`/`start`/`xdg-open`) are static string literals and must remain so to avoid shell injection.
+  - Firestore/network debug hooks intentionally avoid logging Authorization headers or raw tokens; custom debug handlers must preserve this invariant.
 
 ## Project Structure
 

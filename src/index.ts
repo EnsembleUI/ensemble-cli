@@ -45,8 +45,10 @@ program
 program
   .command('token')
   .description('Print refresh token for CI (use as ENSEMBLE_TOKEN). Run "ensemble login" first.')
-  .action(async () => {
-    await tokenCommand();
+  .option('--quiet', 'Print only the token (no extra text)', false)
+  .option('--json', 'Print the token as JSON (for scripts)', false)
+  .action(async (options: { quiet?: boolean; json?: boolean }) => {
+    await tokenCommand({ quiet: options.quiet, json: options.json });
   });
 
 program
@@ -206,6 +208,8 @@ function checkForUpdates(): void {
   }
 
   // Use the user's existing npm + auth config to query GitHub Packages.
+  // IMPORTANT: This command string must remain a static literal and MUST NOT
+  // interpolate user-controlled input to avoid shell injection risks.
   exec(
     'npm view @ensembleui/cli version --registry=https://npm.pkg.github.com',
     (error, stdout) => {
