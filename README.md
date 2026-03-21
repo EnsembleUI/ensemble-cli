@@ -80,7 +80,7 @@ To release a new version, go to GitHub → Actions → run the workflow **Releas
 | `ensemble push`    | Scan the app directory and push changes to the cloud                      |
 | `ensemble pull`    | Pull artifacts from the cloud and overwrite local files                   |
 | `ensemble release` | Manage releases (snapshots) of your app (interactive menu or subcommands) |
-| `ensemble add`     | Add a new screen, widget, script, action, or translation scaffold         |
+| `ensemble add`     | Add a new screen, widget, script, action, translation, or asset           |
 | `ensemble update`  | Update the CLI to the latest version                                      |
 
 ### Options
@@ -116,6 +116,7 @@ To release a new version, go to GitHub → Actions → run the workflow **Releas
   - `script`
   - `action`
   - `translation`
+  - `asset`
 
 - **Usage**
   - Interactive (prompts for kind and name):
@@ -132,6 +133,7 @@ To release a new version, go to GitHub → Actions → run the workflow **Releas
     ensemble add script myUtility
     ensemble add action ShowToast
     ensemble add translation en_US
+    ensemble add asset ./logo.png
     ```
 
 - **Naming rules**
@@ -144,6 +146,14 @@ To release a new version, go to GitHub → Actions → run the workflow **Releas
   - Actions: `actions/<Name>.yaml`
   - Scripts: `scripts/<Name>.js`
   - Translations: `translations/<Name>.yaml`
+  - Assets: `assets/<FileName>`
+
+- **Asset upload behavior**
+  - `asset` expects a file path (not a generated scaffold name).
+  - The file is copied to `assets/`, uploaded to Ensemble cloud, and `.env.config` is upserted:
+    - `assets=<assetBaseUrl>` is added only if missing.
+    - The cloud-provided env variable key/value is added (or updated).
+  - The CLI prints the returned usage key so you can paste it directly in app definitions.
 
 - **Manifest behavior**
   - For `widget`, `script`, `action`, and `translation`, `.manifest.json` is updated to include the new artifact.

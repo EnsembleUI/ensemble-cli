@@ -3,10 +3,14 @@ import path from 'path';
 import prompts from 'prompts';
 
 import { loadProjectConfig } from '../config/projectConfig.js';
+import { resolveAppContext } from '../config/projectConfig.js';
+import { getValidAuthSession } from '../auth/session.js';
+import { uploadAssetToStudio } from '../cloud/assetClient.js';
 import { upsertManifestEntry, type RootManifest } from '../core/manifest.js';
 import { ui } from '../core/ui.js';
+import { withSpinner } from '../lib/spinner.js';
 
-export type AddKind = 'screen' | 'widget' | 'script' | 'action' | 'translation';
+export type AddKind = 'screen' | 'widget' | 'script' | 'action' | 'translation' | 'asset';
 
 function normalizeName(raw: string): string {
   const trimmed = raw.trim();
@@ -50,6 +54,100 @@ async function fileExists(filePath: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+function parseEnvConfig(raw: string): {
+  lines: string[];
+  keyToLineIndex: Map<string, number>;
+} {
+  const lines = raw.split(/\r?\n/);
+  const keyToLineIndex = new Map<string, number>();
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i].trim();
+    if (!line || line.startsWith('#')) continue;
+    const eq = line.indexOf('=');
+    if (eq <= 0) continue;
+    const key = line.slice(0, eq).trim();
+    if (key) keyToLineIndex.set(key, i);
+  }
+  return { lines, keyToLineIndex };
+}
+
+async function upsertEnvConfig(
+  projectRoot: string,
+  entries: Array<{ key: string; value: string; overwrite?: boolean }>
+): Promise<void> {
+  const envPath = path.join(projectRoot, '.env.config');
+  let raw = '';
+  try {
+    raw = await fs.readFile(envPath, 'utf8');
+  } catch {
+    raw = '';
+  }
+  const parsed = parseEnvConfig(raw);
+  // Avoid introducing visual gaps when appending new entries.
+  while (parsed.lines.length > 0 && parsed.lines[parsed.lines.length - 1].trim() === '') {
+    parsed.lines.pop();
+  }
+  for (const entry of entries) {
+    const line = `${entry.key}=${entry.value}`;
+    const existingIdx = parsed.keyToLineIndex.get(entry.key);
+    if (existingIdx === undefined) {
+      parsed.lines.push(line);
+      parsed.keyToLineIndex.set(entry.key, parsed.lines.length - 1);
+    } else if (entry.overwrite !== false) {
+      parsed.lines[existingIdx] = line;
+    }
+  }
+  const normalized = parsed.lines.join('\n').replace(/\n*$/, '\n');
+  await fs.writeFile(envPath, normalized, 'utf8');
+}
+
+async function addAsset(
+  projectRoot: string,
+  assetPathInput: string
+): Promise<{
+  fileName: string;
+  createdPath: string;
+  usageKey: string;
+}> {
+  const resolvedInputPath = path.resolve(projectRoot, assetPathInput.trim());
+  const sourceStat = await fs.stat(resolvedInputPath).catch(() => null);
+  if (!sourceStat || !sourceStat.isFile()) {
+    throw new Error(`Asset path does not exist or is not a file: ${assetPathInput}`);
+  }
+  const fileName = path.basename(resolvedInputPath);
+  const targetDir = path.join(projectRoot, 'assets');
+  await ensureDir(targetDir);
+  const targetPath = path.join(targetDir, fileName);
+  if (await fileExists(targetPath)) {
+    throw new Error(`File already exists: ${path.relative(projectRoot, targetPath)}`);
+  }
+
+  await fs.copyFile(resolvedInputPath, targetPath);
+
+  const fileBuffer = await fs.readFile(targetPath);
+  const fileDataBase64 = fileBuffer.toString('base64');
+
+  const { appId } = await resolveAppContext();
+  const session = await getValidAuthSession();
+  if (!session.ok) {
+    throw new Error(`${session.message}\nRun \`ensemble login\` and try again.`);
+  }
+  const uploadResult = await withSpinner('Uploading asset to cloud...', async () => {
+    const result = await uploadAssetToStudio(appId, fileName, fileDataBase64, session.idToken);
+    await upsertEnvConfig(projectRoot, [
+      { key: 'assets', value: result.assetBaseUrl, overwrite: false },
+      { key: result.envVariable.key, value: result.envVariable.value },
+    ]);
+    return result;
+  });
+
+  return {
+    fileName,
+    createdPath: path.relative(projectRoot, targetPath),
+    usageKey: uploadResult.usageKey,
+  };
 }
 
 async function maybeSetHomeScreenName(
@@ -165,6 +263,7 @@ export async function addCommand(kindArg?: AddKind, rawNameArg?: string): Promis
         { title: 'Script', value: 'script' },
         { title: 'Action', value: 'action' },
         { title: 'Translation', value: 'translation' },
+        { title: 'Asset', value: 'asset' },
       ],
     });
     if (!selected) {
@@ -182,8 +281,8 @@ export async function addCommand(kindArg?: AddKind, rawNameArg?: string): Promis
     const { name } = await prompts({
       type: 'text',
       name: 'name',
-      message: `Name for the ${kind}:`,
-      validate: (v: string) => (v && v.trim().length > 0 ? true : 'Name is required'),
+      message: kind === 'asset' ? 'Path for the asset file:' : `Name for the ${kind}:`,
+      validate: (v: string) => (v && v.trim().length > 0 ? true : 'Value is required'),
     });
     if (!name) {
       ui.warn('Add cancelled.');
@@ -196,9 +295,16 @@ export async function addCommand(kindArg?: AddKind, rawNameArg?: string): Promis
     throw new Error('Name is required.');
   }
 
+  const { projectRoot } = await loadProjectConfig();
+  if (kind === 'asset') {
+    const { fileName, createdPath, usageKey } = await addAsset(projectRoot, rawName);
+    ui.success(`Created asset "${fileName}" at ${createdPath} and updated .env.config.`);
+    ui.note(`Usage Example: ${usageKey}`);
+    return;
+  }
+
   let name = normalizeName(rawName);
   name = await resolveNameWithSpaces(name, interactive);
-  const { projectRoot } = await loadProjectConfig();
 
   let targetDir: string;
   let fileName: string;
@@ -238,7 +344,7 @@ export async function addCommand(kindArg?: AddKind, rawNameArg?: string): Promis
     default:
       // This should be unreachable if commander validates input.
       throw new Error(
-        `Unknown artifact type "${kind}". Expected one of: screen, widget, script, translation.`
+        `Unknown artifact type "${kind}". Expected one of: screen, widget, script, action, translation, asset.`
       );
   }
 

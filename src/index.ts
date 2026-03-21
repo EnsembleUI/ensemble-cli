@@ -174,18 +174,32 @@ releaseCmd.action(async (options: { app?: string }) => {
 
 program
   .command('add')
-  .description('Add a new screen, widget, script, or translation.')
-  .argument('[kind]', 'Artifact type: screen | widget | script | translation')
-  .argument('[name]', 'Name of the artifact, e.g. "Hello"')
+  .description('Add a new screen, widget, script, action, translation, or asset.')
+  .argument('[kind]', 'Artifact type: screen | widget | script | action | translation | asset')
+  .argument('[name]', 'Name/path of the artifact (asset expects a file path)')
   .action(async (kind?: string, name?: string) => {
-    let normalizedKind: 'screen' | 'widget' | 'script' | 'translation' | undefined;
+    let normalizedKind:
+      | 'screen'
+      | 'widget'
+      | 'script'
+      | 'action'
+      | 'translation'
+      | 'asset'
+      | undefined;
     if (kind) {
       const k = kind.toLowerCase();
-      if (k === 'screen' || k === 'widget' || k === 'script' || k === 'translation') {
+      if (
+        k === 'screen' ||
+        k === 'widget' ||
+        k === 'script' ||
+        k === 'action' ||
+        k === 'translation' ||
+        k === 'asset'
+      ) {
         normalizedKind = k;
       } else {
         throw new Error(
-          `Unknown artifact type "${kind}". Expected one of: screen, widget, script, translation.`
+          `Unknown artifact type "${kind}". Expected one of: screen, widget, script, action, translation, asset.`
         );
       }
     }
