@@ -34,6 +34,31 @@ export interface PushOptions {
 
 const DESTRUCTIVE_CHANGE_PROMPT_THRESHOLD = 25;
 
+/** Firestore/YAML artifact changes only (not asset uploads via studio function). */
+function yamlArtifactChangeTotal(summary: PushSummary): number {
+  const k = summary.byKind;
+  return (
+    k.screens.created +
+    k.screens.updated +
+    k.screens.deleted +
+    k.widgets.created +
+    k.widgets.updated +
+    k.widgets.deleted +
+    k.scripts.created +
+    k.scripts.updated +
+    k.scripts.deleted +
+    k.actions.created +
+    k.actions.updated +
+    k.actions.deleted +
+    k.translations.created +
+    k.translations.updated +
+    k.translations.deleted +
+    k.theme.created +
+    k.theme.updated +
+    k.theme.deleted
+  );
+}
+
 function printPushSummary(summary: PushSummary, options: { verbose?: boolean; isNoop?: boolean }) {
   const { appName, environment, counts } = summary;
   const totalChanges = counts.created + counts.updated + counts.deleted;
@@ -60,6 +85,7 @@ function printPushSummary(summary: PushSummary, options: { verbose?: boolean; is
       ['actions', summary.byKind.actions],
       ['translations', summary.byKind.translations],
       ['theme', summary.byKind.theme],
+      ['assets', summary.byKind.assets],
     ];
 
     for (const [kind, c] of entries) {
@@ -307,9 +333,12 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
     });
 
     const summary = plan.summary;
-    const changedCount = summary.counts.created + summary.counts.updated + summary.counts.deleted;
+    const yamlChangeTotal = yamlArtifactChangeTotal(summary);
+    const assetsToUpload = plan.diff.assets.new
+      .map((item) => (item as { fileName?: string }).fileName)
+      .filter((fn): fn is string => typeof fn === 'string' && fn.length > 0);
 
-    if (changedCount === 0) {
+    if (yamlChangeTotal === 0 && assetsToUpload.length === 0) {
       ui.info('Up to date. Nothing to push.');
       return;
     }
@@ -352,9 +381,7 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
     let confirmed = options.yes ?? false;
     const isInteractive = Boolean(process.stdout.isTTY && process.stdin.isTTY);
     const hasDeletes = summary.counts.deleted > 0;
-    const largeChangeSet =
-      summary.counts.created + summary.counts.updated + summary.counts.deleted >=
-      DESTRUCTIVE_CHANGE_PROMPT_THRESHOLD;
+    const largeChangeSet = yamlChangeTotal >= DESTRUCTIVE_CHANGE_PROMPT_THRESHOLD;
 
     if (!confirmed) {
       if (!isInteractive) {
@@ -365,12 +392,28 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
         return;
       }
 
+      const yamlCreatedOrUpdated =
+        summary.byKind.screens.created +
+        summary.byKind.screens.updated +
+        summary.byKind.widgets.created +
+        summary.byKind.widgets.updated +
+        summary.byKind.scripts.created +
+        summary.byKind.scripts.updated +
+        summary.byKind.actions.created +
+        summary.byKind.actions.updated +
+        summary.byKind.translations.created +
+        summary.byKind.translations.updated +
+        summary.byKind.theme.created +
+        summary.byKind.theme.updated;
+
       const headline =
         hasDeletes || largeChangeSet
-          ? `This will delete ${summary.counts.deleted} item(s) and apply ${
-              summary.counts.created + summary.counts.updated
-            } other change(s). Continue? [y/N]`
-          : 'Proceed with push?';
+          ? `This will delete ${summary.counts.deleted} item(s) and apply ${yamlCreatedOrUpdated} other change(s)${
+              assetsToUpload.length > 0 ? `, and upload ${assetsToUpload.length} asset(s)` : ''
+            }. Continue? [y/N]`
+          : `Proceed with push${
+              assetsToUpload.length > 0 ? ` and upload ${assetsToUpload.length} asset(s)` : ''
+            }?`;
 
       const { proceed } = await prompts({
         type: 'confirm',
@@ -391,9 +434,17 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
     }
 
     try {
-      await withSpinner('Pushing changes to cloud...', () =>
-        submitCliPush(appId, idToken, pushPayload, firestoreOptions)
-      );
+      if (yamlChangeTotal > 0 || assetsToUpload.length > 0) {
+        const { assetsUploaded } = await withSpinner('Pushing changes to cloud...', () =>
+          submitCliPush(appId, idToken, pushPayload, firestoreOptions, {
+            projectRoot: root,
+            ...(assetsToUpload.length > 0 && { assetFileNames: assetsToUpload }),
+          })
+        );
+        if (assetsUploaded > 0) {
+          ui.success(`Uploaded ${assetsUploaded} asset(s) and updated .env.config.`);
+        }
+      }
 
       if (manifestNeedsRefresh && bundle) {
         // Only refresh manifest when artifact changes can affect its contents.

@@ -5,6 +5,7 @@
 
 import type {
   ApplicationDTO,
+  AssetDTO,
   WidgetDTO,
   ScriptDTO,
   ActionDTO,
@@ -15,6 +16,7 @@ import type {
 import { EnsembleDocumentType } from '../core/dto.js';
 import { getArtifactConfig, type ArtifactProp } from '../core/artifacts.js';
 import { processWithConcurrency } from '../core/concurrency.js';
+import { uploadProjectAssetsForPush } from '../core/pushAssets.js';
 import { getEnsembleFirebaseProject } from '../config/env.js';
 
 const DEFAULT_FIRESTORE_CONCURRENCY = 15;
@@ -192,6 +194,7 @@ export type CloudApp = Pick<
   | 'screens'
   | 'theme'
   | 'translations'
+  | 'assets'
 >;
 
 /** Metadata for a saved version (commit); snapshot stored in same doc. */
@@ -430,16 +433,27 @@ async function applyYamlOperationsForKind(
   );
 }
 
+/** Optional local asset uploads after Firestore YAML apply (studio cloud function + .env.config). */
+export interface CliPushExtras {
+  projectRoot: string;
+  assetFileNames?: string[];
+}
+
+export interface CliPushResult {
+  assetsUploaded: number;
+}
+
 /**
  * Apply a push payload directly to Firestore, updating YAML artifacts in-place.
- * This updates screens, widgets, scripts, translations, and theme under the app document.
+ * Optionally uploads new assets (studio-uploadAsset + .env.config) in the same operation.
  */
 export async function submitCliPush(
   appId: string,
   idToken: string,
   payload: unknown,
-  options?: FirestoreClientOptions
-): Promise<void> {
+  options?: FirestoreClientOptions,
+  extras?: CliPushExtras
+): Promise<CliPushResult> {
   const project = getEnsembleFirebaseProject();
   assertValidPushPayload(payload);
   const p = payload as PushPayloadShape;
@@ -459,6 +473,18 @@ export async function submitCliPush(
   if (p.theme) {
     await applyYamlOperationsForKind('theme', appId, idToken, project, [p.theme], options);
   }
+
+  const names = extras?.assetFileNames?.filter((n) => n.trim() !== '') ?? [];
+  if (names.length === 0 || !extras?.projectRoot) {
+    return { assetsUploaded: 0 };
+  }
+  const assetsUploaded = await uploadProjectAssetsForPush(
+    appId,
+    idToken,
+    extras.projectRoot,
+    names
+  );
+  return { assetsUploaded };
 }
 
 function parseFirestoreString(field: { stringValue?: string } | undefined): string | undefined {
@@ -731,6 +757,22 @@ function toTranslationDTO(doc: FirestoreDocument, defaultLocale: boolean): Trans
   };
 }
 
+function toAssetDTO(doc: FirestoreDocument): AssetDTO {
+  const base = firestoreDocToEnsembleBase(doc);
+  const fields = (doc.fields ?? {}) as FirestoreFields;
+  const fileName = parseFirestoreString(fields.fileName as { stringValue?: string }) ?? base.name;
+  const publicUrl = parseFirestoreString(fields.publicUrl as { stringValue?: string });
+  const copyText = parseFirestoreString(fields.copyText as { stringValue?: string });
+  return {
+    ...base,
+    name: fileName,
+    fileName,
+    type: EnsembleDocumentType.Asset,
+    ...(publicUrl !== undefined && { publicUrl }),
+    ...(copyText !== undefined && { copyText }),
+  };
+}
+
 function getCollaboratorRole(
   collaboratorsField:
     | { mapValue?: { fields?: Record<string, { stringValue?: string }> } }
@@ -984,6 +1026,7 @@ export async function fetchCloudApp(
 
   const screens: ScreenDTO[] = [];
   const translations: TranslationDTO[] = [];
+  const assets: AssetDTO[] = [];
   let theme: ThemeDTO | undefined;
   const i18nDocs: FirestoreDocument[] = [];
   for (const doc of artifacts) {
@@ -991,6 +1034,7 @@ export async function fetchCloudApp(
     const type = parseFirestoreString((doc.fields?.type as { stringValue?: string }) ?? undefined);
     if (type === 'screen') screens.push(toScreenDTO(doc));
     else if (type === 'i18n') i18nDocs.push(doc);
+    else if (type === 'asset') assets.push(toAssetDTO(doc));
     else if (type === 'theme') {
       if (!theme || docId === 'theme') {
         theme = toThemeDTO(doc);
@@ -1020,6 +1064,7 @@ export async function fetchCloudApp(
     screens,
     ...(theme && { theme }),
     ...(translations.length > 0 && { translations }),
+    ...(assets.length > 0 && { assets }),
   };
 }
 

@@ -61,11 +61,45 @@ const cloudModuleMock = vi.hoisted(() => {
       translations: [],
       theme: undefined,
     })),
-    submitCliPush: vi.fn(async () => {}),
+    submitCliPush: vi.fn(
+      async (
+        appId: string,
+        idToken: string,
+        _payload: unknown,
+        _opts: unknown,
+        extras?: { projectRoot?: string; assetFileNames?: string[] }
+      ) => {
+        if (extras?.assetFileNames?.length && extras.projectRoot) {
+          const { uploadProjectAssetsForPush } = await import('../../src/core/pushAssets.js');
+          const n = await uploadProjectAssetsForPush(
+            appId,
+            idToken,
+            extras.projectRoot,
+            extras.assetFileNames
+          );
+          return { assetsUploaded: n };
+        }
+        return { assetsUploaded: 0 };
+      }
+    ),
   };
 });
 
 vi.mock('../../src/cloud/firestoreClient.js', () => cloudModuleMock);
+
+const assetClientMock = vi.hoisted(() => ({
+  uploadAssetToStudio: vi.fn(async (_appId: string, fileName: string) => ({
+    success: true,
+    assetBaseUrl: 'https://cdn.example.com/assets/',
+    envVariable: {
+      key: fileName.replace(/[^\w]+/g, '_'),
+      value: `${fileName}?token=abc`,
+    },
+    usageKey: '${env.assets}${env.file}',
+  })),
+}));
+
+vi.mock('../../src/cloud/assetClient.js', () => assetClientMock);
 
 const promptsModuleMock = vi.hoisted(() => ({
   default: vi.fn(async () => ({ proceed: true })),
@@ -281,6 +315,64 @@ describe('push/pull integration (commands)', () => {
     // Reset exit code for other tests.
     process.exitCode = 0;
     errorSpy.mockRestore();
+  });
+
+  it('push uploads assets and updates .env.config', async () => {
+    await fs.writeFile(path.join(projectRoot, 'screens', 'Home.yaml'), 'home: content', 'utf8');
+    await fs.mkdir(path.join(projectRoot, 'assets'), { recursive: true });
+    await fs.writeFile(path.join(projectRoot, 'assets', 'logo.png'), Buffer.from([1, 2, 3]));
+
+    // Ensure push proceeds in test environment by providing --yes.
+    await pushCommand({ verbose: false, yes: true });
+
+    const uploadAssetMock = assetClientMock.uploadAssetToStudio as ReturnType<typeof vi.fn>;
+    expect(uploadAssetMock).toHaveBeenCalledTimes(1);
+    expect(uploadAssetMock.mock.calls[0]?.[0]).toBe('app1');
+    expect(uploadAssetMock.mock.calls[0]?.[1]).toBe('logo.png');
+
+    const envConfig = await fs.readFile(path.join(projectRoot, '.env.config'), 'utf8');
+    expect(envConfig).toContain('assets=https://cdn.example.com/assets/');
+    expect(envConfig).toContain('logo_png=logo.png?token=abc');
+  });
+
+  it('push skips asset upload when cloud already has same fileName', async () => {
+    (cloudModuleMock.fetchCloudApp as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: 'app1',
+      name: 'App',
+      screens: [
+        {
+          id: 'screen-id-1',
+          name: 'Home',
+          content: 'home: content',
+          type: 'screen',
+          isRoot: true,
+        },
+      ] as unknown[],
+      widgets: [] as unknown[],
+      scripts: [] as unknown[],
+      translations: [] as unknown[],
+      theme: undefined,
+      assets: [
+        {
+          id: 'a1',
+          name: 'logo.png',
+          fileName: 'logo.png',
+          content: 'builds/app1/assets/logo.png',
+          type: 'asset',
+        },
+      ] as unknown[],
+    });
+
+    await fs.writeFile(path.join(projectRoot, 'screens', 'Home.yaml'), 'home: content', 'utf8');
+    await fs.mkdir(path.join(projectRoot, 'assets'), { recursive: true });
+    await fs.writeFile(path.join(projectRoot, 'assets', 'logo.png'), Buffer.from([9, 9, 9]));
+
+    const uploadMock = assetClientMock.uploadAssetToStudio as ReturnType<typeof vi.fn>;
+    uploadMock.mockClear();
+
+    await pushCommand({ verbose: false, yes: true });
+
+    expect(uploadMock).not.toHaveBeenCalled();
   });
 
   it('pull without --yes in non-interactive mode refuses to run', async () => {

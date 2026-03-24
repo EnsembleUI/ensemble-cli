@@ -26,7 +26,35 @@ function widget(id: string, name: string, content: string) {
   };
 }
 
+function asset(id: string, fileName: string, content: string) {
+  return {
+    id,
+    name: fileName,
+    fileName,
+    content,
+    type: EnsembleDocumentType.Asset as const,
+  };
+}
+
 describe('computeBundleDiff', () => {
+  it('lists only assets missing on cloud (by fileName)', () => {
+    const cloudApp = {
+      id: 'app1',
+      name: 'App',
+      assets: [asset('a1', 'logo.png', 'builds/app/assets/logo.png')],
+    };
+    const localApp = {
+      id: 'app1',
+      name: 'App',
+      assets: [asset('asset:logo.png', 'logo.png', ''), asset('asset:new.png', 'new.png', '')],
+    };
+    const bundle = { ...localApp };
+    const diff = computeBundleDiff(bundle, cloudApp, localApp);
+    expect(diff.assets.new).toHaveLength(1);
+    expect(diff.assets.new[0].name).toBe('new.png');
+    expect(diff.assets.new[0]).toMatchObject({ fileName: 'new.png' });
+  });
+
   it('detects changed screens', () => {
     const cloud: ApplicationDTO = {
       id: 'app1',

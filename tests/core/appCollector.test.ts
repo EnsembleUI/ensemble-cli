@@ -15,6 +15,15 @@ describe('collectAppFiles', () => {
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
+  it('collects asset basenames under assets/', async () => {
+    await fs.mkdir(path.join(tmpDir, 'assets'), { recursive: true });
+    await fs.writeFile(path.join(tmpDir, 'assets', 'logo.png'), Buffer.from([1, 2]));
+
+    const result = await collectAppFiles(tmpDir);
+
+    expect(result.assetFiles).toEqual(['logo.png']);
+  });
+
   it('collects screens, widgets, scripts', async () => {
     await fs.mkdir(path.join(tmpDir, 'screens'), { recursive: true });
     await fs.mkdir(path.join(tmpDir, 'widgets'), { recursive: true });

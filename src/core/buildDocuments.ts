@@ -4,6 +4,7 @@ import type { ParsedAppFiles } from './appCollector.js';
 import type { CloudApp } from '../cloud/firestoreClient.js';
 import {
   EnsembleDocumentType,
+  type AssetDTO,
   type ScreenDTO,
   type WidgetDTO,
   type ScriptDTO,
@@ -55,6 +56,7 @@ export function buildDocumentsFromParsed(
     scriptFileCount: Object.keys(parsed.scripts).length,
     actionFileCount: Object.keys(parsed.actions ?? {}).length,
     translationFileCount: Object.keys(parsed.translations).length,
+    assetFileCount: parsed.assetFiles?.length ?? 0,
     hasTheme: typeof parsed.theme === 'string',
   });
 
@@ -111,6 +113,16 @@ export function buildDocumentsFromParsed(
       }
     : undefined;
 
+  const assets: AssetDTO[] = (parsed.assetFiles ?? []).map((fileName) => ({
+    id: `asset:${fileName}`,
+    name: fileName,
+    content: '',
+    type: EnsembleDocumentType.Asset,
+    fileName,
+    createdAt: now,
+    updatedAt: now,
+  }));
+
   const translationEntries = Object.entries(parsed.translations);
   const translations: TranslationDTO[] = translationEntries.map(
     ([relativePath, content], index) => {
@@ -137,6 +149,7 @@ export function buildDocumentsFromParsed(
     scriptCount: scripts.length,
     actionCount: actions.length,
     translationCount: translations.length,
+    assetCount: assets.length,
     appHome,
     defaultLanguage,
   });
@@ -191,6 +204,7 @@ export function buildDocumentsFromParsed(
     ...(actions.length > 0 && { actions }),
     ...(theme && { theme }),
     ...(translations.length > 0 && { translations }),
+    ...(assets.length > 0 && { assets }),
   };
 
   return application;
@@ -333,6 +347,8 @@ export function buildMergedBundle(
     updatedBy
   ) as TranslationDTO[];
 
+  const assets = mergeAssets(cloudApp.assets, localApp.assets, now, updatedBy);
+
   const theme = localApp.theme ?? cloudApp.theme;
 
   const result: ApplicationDTO = {
@@ -346,6 +362,45 @@ export function buildMergedBundle(
     ...(actions.length > 0 && { actions }),
     ...(translations.length > 0 && { translations }),
     ...(theme && { theme }),
+    ...(assets.length > 0 && { assets }),
   };
   return result;
+}
+
+function mergeAssets(
+  cloudItems: AssetDTO[] | undefined,
+  localItems: AssetDTO[] | undefined,
+  now: string,
+  updatedBy: UpdatedBy
+): AssetDTO[] {
+  const localByFile = new Map((localItems ?? []).map((a) => [a.fileName, a]));
+  const cloudByFile = new Set((cloudItems ?? []).map((a) => a.fileName));
+  const merged: AssetDTO[] = [];
+
+  for (const cloud of cloudItems ?? []) {
+    const local = localByFile.get(cloud.fileName);
+    const deletedLocally = !local;
+    merged.push({
+      ...cloud,
+      ...(local && { ...local, id: cloud.id, fileName: cloud.fileName }),
+      isArchived: deletedLocally ? true : ((local as AssetDTO).isArchived ?? false),
+      updatedAt: now,
+      updatedBy,
+    });
+  }
+
+  for (const local of localItems ?? []) {
+    if (!cloudByFile.has(local.fileName)) {
+      merged.push({
+        ...local,
+        id: crypto.randomUUID(),
+        isArchived: false,
+        createdAt: now,
+        updatedAt: now,
+        updatedBy,
+      });
+    }
+  }
+
+  return merged;
 }

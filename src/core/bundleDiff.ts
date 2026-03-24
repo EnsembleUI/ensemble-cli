@@ -2,6 +2,7 @@ import type { CloudApp } from '../cloud/firestoreClient.js';
 import pc from 'picocolors';
 import type {
   ApplicationDTO,
+  AssetDTO,
   ScreenDTO,
   WidgetDTO,
   ScriptDTO,
@@ -76,6 +77,8 @@ export interface BundleDiff {
   actions: { changed: ArtifactWithContent[]; new: ArtifactWithContent[] };
   themeChanged: boolean;
   translations: { changed: ArtifactWithContent[]; new: ArtifactWithContent[] };
+  /** Local asset files to upload (same fileName as Firestore `artifacts` doc with type asset). */
+  assets: { changed: ArtifactWithContent[]; new: ArtifactWithContent[] };
 }
 
 /** Normalize content for comparison to avoid false diffs from line endings or trailing newlines. */
@@ -120,6 +123,27 @@ function diffArtifacts(
   }
 
   return { changed, new: newItems };
+}
+
+function diffAssets(
+  localAssets: AssetDTO[] | undefined,
+  cloudAssets: AssetDTO[] | undefined
+): { changed: ArtifactWithContent[]; new: ArtifactWithContent[] } {
+  const cloudActiveByFile = new Set(
+    (cloudAssets ?? []).filter((a) => a.isArchived !== true).map((a) => a.fileName)
+  );
+  const newItems: ArtifactWithContent[] = [];
+  for (const local of localAssets ?? []) {
+    if (!cloudActiveByFile.has(local.fileName)) {
+      newItems.push({
+        id: local.id,
+        name: local.name,
+        content: local.content ?? '',
+        fileName: local.fileName,
+      } as ArtifactWithContent);
+    }
+  }
+  return { changed: [], new: newItems };
 }
 
 type ArtifactDisplay = ArtifactWithContent & { fileName?: string };
@@ -185,6 +209,7 @@ export function formatDiffSummary(diff: BundleDiff): string[] {
     'translation',
     '.yaml'
   );
+  addGroup('assets', diff.assets.changed, diff.assets.new, 'asset', '');
 
   if (diff.themeChanged) {
     lines.push(pc.cyan(pc.bold('  theme:')));
@@ -199,7 +224,11 @@ export function formatDiffSummary(diff: BundleDiff): string[] {
  * Compute which artifacts in the bundle have changed compared to the cloud app.
  * Only changed and new items need to be pushed.
  */
-export function computeBundleDiff(bundle: ApplicationDTO, cloudApp: CloudApp): BundleDiff {
+export function computeBundleDiff(
+  bundle: ApplicationDTO,
+  cloudApp: CloudApp,
+  localAppForAssets?: ApplicationDTO
+): BundleDiff {
   const screens = diffArtifacts(
     bundle.screens as ArtifactWithContent[] | undefined,
     cloudApp.screens as ArtifactWithContent[] | undefined
@@ -228,6 +257,11 @@ export function computeBundleDiff(bundle: ApplicationDTO, cloudApp: CloudApp): B
     cloudApp.translations as ArtifactWithContent[] | undefined
   );
 
+  const assets = diffAssets(
+    localAppForAssets?.assets ?? bundle.assets,
+    cloudApp.assets as AssetDTO[] | undefined
+  );
+
   return {
     screens,
     widgets,
@@ -235,6 +269,7 @@ export function computeBundleDiff(bundle: ApplicationDTO, cloudApp: CloudApp): B
     actions,
     themeChanged,
     translations,
+    assets,
   };
 }
 

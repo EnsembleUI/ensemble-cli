@@ -17,6 +17,8 @@ export interface ParsedAppFiles {
   actions: Record<string, string>;
   translations: Record<string, string>;
   theme?: string;
+  /** Basenames of files under assets/ (binary files are not read into memory). */
+  assetFiles?: string[];
 }
 
 export type CollectOptions = Partial<Record<ArtifactProp, boolean>>;
@@ -34,6 +36,19 @@ function shouldInclude(prop: ArtifactProp, options: CollectOptions): boolean {
 
 async function readTextFile(filePath: string): Promise<string> {
   return fs.readFile(filePath, 'utf8');
+}
+
+async function collectAssetBasenames(rootDir: string): Promise<string[]> {
+  const assetsDir = path.join(rootDir, 'assets');
+  try {
+    const entries = await fs.readdir(assetsDir, { withFileTypes: true });
+    return entries
+      .filter((e) => e.isFile())
+      .map((e) => e.name)
+      .sort();
+  } catch {
+    return [];
+  }
 }
 
 export async function collectAppFiles(
@@ -138,6 +153,11 @@ export async function collectAppFiles(
 
   await walk(rootDir);
 
+  const assetFiles = await collectAssetBasenames(rootDir);
+  if (assetFiles.length > 0) {
+    result.assetFiles = assetFiles;
+  }
+
   reportStatus('reading', {
     rootDir,
     taskCount: tasks.length,
@@ -175,6 +195,7 @@ export async function collectAppFiles(
     scriptCount: Object.keys(result.scripts).length,
     widgetCount: Object.keys(result.widgets).length,
     translationCount: Object.keys(result.translations).length,
+    assetCount: assetFiles.length,
     hasTheme: typeof result.theme === 'string',
   });
 

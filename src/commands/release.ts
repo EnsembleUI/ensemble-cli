@@ -118,6 +118,7 @@ export async function releaseCreateCommand(options: ReleaseCreateOptions = {}): 
     ...(localApp.translations &&
       localApp.translations.length > 0 && { translations: localApp.translations }),
     ...(localApp.theme && { theme: localApp.theme }),
+    ...(localApp.assets && localApp.assets.length > 0 && { assets: localApp.assets }),
   };
 
   try {

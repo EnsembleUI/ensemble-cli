@@ -31,6 +31,7 @@ export interface PushSummary {
     actions: PushCounts;
     translations: PushCounts;
     theme: PushCounts;
+    assets: PushCounts;
   };
 }
 
@@ -70,6 +71,14 @@ function computeKindCounts(items: BundleDiff['screens']): PushCounts {
   return { created, updated, deleted };
 }
 
+function computeAssetCounts(items: BundleDiff['assets']): PushCounts {
+  return {
+    created: items.new.length,
+    updated: 0,
+    deleted: 0,
+  };
+}
+
 function computePushSummary(
   appId: string,
   appName: string,
@@ -88,6 +97,8 @@ function computePushSummary(
     ? { created: 0, updated: 1, deleted: 0 }
     : { created: 0, updated: 0, deleted: 0 };
 
+  const assets = computeAssetCounts(diff.assets);
+
   const counts: PushCounts = {
     created:
       screens.created +
@@ -95,21 +106,24 @@ function computePushSummary(
       scripts.created +
       actions.created +
       translations.created +
-      theme.created,
+      theme.created +
+      assets.created,
     updated:
       screens.updated +
       widgets.updated +
       scripts.updated +
       actions.updated +
       translations.updated +
-      theme.updated,
+      theme.updated +
+      assets.updated,
     deleted:
       screens.deleted +
       widgets.deleted +
       scripts.deleted +
       actions.deleted +
       translations.deleted +
-      theme.deleted,
+      theme.deleted +
+      assets.deleted,
   };
 
   return {
@@ -124,6 +138,7 @@ function computePushSummary(
       actions,
       translations,
       theme,
+      assets,
     },
   };
 }
@@ -132,7 +147,7 @@ export function computePushPlan(args: ComputePushPlanArgs): PushPlan {
   const { appId, appName, environment, localApp, cloudApp, enabledByProp, updatedBy } = args;
 
   const bundle = buildMergedBundle(localApp, cloudApp, updatedBy);
-  let diff = computeBundleDiff(bundle, cloudApp);
+  let diff = computeBundleDiff(bundle, cloudApp, localApp);
 
   // Respect per-artifact app options: ignore changes for disabled kinds, driven by ArtifactProps.
   for (const prop of ArtifactProps) {
