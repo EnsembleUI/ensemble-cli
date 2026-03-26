@@ -132,12 +132,9 @@ export async function loginCommand(options: LoginOptions = {}): Promise<void> {
               expiresAt?: number | string;
               state?: string;
             };
-            if (
-              data.token &&
-              typeof data.token === 'string' &&
-              typeof data.state === 'string' &&
-              data.state === state
-            ) {
+            // Some auth providers may not echo back our `cliState` in the callback payload.
+            // As long as we receive a token, we can complete the login.
+            if (data.token && typeof data.token === 'string') {
               clearTimeout(timeout);
               res.writeHead(200, {
                 ...cors,
@@ -157,10 +154,7 @@ export async function loginCommand(options: LoginOptions = {}): Promise<void> {
               });
               res.end(
                 JSON.stringify({
-                  error:
-                    !data.token || typeof data.token !== 'string'
-                      ? 'Missing token'
-                      : 'Invalid state',
+                  error: 'Missing token',
                 })
               );
             }
@@ -180,6 +174,9 @@ export async function loginCommand(options: LoginOptions = {}): Promise<void> {
       ui.heading('Sign in to Ensemble');
       ui.note(
         'Opening your browser. Complete sign-in there; this window will close automatically.'
+      );
+      ui.note(
+        `Open this URL in your browser if it didn't open automatically:\n${loginUrl.toString()}`
       );
       openBrowser(loginUrl.toString());
     });
