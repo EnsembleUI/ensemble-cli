@@ -23,10 +23,15 @@
     "cli"
   ],
   "files": [
-    "dist"
+    "dist",
+    "README.md"
   ],
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/EnsembleUI/ensemble-cli.git"
   },
   "license": "MIT",
   "type": "commonjs",

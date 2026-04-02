@@ -4,39 +4,11 @@ CLI for logging in, initializing, and pushing app definitions to the Ensemble cl
 
 ## Installation
 
-### From GitHub Packages (recommended)
-
-#### Option 1: One-shot install script
-
-Run this command once (it will prompt for a GitHub token with `read:packages`):
-
 ```bash
-curl -fsSL https://raw.githubusercontent.com/EnsembleUI/ensemble-cli/main/scripts/install-ensemble-cli.sh | bash
+npm install -g @ensembleui/cli
 ```
 
-#### Option 2: Manual setup
-
-1. **Configure npm to use GitHub Packages for `@ensembleui`:**
-
-   Add this to your `~/.npmrc` (global) or project `.npmrc`:
-
-   ```bash
-   @ensembleui:registry=https://npm.pkg.github.com
-   //npm.pkg.github.com/:_authToken=YOUR_GITHUB_TOKEN
-   ```
-
-   Your GitHub token must have at least the `read:packages` scope. Treat this token as a **secret**:
-   - Do not commit `.npmrc` to source control.
-   - Prefer the minimum required scopes (typically `read:packages`).
-   - Rotate the token promptly if you suspect it has been exposed.
-
-2. **Install the CLI globally:**
-
-   ```bash
-   npm install -g @ensembleui/cli
-   ```
-
-3. **Use the CLI:**
+### Use the CLI
 
 ```bash
 ensemble login
@@ -49,25 +21,6 @@ ensemble release
 ensemble add
 ensemble update
 ```
-
-### Development setup
-
-```bash
-npm install
-npm run build
-npm link   # link globally for local development
-```
-
-## Releasing (GitHub Packages)
-
-This repo uses GitHub Actions to:
-
-- bump the version in `package.json`
-- create a git tag (e.g. `v0.1.0`)
-- create a GitHub Release
-- publish `@ensembleui/cli` to GitHub Packages
-
-To release a new version, go to GitHub → Actions → run the workflow **Release (bump version, tag, publish)** and choose `patch`, `minor`, or `major`.
 
 ## Commands
 
@@ -201,17 +154,19 @@ Without `-y`, both commands refuse to run when not attached to a TTY and exit wi
 
 > **Tip:** In CI, prefer `ensemble push --dry-run` / `ensemble pull --dry-run` in a validation job, and use `-y` only when you are ready to apply changes.
 
-## Environment Variables
+## Environment variables
+
+For everyday use you do not need to set anything beyond what is described in [CI/CD](#cicd) (`ENSEMBLE_TOKEN` in automation).
+
+**Optional:**
 
 | Variable                          | Purpose                                                                                                      |
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `ENSEMBLE_TOKEN`                  | Token for CI; the CLI uses it instead of global config. Get it with `ensemble token` after `ensemble login`. |
-| `ENSEMBLE_FIREBASE_PROJECT`       | Firestore project (default: `ensemble-web-studio`)                                                           |
-| `ENSEMBLE_AUTH_BASE_URL`          | Auth sign-in URL (default: `https://studio.ensembleui.com/sign-in`)                                          |
-| `ENSEMBLE_FIREBASE_API_KEY`       | Firebase API key used by the CLI (injected at build time; can be overridden for custom environments/tests).  |
-| `ENSEMBLE_VERBOSE` / `VERBOSE`    | When set to a truthy value (`1`, `true`, `yes`, `on`), enables verbose mode for commands that support it.    |
-| `DEBUG`                           | When set to a truthy value (`1`, `true`, `yes`, `on`), enables debug output (same as passing `--debug`).     |
-| `CI` / `ENSEMBLE_NO_UPDATE_CHECK` | When set to a truthy value, disables the automatic version check at startup.                                 |
+| `ENSEMBLE_VERBOSE` / `VERBOSE`    | Truthy values (`1`, `true`, `yes`, `on`) enable verbose mode where supported.                                |
+| `DEBUG`                           | Same idea as global `--debug` (truthy values as above).                                                      |
+| `CI` / `ENSEMBLE_NO_UPDATE_CHECK` | Truthy values disable the startup “new version available” check (useful in CI or when you want a quiet run). |
+
+Firebase project, auth URL, and API key are fixed for the published CLI (the API key is injected when the package is built). You only need to think about those when [developing the CLI](CONTRIBUTING.md#advanced-firebase-and-backend-configuration).
 
 ## Security considerations
 
@@ -219,7 +174,6 @@ Without `-y`, both commands refuse to run when not attached to a TTY and exit wi
   - `ENSEMBLE_TOKEN` (CI token) is a long-lived Firebase refresh token. Store it only in CI secret stores (e.g. GitHub Actions secrets), never in source control or logs.
   - The local auth file at `~/.ensemble/cli-config.json` contains ID tokens and refresh tokens for your user account. Anyone who can read this file can act as you in the CLI.
   - The CLI now writes `~/.ensemble/cli-config.json` with user-only permissions on POSIX systems (`0700` directory, `0600` file), but you should still treat it as sensitive.
-  - GitHub tokens used in `.npmrc` (for GitHub Packages) must not be committed or shared; use least-privilege scopes (`read:packages`) and rotate if exposed.
 - **Auth and authorization model**
   - Authentication is handled via browser sign-in to Ensemble (backed by Firebase). The CLI stores tokens locally and refreshes them via Firebase’s secure token API.
   - Authorization is enforced server-side using Firestore security rules and app-level roles (`write`/`owner`). The CLI passes your Firebase ID token as a Bearer token and does not make its own trust decisions beyond handling HTTP responses.
@@ -230,34 +184,9 @@ Without `-y`, both commands refuse to run when not attached to a TTY and exit wi
   - All shell commands used by the CLI (`npm view`, `npm install -g`, `open`/`start`/`xdg-open`) are static string literals and must remain so to avoid shell injection.
   - Firestore/network debug hooks intentionally avoid logging Authorization headers or raw tokens; custom debug handlers must preserve this invariant.
 
-## Project Structure
+## Contributing
 
-```text
-src/
-├── auth/       # Session & token handling
-├── cloud/      # Firestore API client
-├── commands/   # CLI commands
-├── config/     # Global & project config
-├── core/       # Domain logic (app collection, DTOs, diff)
-└── lib/        # Shared utilities
-tests/
-├── auth/       # Auth unit tests (token, session)
-├── cloud/      # Firestore client tests
-├── config/     # Config tests (project, global)
-├── core/       # Core unit tests (appCollector, bundleDiff, buildDocuments)
-└── lib/        # Utility tests (spinner)
-```
-
-## Development
-
-```bash
-npm run dev        # Run with ts-node
-npm run build      # Compile TypeScript
-npm run test       # Run tests
-npm run test:watch # Run tests in watch mode
-npm run lint       # ESLint
-npm run format     # Prettier
-```
+See [CONTRIBUTING.md](CONTRIBUTING.md) for local development, tests, project layout, and the release workflow.
 
 ## License
 

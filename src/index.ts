@@ -225,7 +225,7 @@ function checkForUpdates(): void {
   // IMPORTANT: This command string must remain a static literal and MUST NOT
   // interpolate user-controlled input to avoid shell injection risks.
   exec(
-    'npm view @ensembleui/cli version --registry=https://npm.pkg.github.com',
+    'npm view @ensembleui/cli version --registry=https://registry.npmjs.org',
     (error, stdout) => {
       if (error) {
         return;

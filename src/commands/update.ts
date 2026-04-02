@@ -7,17 +7,20 @@ export async function updateCommand(): Promise<void> {
   return new Promise((resolve) => {
     // IMPORTANT: This command string must remain a static literal and MUST NOT
     // interpolate user-controlled input to avoid shell injection risks.
-    const child = exec('npm install -g @ensembleui/cli', (error) => {
-      if (error) {
-        ui.error('Failed to update @ensembleui/cli automatically.');
-        ui.note('Please run the following command manually:');
-        // eslint-disable-next-line no-console
-        console.log('  npm install -g @ensembleui/cli');
-      } else {
-        ui.success('Successfully updated @ensembleui/cli to the latest version.');
+    const child = exec(
+      'npm install -g @ensembleui/cli --registry=https://registry.npmjs.org',
+      (error) => {
+        if (error) {
+          ui.error('Failed to update @ensembleui/cli automatically.');
+          ui.note('Please run the following command manually:');
+          // eslint-disable-next-line no-console
+          console.log('  npm install -g @ensembleui/cli --registry=https://registry.npmjs.org');
+        } else {
+          ui.success('Successfully updated @ensembleui/cli to the latest version.');
+        }
+        resolve();
       }
-      resolve();
-    });
+    );
 
     if (child.stdout) {
       child.stdout.pipe(process.stdout);
