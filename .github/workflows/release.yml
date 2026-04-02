@@ -77,4 +77,5 @@ jobs:
       - name: Publish to npm (trusted publishing / OIDC)
         run: |
           npm install -g npm@latest
+          npm config set @ensembleui:registry https://registry.npmjs.org
           npm publish --registry=https://registry.npmjs.org --provenance
