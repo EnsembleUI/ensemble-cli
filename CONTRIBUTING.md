@@ -66,6 +66,7 @@ GitHub Actions bumps the version, tags, creates a GitHub Release, and publishes 
 
 | Secret                      | Purpose                                   |
 | --------------------------- | ----------------------------------------- |
+| `GH_PACKAGES_TOKEN`         | GitHub PAT with `write:packages` scope    |
 | `ENSEMBLE_FIREBASE_API_KEY` | Used at build time when compiling the CLI |
 
 To cut a release: GitHub → **Actions** → **Release (bump version, tag, publish)** → choose `patch`, `minor`, or `major`.

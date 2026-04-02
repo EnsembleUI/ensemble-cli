@@ -19,8 +19,8 @@ jobs:
 
     permissions:
       contents: write
-      packages: write # npm publish → GitHub Packages (GITHUB_TOKEN)
-      id-token: write # npm publish → registry.npmjs.org (OIDC)
+      packages: write
+      id-token: write
 
     steps:
       - name: Checkout repository
@@ -72,7 +72,7 @@ jobs:
       - name: Publish to GitHub Packages
         run: npm publish --registry=https://npm.pkg.github.com
         env:
-          NODE_AUTH_TOKEN: ${{ github.token }}
+          NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_TOKEN != '' && secrets.GH_PACKAGES_TOKEN || github.token }}
 
       - name: Publish to npm (trusted publishing / OIDC)
         run: |
