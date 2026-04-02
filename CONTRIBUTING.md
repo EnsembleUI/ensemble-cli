@@ -58,7 +58,7 @@ If the built-in key is missing or wrong, token refresh may fail with a message t
 
 ## Releases
 
-GitHub Actions bumps the version, tags, creates a GitHub Release, and publishes `@ensembleui/cli` to **GitHub Packages** and \*\*npm`.
+GitHub Actions bumps the version, tags, creates a GitHub Release, and publishes `@ensembleui/cli` to **GitHub Packages** and **npm**.
 
 **npm: trusted publishing (OIDC)** — Pushes to [registry.npmjs.org](https://www.npmjs.com/) use [trusted publishing](https://docs.npmjs.com/trusted-publishers): short-lived tokens via GitHub OIDC, no `NPM_TOKEN` secret. On npm → **Package** → **Settings** → **Trusted publishing**, add **GitHub Actions** with repository `EnsembleUI/ensemble-cli` and workflow filename **`release.yml`** (must match exactly, including `.yml`). `package.json` must keep a correct [`repository`](https://docs.npmjs.com/trusted-publishers) URL for this repo.
 
@@ -66,7 +66,6 @@ GitHub Actions bumps the version, tags, creates a GitHub Release, and publishes 
 
 | Secret                      | Purpose                                   |
 | --------------------------- | ----------------------------------------- |
-| `GH_PACKAGES_TOKEN`         | Publish to GitHub Packages                |
 | `ENSEMBLE_FIREBASE_API_KEY` | Used at build time when compiling the CLI |
 
 To cut a release: GitHub → **Actions** → **Release (bump version, tag, publish)** → choose `patch`, `minor`, or `major`.
