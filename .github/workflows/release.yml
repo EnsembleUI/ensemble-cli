@@ -31,7 +31,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22.14.0
+          node-version: 24
           registry-url: https://npm.pkg.github.com
 
       - name: Install dependencies
@@ -76,5 +76,7 @@ jobs:
 
       - name: Publish to npm (trusted publishing / OIDC)
         run: |
+          node --version
+          npm --version
           npm config set @ensembleui:registry https://registry.npmjs.org
           npm publish --registry=https://registry.npmjs.org --provenance
