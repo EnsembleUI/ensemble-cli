@@ -24,8 +24,9 @@ import {
 } from '../core/manifest.js';
 import { writeVerboseJson } from '../core/debugFiles.js';
 import { computePullPlan, type PullSummary } from '../core/sync.js';
-import { applyCloudAssetsToFs } from '../core/pullAssets.js';
+import { applyCloudAssetsToFs, buildEnvConfigForCloudAssets } from '../core/pullAssets.js';
 import { ui } from '../core/ui.js';
+import { upsertEnvConfig } from '../core/envConfig.js';
 
 export interface PullOptions {
   verbose?: boolean;
@@ -384,6 +385,30 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
       (pullSummary as unknown as { created: number }).created += result.created;
       (pullSummary as unknown as { deleted: number }).deleted += result.deleted;
       (pullSummary as unknown as { skipped: number }).skipped += result.skipped;
+    }
+
+    if (result.failures.length > 0) {
+      ui.warn(
+        `Some assets failed to download (${result.failures.length}).`
+      );
+      const maxLines = 8;
+      for (const f of result.failures.slice(0, maxLines)) {
+        ui.warn(f.message);
+      }
+      if (result.failures.length > maxLines) {
+        ui.note(`(and ${result.failures.length - maxLines} more asset download issues...)`);
+      }
+    }
+
+    // Always (best-effort) update .env.config for assets so ${env.assets}${env.<key>} references work after pull.
+    const envResult = buildEnvConfigForCloudAssets(cloudApp.assets);
+    if (envResult.entries.length > 0) {
+      await upsertEnvConfig(projectRoot, envResult.entries);
+    }
+    if (envResult.failures.length > 0) {
+      ui.warn(
+        `Some assets had invalid metadata and may be missing from .env.config (${envResult.failures.length}).`
+      );
     }
   });
 

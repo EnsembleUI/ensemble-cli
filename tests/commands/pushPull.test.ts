@@ -760,6 +760,77 @@ describe('push/pull integration (commands)', () => {
     const buf = await fs.readFile(path.join(projectRoot, 'assets', 'logo.png'));
     expect([...buf]).toEqual([1, 2, 3, 4]);
 
+    const envConfig = await fs.readFile(path.join(projectRoot, '.env.config'), 'utf8');
+    expect(envConfig).toContain('assets=https://cdn.example.com/');
+    expect(envConfig).toContain('logo_png=logo.png');
+
+    vi.unstubAllGlobals();
+  });
+
+  it('pull continues when an asset download fails (e.g. 403) and reports a warning', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === 'https://cdn.example.com/forbidden.png') {
+        return {
+          ok: false,
+          status: 403,
+          arrayBuffer: async () => new ArrayBuffer(0),
+        } as unknown as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        arrayBuffer: async () => new ArrayBuffer(0),
+      } as unknown as Response;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    (cloudModuleMock.fetchCloudApp as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: 'app1',
+      name: 'App',
+      screens: [
+        {
+          id: 'screen-id-1',
+          name: 'Home',
+          content: 'home: content',
+          type: 'screen',
+          isRoot: true,
+        },
+      ] as unknown[],
+      widgets: [] as unknown[],
+      scripts: [] as unknown[],
+      translations: [] as unknown[],
+      theme: undefined,
+      assets: [
+        {
+          id: 'a1',
+          name: 'forbidden.png',
+          fileName: 'forbidden.png',
+          content: '',
+          type: 'asset',
+          publicUrl: 'https://cdn.example.com/forbidden.png',
+        },
+      ] as unknown[],
+    });
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    // Should not throw even though asset fetch fails.
+    await expect(pullCommand({ verbose: false, yes: true })).resolves.toBeUndefined();
+
+    // Should warn about the failed asset download.
+    const errors = errorSpy.mock.calls.map(([msg]) => String(msg)).join('\n');
+    expect(errors).toContain('Some assets failed to download');
+    expect(errors).toContain('Failed to download asset (403)');
+
+    // Failed asset should not have been written.
+    await expect(fs.readFile(path.join(projectRoot, 'assets', 'forbidden.png'))).rejects.toBeTruthy();
+
+    // .env.config should still be created/updated so env references exist.
+    const envConfig = await fs.readFile(path.join(projectRoot, '.env.config'), 'utf8');
+    expect(envConfig).toContain('assets=https://cdn.example.com/');
+    expect(envConfig).toContain('forbidden_png=forbidden.png');
+
+    errorSpy.mockRestore();
     vi.unstubAllGlobals();
   });
 
