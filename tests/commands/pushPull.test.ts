@@ -682,6 +682,87 @@ describe('push/pull integration (commands)', () => {
     logSpy.mockRestore();
   });
 
+  it('pull dry run shows asset-only changes', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    // Cloud has a new asset; no YAML changes.
+    (cloudModuleMock.fetchCloudApp as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: 'app1',
+      name: 'App',
+      screens: [] as unknown[],
+      widgets: [] as unknown[],
+      scripts: [] as unknown[],
+      translations: [] as unknown[],
+      theme: undefined,
+      assets: [
+        {
+          id: 'a1',
+          name: 'logo.png',
+          fileName: 'logo.png',
+          content: '',
+          type: 'asset',
+          publicUrl: 'https://cdn.example.com/logo.png',
+        },
+      ] as unknown[],
+    });
+
+    await pullCommand({ verbose: false, yes: true, dryRun: true });
+
+    const files = await collectAppFiles(projectRoot);
+    expect(files.assetFiles ?? []).toEqual([]);
+
+    const messages = logSpy.mock.calls.map((args) => String(args[0]));
+    expect(messages.some((m) => m.includes('asset:'))).toBe(true);
+    expect(messages.some((m) => m.includes('logo.png'))).toBe(true);
+
+    logSpy.mockRestore();
+  });
+
+  it('pull downloads missing assets to assets/ when publicUrl is present', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === 'https://cdn.example.com/logo.png') {
+        return {
+          ok: true,
+          status: 200,
+          arrayBuffer: async () => Uint8Array.from([1, 2, 3, 4]).buffer,
+        } as unknown as Response;
+      }
+      return {
+        ok: false,
+        status: 404,
+        arrayBuffer: async () => new ArrayBuffer(0),
+      } as unknown as Response;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    (cloudModuleMock.fetchCloudApp as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: 'app1',
+      name: 'App',
+      screens: [] as unknown[],
+      widgets: [] as unknown[],
+      scripts: [] as unknown[],
+      translations: [] as unknown[],
+      theme: undefined,
+      assets: [
+        {
+          id: 'a1',
+          name: 'logo.png',
+          fileName: 'logo.png',
+          content: '',
+          type: 'asset',
+          publicUrl: 'https://cdn.example.com/logo.png',
+        },
+      ] as unknown[],
+    });
+
+    await pullCommand({ verbose: false, yes: true });
+
+    const buf = await fs.readFile(path.join(projectRoot, 'assets', 'logo.png'));
+    expect([...buf]).toEqual([1, 2, 3, 4]);
+
+    vi.unstubAllGlobals();
+  });
+
   it('pull explains overwrites/deletes and suggests dry run for conflicts', async () => {
     // Existing local file that will be overwritten plus one that will be deleted.
     await fs.mkdir(path.join(projectRoot, 'screens'), { recursive: true });

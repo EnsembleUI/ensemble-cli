@@ -12,6 +12,7 @@ import { computeBundleDiff, normalizeContentForCompare } from './bundleDiff.js';
 import { buildMergedBundle } from './buildDocuments.js';
 import type { RootManifest } from './manifest.js';
 import { buildManifestObject } from './manifest.js';
+import type { AssetDTO } from './dto.js';
 
 export interface PushCounts {
   created: number;
@@ -223,6 +224,7 @@ export function computePullPlan({
   enabledByProp,
 }: ComputePullPlanArgs): PullPlan {
   const matchesByProp: Partial<Record<ArtifactProp, boolean>> = {};
+  let assetsMatch = true;
 
   for (const cfg of ARTIFACT_FS_CONFIG) {
     const { prop, isTheme, ext } = cfg;
@@ -288,12 +290,33 @@ export function computePullPlan({
   const manifestExistingRaw = JSON.stringify(manifestExisting, null, 2) + '\n';
   const manifestMatch = manifestExistingRaw === manifestExpectedRaw;
 
-  const allArtifactsMatch = ArtifactProps.every((prop) => matchesByProp[prop] ?? true);
+  // Asset files live under assets/ and are binary, so they are not part of ArtifactProps/ARTIFACT_FS_CONFIG.
+  // Track their match separately so "Nothing to pull" is only true when assets also match.
+  {
+    const cloudActiveAssets = ((cloudApp.assets ?? []) as AssetDTO[]).filter(
+      (a) => a.isArchived !== true
+    );
+    const expected = new Set(cloudActiveAssets.map((a) => a.fileName).filter(Boolean));
+    const actual = new Set((localFiles.assetFiles ?? []).filter(Boolean));
+    assetsMatch = expected.size === actual.size;
+    if (assetsMatch) {
+      for (const f of expected) {
+        if (!actual.has(f)) {
+          assetsMatch = false;
+          break;
+        }
+      }
+    }
+  }
+
+  const allArtifactsMatch =
+    ArtifactProps.every((prop) => matchesByProp[prop] ?? true) && assetsMatch;
 
   const changes: PullChange[] = [];
   let createdCount = 0;
   let updatedCount = 0;
   let deletedCount = 0;
+  let skippedCount = 0;
 
   for (const cfg of ARTIFACT_FS_CONFIG) {
     const { prop, isTheme, ext } = cfg;
@@ -388,13 +411,40 @@ export function computePullPlan({
     }
   }
 
+  // Assets are binary files under assets/, so they are handled separately from ARTIFACT_FS_CONFIG.
+  // We only plan create/delete based on file presence; we do not attempt to detect modifications.
+  const cloudActiveAssets = ((cloudApp.assets ?? []) as AssetDTO[]).filter(
+    (a) => a.isArchived !== true
+  );
+  const expected = new Set(cloudActiveAssets.map((a) => a.fileName).filter(Boolean));
+  const actual = new Set((localFiles.assetFiles ?? []).filter(Boolean));
+
+  for (const fileName of expected) {
+    if (!actual.has(fileName)) {
+      createdCount += 1;
+      changes.push({ kind: 'asset', file: `assets/${fileName}`, operation: 'create' });
+    }
+  }
+  for (const fileName of actual) {
+    if (!expected.has(fileName)) {
+      deletedCount += 1;
+      changes.push({ kind: 'asset', file: `assets/${fileName}`, operation: 'delete' });
+    }
+  }
+
+  // If the cloud has assets without publicUrl, we can't download them; count as skipped so the summary is honest.
+  const missingPublicUrl = cloudActiveAssets.filter(
+    (a) => !a.publicUrl || typeof a.publicUrl !== 'string' || a.publicUrl.trim() === ''
+  ).length;
+  skippedCount += missingPublicUrl;
+
   const summary: PullSummary = {
     appName,
     environment,
     created: createdCount,
     updated: updatedCount,
     deleted: deletedCount,
-    skipped: 0,
+    skipped: skippedCount,
     changes,
   };
 

@@ -49,6 +49,18 @@ function widget(id: string, name: string, content: string, opts?: { isArchived?:
   };
 }
 
+function asset(id: string, fileName: string, opts?: { isArchived?: boolean; publicUrl?: string }) {
+  return {
+    id,
+    name: fileName,
+    fileName,
+    content: '',
+    type: EnsembleDocumentType.Asset as const,
+    isArchived: opts?.isArchived,
+    publicUrl: opts?.publicUrl,
+  };
+}
+
 describe('computePullPlan + computePushPlan consistency', () => {
   /**
    * Critical invariant: when pull says "up to date", push must say "nothing to push".
@@ -417,6 +429,40 @@ describe('computePullPlan + computePushPlan consistency', () => {
     });
 
     expect(pushPlan.diff.themeChanged).toBe(false);
+  });
+
+  it('assets-only diffs make pull report not up to date', () => {
+    const cloudApp: CloudApp = {
+      id: 'app1',
+      name: 'App',
+      screens: [],
+      widgets: [],
+      scripts: [],
+      translations: [],
+      assets: [asset('a1', 'logo.png', { publicUrl: 'https://cdn.example.com/logo.png' })],
+    };
+    const localFiles: ParsedAppFiles = {
+      screens: {},
+      widgets: {},
+      scripts: {},
+      actions: {},
+      translations: {},
+      assetFiles: [],
+    };
+
+    const pullPlan = computePullPlan({
+      appName: 'App',
+      environment: 'dev',
+      cloudApp,
+      localFiles,
+      manifestExisting: emptyManifest,
+      enabledByProp,
+    });
+
+    expect(pullPlan.allArtifactsMatch).toBe(false);
+    expect(
+      pullPlan.summary.changes.some((c) => c.kind === 'asset' && c.operation === 'create')
+    ).toBe(true);
   });
 });
 

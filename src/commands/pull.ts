@@ -24,6 +24,7 @@ import {
 } from '../core/manifest.js';
 import { writeVerboseJson } from '../core/debugFiles.js';
 import { computePullPlan, type PullSummary } from '../core/sync.js';
+import { applyCloudAssetsToFs } from '../core/pullAssets.js';
 import { ui } from '../core/ui.js';
 
 export interface PullOptions {
@@ -362,6 +363,28 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
         console.log(`Writing files... (${completed}/${total})`);
       },
     });
+  });
+
+  // Sync assets/ after YAML files are written.
+  // This pulls binary files via each asset's publicUrl and deletes local extras.
+  await withSpinner('Syncing assets...', async () => {
+    const result = await applyCloudAssetsToFs({
+      projectRoot,
+      cloudAssets: cloudApp.assets,
+    });
+    // Fold any asset changes into the already-computed pullSummary so the final output reflects what we did.
+    if (result.created || result.deleted || result.skipped) {
+      (
+        pullSummary.changes as PullSummary['changes'] as unknown as Array<{
+          kind: string;
+          file: string;
+          operation: string;
+        }>
+      ).push(...result.changes);
+      (pullSummary as unknown as { created: number }).created += result.created;
+      (pullSummary as unknown as { deleted: number }).deleted += result.deleted;
+      (pullSummary as unknown as { skipped: number }).skipped += result.skipped;
+    }
   });
 
   printPullSummary(pullSummary);
