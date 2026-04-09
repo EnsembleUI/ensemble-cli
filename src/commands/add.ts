@@ -13,6 +13,12 @@ import { withSpinner } from '../lib/spinner.js';
 
 export type AddKind = 'screen' | 'widget' | 'script' | 'action' | 'translation' | 'asset';
 
+type AssetConflictResolution = 'cancel' | 'overwrite';
+
+function isInteractiveTty(): boolean {
+  return Boolean(process.stdout.isTTY && process.stdin.isTTY);
+}
+
 function normalizeName(raw: string): string {
   const trimmed = raw.trim();
   if (!trimmed) return 'Untitled';
@@ -22,6 +28,18 @@ function normalizeName(raw: string): string {
 
 function nameWithoutSpaces(name: string): string {
   return name.replace(/\s+/g, '');
+}
+
+function stripWrappingQuotes(input: string): string {
+  const trimmed = input.trim();
+  // Strip one pair of wrapping quotes to support common CLI copy/paste like '/path with spaces/file.png'
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"') && trimmed.length >= 2) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'") && trimmed.length >= 2)
+  ) {
+    return trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
 }
 
 async function resolveNameWithSpaces(name: string, interactive: boolean): Promise<string> {
@@ -59,13 +77,15 @@ async function fileExists(filePath: string): Promise<boolean> {
 
 async function addAsset(
   projectRoot: string,
-  assetPathInput: string
+  assetPathInput: string,
+  options: { overwrite?: boolean; interactive?: boolean } = {}
 ): Promise<{
   fileName: string;
   createdPath: string;
   usageKey: string;
+  skipped?: boolean;
 }> {
-  const resolvedInputPath = path.resolve(projectRoot, assetPathInput.trim());
+  const resolvedInputPath = path.resolve(projectRoot, stripWrappingQuotes(assetPathInput));
   const sourceStat = await fs.stat(resolvedInputPath).catch(() => null);
   if (!sourceStat || !sourceStat.isFile()) {
     throw new Error(`Asset path does not exist or is not a file: ${assetPathInput}`);
@@ -74,8 +94,37 @@ async function addAsset(
   const targetDir = path.join(projectRoot, 'assets');
   await ensureDir(targetDir);
   const targetPath = path.join(targetDir, fileName);
+  const overwrite = options.overwrite === true;
   if (await fileExists(targetPath)) {
-    throw new Error(`File already exists: ${path.relative(projectRoot, targetPath)}`);
+    if (!overwrite) {
+      const canPrompt = options.interactive === true;
+      if (!canPrompt) {
+        throw new Error(
+          `File already exists: ${path.relative(projectRoot, targetPath)}. Re-run with --overwrite to replace it.`
+        );
+      }
+
+      const { resolution } = await prompts({
+        type: 'select',
+        name: 'resolution',
+        message: `Asset already exists at ${path.relative(projectRoot, targetPath)}. What do you want to do?`,
+        choices: [
+          { title: 'Cancel', value: 'cancel' },
+          { title: 'Overwrite (reupload)', value: 'overwrite' },
+        ],
+        initial: 0,
+      });
+
+      const r = resolution as AssetConflictResolution | undefined;
+      if (!r || r === 'cancel') {
+        return {
+          fileName,
+          createdPath: path.relative(projectRoot, targetPath),
+          usageKey: '',
+          skipped: true,
+        };
+      }
+    }
   }
 
   await fs.copyFile(resolvedInputPath, targetPath);
@@ -201,10 +250,15 @@ function translationTemplate(name: string): string {
 `;
 }
 
-export async function addCommand(kindArg?: AddKind, rawNameArg?: string): Promise<void> {
+export async function addCommand(
+  kindArg?: AddKind,
+  rawNameArg?: string,
+  options: { overwrite?: boolean } = {}
+): Promise<void> {
   let kind = kindArg;
   let rawName = rawNameArg;
-  const interactive = !kindArg || !rawNameArg;
+  const canPrompt = isInteractiveTty();
+  const interactive = canPrompt && (!kindArg || !rawNameArg);
 
   if (!kind) {
     const { kind: selected } = await prompts({
@@ -251,9 +305,18 @@ export async function addCommand(kindArg?: AddKind, rawNameArg?: string): Promis
 
   const { projectRoot } = await loadProjectConfig();
   if (kind === 'asset') {
-    const { fileName, createdPath, usageKey } = await addAsset(projectRoot, rawName);
+    const { fileName, createdPath, usageKey, skipped } = await addAsset(projectRoot, rawName, {
+      interactive: canPrompt,
+      overwrite: options.overwrite,
+    });
+    if (skipped) {
+      ui.warn('Add cancelled.');
+      return;
+    }
     ui.success(`Created asset "${fileName}" at ${createdPath} and updated .env.config.`);
-    ui.note(`Usage Example: ${usageKey}`);
+    if (usageKey) {
+      ui.note(`Usage Example: ${usageKey}`);
+    }
     return;
   }
 

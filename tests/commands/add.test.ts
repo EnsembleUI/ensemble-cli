@@ -98,6 +98,16 @@ describe('addCommand asset', () => {
     expect(envConfig.includes('\n\n')).toBe(false);
   });
 
+  it('accepts a quoted asset path (common copy/paste)', async () => {
+    const sourceFile = path.join(projectRoot, 'Wifi password.json');
+    await fs.writeFile(sourceFile, Buffer.from([1, 2, 3]));
+
+    await addCommand('asset', `'${sourceFile}'`);
+
+    const copied = await fs.readFile(path.join(projectRoot, 'assets', 'Wifi password.json'));
+    expect(copied.equals(Buffer.from([1, 2, 3]))).toBe(true);
+  });
+
   it('preserves existing assets key and appends env variable key', async () => {
     await fs.writeFile(
       path.join(projectRoot, '.env.config'),
@@ -113,5 +123,26 @@ describe('addCommand asset', () => {
     expect(envConfig).toContain('assets=https://existing.example.com/base/');
     expect(envConfig).toContain('EXTRA=value');
     expect(envConfig).toContain('image_2_png=image-2.png?alt=media&token=abc');
+  });
+
+  it('errors when asset already exists (non-interactive)', async () => {
+    const sourceFile = path.join(projectRoot, 'logo.png');
+    await fs.writeFile(sourceFile, Buffer.from([1, 2, 3, 4]));
+    await fs.mkdir(path.join(projectRoot, 'assets'), { recursive: true });
+    await fs.writeFile(path.join(projectRoot, 'assets', 'logo.png'), Buffer.from([9]));
+
+    await expect(addCommand('asset', sourceFile)).rejects.toThrow(/already exists/i);
+  });
+
+  it('overwrites existing asset when --overwrite is set', async () => {
+    const sourceFile = path.join(projectRoot, 'logo.png');
+    await fs.writeFile(sourceFile, Buffer.from([1, 2, 3, 4]));
+    await fs.mkdir(path.join(projectRoot, 'assets'), { recursive: true });
+    await fs.writeFile(path.join(projectRoot, 'assets', 'logo.png'), Buffer.from([9]));
+
+    await addCommand('asset', sourceFile, { overwrite: true });
+
+    const copied = await fs.readFile(path.join(projectRoot, 'assets', 'logo.png'));
+    expect(copied.equals(Buffer.from([1, 2, 3, 4]))).toBe(true);
   });
 });

@@ -177,7 +177,8 @@ program
   .description('Add a new screen, widget, script, action, translation, or asset.')
   .argument('[kind]', 'Artifact type: screen | widget | script | action | translation | asset')
   .argument('[name]', 'Name/path of the artifact (asset expects a file path)')
-  .action(async (kind?: string, name?: string) => {
+  .option('--overwrite', 'Overwrite existing file when adding (assets)', false)
+  .action(async (kind?: string, name?: string, options?: { overwrite?: boolean }) => {
     let normalizedKind:
       | 'screen'
       | 'widget'
@@ -203,7 +204,7 @@ program
         );
       }
     }
-    await addCommand(normalizedKind, name);
+    await addCommand(normalizedKind, name, { overwrite: options?.overwrite });
   });
 
 program
