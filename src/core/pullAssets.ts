@@ -68,7 +68,7 @@ function extractEnvKeyFromCopyText(copyText: string | undefined): string | undef
   const unique = [...new Set(keys)];
   const nonAssets = unique.filter((k) => k !== 'assets');
   // Prefer the single non-assets key if present; otherwise fall back to first key (if any).
-  return nonAssets.length === 1 ? nonAssets[0] : nonAssets[0] ?? unique[0];
+  return nonAssets.length === 1 ? nonAssets[0] : (nonAssets[0] ?? unique[0]);
 }
 
 function deriveEnvKeyFromFileName(fileName: string): string {
@@ -148,8 +148,7 @@ export function buildEnvConfigForCloudAssets(
     baseCounts.set(derived.baseUrl, (baseCounts.get(derived.baseUrl) ?? 0) + 1);
   }
 
-  const preferredBase =
-    [...baseCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? undefined;
+  const preferredBase = [...baseCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? undefined;
 
   const entries: Array<Parameters<typeof upsertEnvConfig>[1][number]> = [];
   if (preferredBase) {

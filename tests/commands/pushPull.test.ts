@@ -823,7 +823,9 @@ describe('push/pull integration (commands)', () => {
     expect(errors).toContain('Failed to download asset (403)');
 
     // Failed asset should not have been written.
-    await expect(fs.readFile(path.join(projectRoot, 'assets', 'forbidden.png'))).rejects.toBeTruthy();
+    await expect(
+      fs.readFile(path.join(projectRoot, 'assets', 'forbidden.png'))
+    ).rejects.toBeTruthy();
 
     // .env.config should still be created/updated so env references exist.
     const envConfig = await fs.readFile(path.join(projectRoot, '.env.config'), 'utf8');

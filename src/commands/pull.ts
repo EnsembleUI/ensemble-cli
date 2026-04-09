@@ -388,9 +388,7 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
     }
 
     if (result.failures.length > 0) {
-      ui.warn(
-        `Some assets failed to download (${result.failures.length}).`
-      );
+      ui.warn(`Some assets failed to download (${result.failures.length}).`);
       const maxLines = 8;
       for (const f of result.failures.slice(0, maxLines)) {
         ui.warn(f.message);
