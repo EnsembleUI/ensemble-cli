@@ -143,7 +143,6 @@ describe('push/pull integration (commands)', () => {
         {
           scripts: [],
           widgets: [],
-          homeScreenName: 'Home',
           defaultLanguage: 'ar',
           languages: ['ar', 'en'],
         },
@@ -483,13 +482,11 @@ describe('push/pull integration (commands)', () => {
     const manifest = JSON.parse(manifestRaw) as {
       widgets?: { name: string }[];
       scripts?: { name: string }[];
-      homeScreenName?: string;
       defaultLanguage?: string;
       languages?: string[];
     };
     expect(manifest.widgets?.some((w) => w.name === 'W1')).toBe(true);
     expect(manifest.scripts?.some((s) => s.name === 'S1')).toBe(true);
-    expect(manifest.homeScreenName).toBe('Home');
     expect(manifest.defaultLanguage).toBe('ar');
     expect(manifest.languages).toEqual(['ar', 'en']);
 

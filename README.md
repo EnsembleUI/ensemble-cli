@@ -110,7 +110,7 @@ ensemble update
 
 - **Manifest behavior**
   - For `widget`, `script`, `action`, and `translation`, `.manifest.json` is updated to include the new artifact.
-  - For the **first screen**, the CLI will offer to set it as `homeScreenName` in `.manifest.json`.
+  - Screens do not change `.manifest.json`.
 
 ## Usage
 

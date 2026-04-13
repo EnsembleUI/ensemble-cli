@@ -7,23 +7,11 @@ export type RootManifest = Record<string, unknown> & {
   scripts?: { name: string }[];
   widgets?: { name: string }[];
   actions?: { name: string }[];
-  homeScreenName?: string;
   defaultLanguage?: string;
   languages?: string[];
 };
 
-/** Get the screen name that cloud has as root (isRoot: true). */
-export function getCloudHomeScreenName(cloudApp: CloudApp): string | undefined {
-  const screens = (cloudApp.screens ?? []).filter((s) => s.isArchived !== true);
-  return screens.find((s) => s.isRoot === true)?.name ?? screens[0]?.name;
-}
-
-export interface BuildManifestOptions {
-  /** appHome from ensemble.config.json for the current app. */
-  appHomeFromConfig?: string;
-  /** When provided (e.g. from user prompt after conflict), use this value. Otherwise preserve existing if set. */
-  homeScreenNameOverride?: string;
-}
+export type BuildManifestOptions = Record<string, never>;
 
 /** Preserve existing manifest entries by name and order; only add minimal { name } for new ones. */
 function mergeByName<T extends { name: string }>(
@@ -50,7 +38,7 @@ export function buildManifestObject(
   cloudApp: CloudApp,
   options: BuildManifestOptions = {}
 ): RootManifest {
-  const { appHomeFromConfig, homeScreenNameOverride } = options;
+  void options;
 
   const cloudWidgetNames = (cloudApp.widgets ?? [])
     .filter((w) => w.isArchived !== true)
@@ -67,18 +55,6 @@ export function buildManifestObject(
     .map((a) => a.name);
   const actions = mergeByName(existing.actions, cloudActionNames);
 
-  const screens = (cloudApp.screens ?? []).filter((s) => s.isArchived !== true);
-  const cloudHome = screens.find((s) => s.isRoot === true)?.name ?? screens[0]?.name;
-
-  let homeScreenName: string | undefined;
-  if (homeScreenNameOverride) {
-    homeScreenName = homeScreenNameOverride;
-  } else if (typeof existing.homeScreenName === 'string') {
-    homeScreenName = existing.homeScreenName;
-  } else {
-    homeScreenName = appHomeFromConfig ?? cloudHome;
-  }
-
   const translations = (cloudApp.translations ?? []).filter((t) => t.isArchived !== true);
   const languages = translations.map((t) => t.name);
   const defaultLanguage =
@@ -91,7 +67,6 @@ export function buildManifestObject(
     widgets,
     scripts,
     actions,
-    ...(homeScreenName ? { homeScreenName } : {}),
     ...(languages.length > 0 ? { languages } : {}),
     ...(defaultLanguage ? { defaultLanguage } : {}),
   };

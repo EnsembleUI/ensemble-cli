@@ -373,10 +373,9 @@ export async function releaseUseCommand(options: ReleaseUseOptions = {}): Promis
     const snapshot = JSON.parse(snapshotJson) as CloudApp;
 
     const localFiles = await collectAppFiles(projectRoot);
-    const appHome = appConfig.appHome as string | undefined;
     await withSpinner('Writing local files...', () =>
       applyCloudStateToFs(projectRoot, snapshot, localFiles, enabledByProp, {
-        manifestOptions: { appHomeFromConfig: appHome },
+        manifestOptions: {},
         onProgress: (completed, total) => {
           if (total > 0 && completed % 25 === 0) {
             // eslint-disable-next-line no-console

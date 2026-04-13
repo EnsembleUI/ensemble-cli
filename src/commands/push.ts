@@ -20,7 +20,7 @@ import { getValidAuthSession } from '../auth/session.js';
 import { withSpinner } from '../lib/spinner.js';
 import { writeVerboseJson } from '../core/debugFiles.js';
 import { computePushPlan, type PushSummary, type PushCounts } from '../core/sync.js';
-import { buildAndWriteManifest, getCloudHomeScreenName } from '../core/manifest.js';
+import { buildAndWriteManifest } from '../core/manifest.js';
 import { ui } from '../core/ui.js';
 
 export interface PushOptions {
@@ -33,6 +33,11 @@ export interface PushOptions {
 }
 
 const DESTRUCTIVE_CHANGE_PROMPT_THRESHOLD = 25;
+
+function getCloudHomeScreenName(cloudApp: CloudApp): string | undefined {
+  const screens = (cloudApp.screens ?? []).filter((s) => s.isArchived !== true);
+  return screens.find((s) => s.isRoot === true)?.name ?? screens[0]?.name;
+}
 
 /** Firestore/YAML artifact changes only (not asset uploads via studio function). */
 function yamlArtifactChangeTotal(summary: PushSummary): number {
@@ -448,13 +453,9 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
 
       if (manifestNeedsRefresh && bundle) {
         // Only refresh manifest when artifact changes can affect its contents.
-        // Use appHome from config (what we pushed), not cloud's root.
         try {
           await withSpinner('Refreshing local manifest...', async () => {
-            await buildAndWriteManifest(root, bundle as CloudApp, {
-              appHomeFromConfig: appHome,
-              ...(appHome && { homeScreenNameOverride: appHome }),
-            });
+            await buildAndWriteManifest(root, bundle as CloudApp, {});
           });
         } catch (manifestErr) {
           if (verbose) {

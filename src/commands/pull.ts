@@ -17,11 +17,7 @@ import { resolveAppContext } from '../config/projectConfig.js';
 import { getValidAuthSession } from '../auth/session.js';
 import { withSpinner } from '../lib/spinner.js';
 import { applyCloudStateToFs } from '../core/applyToFs.js';
-import {
-  type RootManifest,
-  getCloudHomeScreenName,
-  type BuildManifestOptions,
-} from '../core/manifest.js';
+import { type RootManifest } from '../core/manifest.js';
 import { writeVerboseJson } from '../core/debugFiles.js';
 import { computePullPlan, type PullSummary } from '../core/sync.js';
 import { applyCloudAssetsToFs, buildEnvConfigForCloudAssets } from '../core/pullAssets.js';
@@ -324,41 +320,9 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
     return;
   }
 
-  const appHome = appConfig.appHome as string | undefined;
-  const cloudHome = getCloudHomeScreenName(cloudApp);
-  const existingHome = manifestExisting.homeScreenName;
-  const hasHomeConflict =
-    typeof existingHome === 'string' && cloudHome && appHome && cloudHome !== appHome;
-
-  let manifestOptions: BuildManifestOptions = {
-    appHomeFromConfig: appHome,
-  };
-  if (hasHomeConflict && process.stdout.isTTY && process.stdin.isTTY) {
-    const choices: { title: string; value: string }[] = [
-      { title: `Keep current (${existingHome})`, value: existingHome },
-      ...(cloudHome && cloudHome !== existingHome
-        ? [{ title: `Use cloud (${cloudHome})`, value: cloudHome }]
-        : []),
-      ...(appHome && appHome !== existingHome
-        ? [{ title: `Use config appHome (${appHome})`, value: appHome }]
-        : []),
-    ].filter((c, i, a) => a.findIndex((x) => x.value === c.value) === i);
-
-    const { homeChoice } = await prompts({
-      type: 'select',
-      name: 'homeChoice',
-      message: `homeScreenName conflict: .manifest has "${existingHome}", cloud has "${cloudHome ?? 'none'}"${appHome ? `, ensemble.config.json appHome is "${appHome}"` : ''}. Choose:`,
-      choices,
-      initial: 0,
-    });
-    if (homeChoice !== undefined) {
-      manifestOptions = { ...manifestOptions, homeScreenNameOverride: homeChoice };
-    }
-  }
-
   await withSpinner('Writing local files...', async () => {
     await applyCloudStateToFs(projectRoot, cloudApp, localFiles, enabledByProp, {
-      manifestOptions,
+      manifestOptions: {},
       onProgress: (completed, total) => {
         // eslint-disable-next-line no-console
         console.log(`Writing files... (${completed}/${total})`);

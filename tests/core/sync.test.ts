@@ -18,7 +18,6 @@ const enabledByProp = {
 const emptyManifest = {
   scripts: [],
   widgets: [],
-  homeScreenName: undefined as string | undefined,
   defaultLanguage: undefined as string | undefined,
   languages: [] as string[],
 };
@@ -89,7 +88,7 @@ describe('computePullPlan + computePushPlan consistency', () => {
       environment: 'dev',
       cloudApp,
       localFiles,
-      manifestExisting: { ...emptyManifest, homeScreenName: 'Home' },
+      manifestExisting: { ...emptyManifest },
       enabledByProp,
     });
     expect(pullPlan.allArtifactsMatch).toBe(true);
@@ -135,7 +134,7 @@ describe('computePullPlan + computePushPlan consistency', () => {
       environment: 'dev',
       cloudApp,
       localFiles,
-      manifestExisting: { ...emptyManifest, homeScreenName: 'Home' },
+      manifestExisting: { ...emptyManifest },
       enabledByProp,
     });
     expect(pullPlan.allArtifactsMatch).toBe(true);
@@ -179,7 +178,7 @@ describe('computePullPlan + computePushPlan consistency', () => {
       environment: 'dev',
       cloudApp,
       localFiles,
-      manifestExisting: { ...emptyManifest, homeScreenName: 'Home' },
+      manifestExisting: { ...emptyManifest },
       enabledByProp,
     });
     expect(pullPlan.allArtifactsMatch).toBe(true);
@@ -225,7 +224,7 @@ describe('computePullPlan + computePushPlan consistency', () => {
       environment: 'dev',
       cloudApp,
       localFiles,
-      manifestExisting: { ...emptyManifest, homeScreenName: 'Home' },
+      manifestExisting: { ...emptyManifest },
       enabledByProp,
     });
     expect(pullPlan.allArtifactsMatch).toBe(true);
@@ -273,7 +272,7 @@ describe('computePullPlan + computePushPlan consistency', () => {
       environment: 'dev',
       cloudApp,
       localFiles,
-      manifestExisting: { ...emptyManifest, homeScreenName: 'Home' },
+      manifestExisting: { ...emptyManifest },
       enabledByProp,
     });
     expect(pullPlan.allArtifactsMatch).toBe(true);
@@ -315,7 +314,7 @@ describe('computePullPlan + computePushPlan consistency', () => {
       environment: 'dev',
       cloudApp,
       localFiles,
-      manifestExisting: { ...emptyManifest, homeScreenName: 'Home' },
+      manifestExisting: { ...emptyManifest },
       enabledByProp,
     });
     expect(pullPlan.allArtifactsMatch).toBe(false);

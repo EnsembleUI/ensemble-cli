@@ -2,12 +2,11 @@ import fs from 'fs/promises';
 import path from 'path';
 import prompts from 'prompts';
 
-import { loadProjectConfig } from '../config/projectConfig.js';
-import { resolveAppContext } from '../config/projectConfig.js';
+import { loadProjectConfig, resolveAppContext } from '../config/projectConfig.js';
 import { getValidAuthSession } from '../auth/session.js';
 import { uploadAssetToStudio } from '../cloud/assetClient.js';
 import { upsertEnvConfig } from '../core/envConfig.js';
-import { upsertManifestEntry, type RootManifest } from '../core/manifest.js';
+import { upsertManifestEntry } from '../core/manifest.js';
 import { ui } from '../core/ui.js';
 import { withSpinner } from '../lib/spinner.js';
 
@@ -151,42 +150,6 @@ async function addAsset(
     createdPath: path.relative(projectRoot, targetPath),
     usageKey: uploadResult.usageKey,
   };
-}
-
-async function maybeSetHomeScreenName(
-  projectRoot: string,
-  screenName: string,
-  interactive: boolean
-): Promise<boolean> {
-  const manifestPath = path.join(projectRoot, '.manifest.json');
-  let manifest: RootManifest = {};
-  try {
-    const raw = await fs.readFile(manifestPath, 'utf8');
-    manifest = JSON.parse(raw) as RootManifest;
-  } catch {
-    manifest = {};
-  }
-
-  if (manifest.homeScreenName && typeof manifest.homeScreenName === 'string') {
-    return false;
-  }
-
-  let shouldSet = true;
-  if (interactive) {
-    const { setHome } = await prompts({
-      type: 'confirm',
-      name: 'setHome',
-      message: `Set "${screenName}" as homeScreenName (no homeScreenName set yet)?`,
-      initial: true,
-    });
-    shouldSet = setHome === true;
-  }
-
-  if (!shouldSet) return false;
-
-  manifest.homeScreenName = screenName;
-  await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
-  return true;
 }
 
 function screenTemplate(name: string): string {
@@ -381,13 +344,10 @@ export async function addCommand(
     );
   }
 
-  const homeUpdated =
-    kind === 'screen' ? await maybeSetHomeScreenName(projectRoot, name, interactive) : false;
-
   ui.success(
     `Created ${kind} "${name}" at ${path.relative(
       projectRoot,
       filePath
-    )}${updateManifest ? ' and updated .manifest.json' : ''}${homeUpdated ? ' (set as homeScreenName)' : ''}.`
+    )}${updateManifest ? ' and updated .manifest.json' : ''}.`
   );
 }
