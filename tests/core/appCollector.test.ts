@@ -24,6 +24,17 @@ describe('collectAppFiles', () => {
     expect(result.assetFiles).toEqual(['logo.png']);
   });
 
+  it('excludes .DS_Store and AppleDouble files from assets', async () => {
+    await fs.mkdir(path.join(tmpDir, 'assets'), { recursive: true });
+    await fs.writeFile(path.join(tmpDir, 'assets', '.DS_Store'), Buffer.from([1]));
+    await fs.writeFile(path.join(tmpDir, 'assets', '._logo.png'), Buffer.from([2]));
+    await fs.writeFile(path.join(tmpDir, 'assets', 'logo.png'), Buffer.from([3]));
+
+    const result = await collectAppFiles(tmpDir);
+
+    expect(result.assetFiles).toEqual(['logo.png']);
+  });
+
   it('collects screens, widgets, scripts', async () => {
     await fs.mkdir(path.join(tmpDir, 'screens'), { recursive: true });
     await fs.mkdir(path.join(tmpDir, 'widgets'), { recursive: true });

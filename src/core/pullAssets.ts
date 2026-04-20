@@ -3,6 +3,7 @@ import path from 'path';
 
 import type { AssetDTO } from './dto.js';
 import type { upsertEnvConfig } from './envConfig.js';
+import { isIgnoredAssetFileName } from './assetIgnore.js';
 
 export class AssetPullError extends Error {
   constructor(
@@ -210,7 +211,10 @@ export async function applyCloudAssetsToFs(params: {
   let localFiles: string[] = [];
   try {
     const entries = await fs.readdir(assetsDir, { withFileTypes: true });
-    localFiles = entries.filter((e) => e.isFile()).map((e) => e.name);
+    localFiles = entries
+      .filter((e) => e.isFile())
+      .map((e) => e.name)
+      .filter((name) => !isIgnoredAssetFileName(name));
   } catch {
     localFiles = [];
   }

@@ -8,6 +8,7 @@ import path from 'path';
 
 import type { ArtifactProp } from './artifacts.js';
 import { ARTIFACT_CONFIGS } from './artifacts.js';
+import { isIgnoredAssetFileName } from './assetIgnore.js';
 import { processWithConcurrency } from './concurrency.js';
 
 export interface ParsedAppFiles {
@@ -45,6 +46,7 @@ async function collectAssetBasenames(rootDir: string): Promise<string[]> {
     return entries
       .filter((e) => e.isFile())
       .map((e) => e.name)
+      .filter((name) => !isIgnoredAssetFileName(name))
       .sort();
   } catch {
     return [];
