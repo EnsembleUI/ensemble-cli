@@ -2,6 +2,12 @@ import type { CloudApp } from '../cloud/firestoreClient.js';
 import type { ParsedAppFiles } from './appCollector.js';
 import type { ApplicationDTO } from './dto.js';
 import {
+  envConfigEntriesMatchCloud,
+  envSecretsEntriesMatchCloud,
+  mergeAssetFileNamesForEnvCompare,
+  type LocalEnvFiles,
+} from './envSync.js';
+import {
   ArtifactProps,
   type ArtifactProp,
   ARTIFACT_FS_CONFIG,
@@ -213,6 +219,7 @@ export interface ComputePullPlanArgs {
   localFiles: ParsedAppFiles;
   manifestExisting: RootManifest;
   enabledByProp: Record<ArtifactProp, boolean>;
+  localEnv?: LocalEnvFiles;
 }
 
 export function computePullPlan({
@@ -222,6 +229,7 @@ export function computePullPlan({
   localFiles,
   manifestExisting,
   enabledByProp,
+  localEnv,
 }: ComputePullPlanArgs): PullPlan {
   const matchesByProp: Partial<Record<ArtifactProp, boolean>> = {};
   let assetsMatch = true;
@@ -309,8 +317,20 @@ export function computePullPlan({
     }
   }
 
+  const envAssetFileNames = mergeAssetFileNamesForEnvCompare(
+    localFiles.assetFiles ?? [],
+    cloudApp.assets
+  );
+  const envConfigMatch = envConfigEntriesMatchCloud(
+    localEnv?.envConfig ?? [],
+    cloudApp.config,
+    envAssetFileNames
+  );
+  const envSecretsMatch = envSecretsEntriesMatchCloud(localEnv?.envSecrets ?? [], cloudApp.secrets);
+  const envMatch = envConfigMatch && envSecretsMatch;
+
   const allArtifactsMatch =
-    ArtifactProps.every((prop) => matchesByProp[prop] ?? true) && assetsMatch;
+    ArtifactProps.every((prop) => matchesByProp[prop] ?? true) && assetsMatch && envMatch;
 
   const changes: PullChange[] = [];
   let createdCount = 0;
@@ -437,6 +457,15 @@ export function computePullPlan({
     (a) => !a.publicUrl || typeof a.publicUrl !== 'string' || a.publicUrl.trim() === ''
   ).length;
   skippedCount += missingPublicUrl;
+
+  if (!envConfigMatch) {
+    updatedCount += 1;
+    changes.push({ kind: 'env', file: '.env.config', operation: 'update' });
+  }
+  if (!envSecretsMatch) {
+    updatedCount += 1;
+    changes.push({ kind: 'env', file: '.env.secrets', operation: 'update' });
+  }
 
   const summary: PullSummary = {
     appName,

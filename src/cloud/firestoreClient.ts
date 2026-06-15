@@ -12,6 +12,8 @@ import type {
   ScreenDTO,
   ThemeDTO,
   TranslationDTO,
+  ConfigDTO,
+  SecretDTO,
 } from '../core/dto.js';
 import { EnsembleDocumentType } from '../core/dto.js';
 import { getArtifactConfig, type ArtifactProp } from '../core/artifacts.js';
@@ -195,6 +197,8 @@ export type CloudApp = Pick<
   | 'theme'
   | 'translations'
   | 'assets'
+  | 'config'
+  | 'secrets'
 >;
 
 /** Metadata for a saved version (commit); snapshot stored in same doc. */
@@ -773,6 +777,218 @@ function toAssetDTO(doc: FirestoreDocument): AssetDTO {
   };
 }
 
+function parseFirestoreMapField(
+  field: { mapValue?: { fields?: Record<string, FirestoreValue> } } | undefined
+): Record<string, unknown> | undefined {
+  const mapFields = field?.mapValue?.fields;
+  if (!mapFields || typeof mapFields !== 'object') return undefined;
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(mapFields)) {
+    if (typeof (value as { stringValue?: string }).stringValue === 'string') {
+      result[key] = (value as { stringValue: string }).stringValue;
+      continue;
+    }
+    if (typeof (value as { booleanValue?: boolean }).booleanValue === 'boolean') {
+      result[key] = (value as { booleanValue: boolean }).booleanValue;
+      continue;
+    }
+    if ((value as { integerValue?: string }).integerValue !== undefined) {
+      result[key] = Number((value as { integerValue: string }).integerValue);
+    }
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function encodeFirestoreStringMap(values: Record<string, string>): {
+  mapValue: { fields: Record<string, { stringValue: string }> };
+} {
+  const fields: Record<string, { stringValue: string }> = {};
+  for (const [key, value] of Object.entries(values)) {
+    fields[key] = { stringValue: value };
+  }
+  return { mapValue: { fields } };
+}
+
+function configDtoToStringMap(config: ConfigDTO): Record<string, string> {
+  const envVariables = config.envVariables ?? {};
+  const result: Record<string, string> = {};
+  for (const [key, value] of Object.entries(envVariables)) {
+    if (value !== undefined && value !== null) {
+      result[key] = String(value);
+    }
+  }
+  return result;
+}
+
+function secretsDtoToStringMap(secrets: SecretDTO): Record<string, string> {
+  const nested =
+    secrets.secrets && typeof secrets.secrets === 'object'
+      ? (secrets.secrets as Record<string, unknown>)
+      : (secrets as Record<string, unknown>);
+  const result: Record<string, string> = {};
+  for (const [key, value] of Object.entries(nested)) {
+    if (key === 'secrets' || value === undefined || value === null) continue;
+    result[key] = String(value);
+  }
+  return result;
+}
+
+function parseJsonObjectField<T extends object>(content: string | undefined): T | undefined {
+  if (!content) return undefined;
+  try {
+    const parsed = JSON.parse(content) as T;
+    return parsed && typeof parsed === 'object' ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function toConfigDTO(doc: FirestoreDocument): ConfigDTO | undefined {
+  const fields = (doc.fields ?? {}) as FirestoreFields;
+  const fromContent = parseJsonObjectField<ConfigDTO>(
+    parseFirestoreString(fields.content as { stringValue?: string })
+  );
+  const envVariablesFromMap = parseFirestoreMapField(
+    fields.envVariables as { mapValue?: { fields?: Record<string, FirestoreValue> } }
+  );
+  const baseUrl = parseFirestoreString(fields.baseUrl as { stringValue?: string });
+  const useBrowserUrl = parseFirestoreBoolean(fields.useBrowserUrl as { booleanValue?: boolean });
+  const envVariables =
+    envVariablesFromMap ?? (fromContent?.envVariables as Record<string, unknown> | undefined);
+  if (!envVariables && baseUrl === undefined && useBrowserUrl === undefined) {
+    return undefined;
+  }
+  return {
+    ...(envVariables && { envVariables }),
+    ...(baseUrl !== undefined && { baseUrl }),
+    ...(useBrowserUrl !== undefined && { useBrowserUrl }),
+  };
+}
+
+function toSecretDTO(doc: FirestoreDocument): SecretDTO | undefined {
+  const fields = (doc.fields ?? {}) as FirestoreFields;
+  const fromContent = parseJsonObjectField<SecretDTO>(
+    parseFirestoreString(fields.content as { stringValue?: string })
+  );
+  const secretsFromMap = parseFirestoreMapField(
+    fields.secrets as { mapValue?: { fields?: Record<string, FirestoreValue> } }
+  );
+  if (secretsFromMap) {
+    return { secrets: secretsFromMap as Record<string, string> };
+  }
+  if (fromContent) return fromContent;
+
+  const flat = parseFirestoreMapField(
+    fields as { mapValue?: { fields?: Record<string, FirestoreValue> } }
+  );
+  return flat ? (flat as SecretDTO) : undefined;
+}
+
+async function upsertEnvArtifactDocument(
+  appId: string,
+  idToken: string,
+  project: string,
+  documentId: string,
+  typeValue: string,
+  contentJson: string,
+  mapFieldName: 'envVariables' | 'secrets',
+  mapValues: Record<string, string>,
+  options?: FirestoreClientOptions
+): Promise<void> {
+  const collectionUrl = `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents/apps/${appId}/artifacts`;
+  const docUrl = `${collectionUrl}/${encodeURIComponent(documentId)}`;
+  const updatedAt = new Date().toISOString();
+  const patchFields: FirestoreWriteFields = {
+    content: { stringValue: contentJson },
+    [mapFieldName]: encodeFirestoreStringMap(mapValues),
+    updatedAt: { timestampValue: updatedAt },
+  };
+  const fieldPaths = ['content', mapFieldName, 'updatedAt'];
+
+  logDebug(options, {
+    kind: 'request',
+    method: 'PATCH',
+    url: `${docUrl}?${fieldPaths.map((p) => `updateMask.fieldPaths=${encodeURIComponent(p)}`).join('&')}`,
+    context: 'submitEnvDocumentsPush/patch',
+  });
+  const patchRes = await fetch(
+    `${docUrl}?${fieldPaths.map((p) => `updateMask.fieldPaths=${encodeURIComponent(p)}`).join('&')}`,
+    {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${idToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ fields: patchFields }),
+    }
+  );
+
+  if (patchRes.ok) return;
+
+  if (patchRes.status !== 404) {
+    throw await toFirestoreError(`update ${documentId}`, patchRes, options);
+  }
+
+  const createUrl = `${collectionUrl}?documentId=${encodeURIComponent(documentId)}`;
+  const createFields: FirestoreWriteFields = {
+    name: { stringValue: documentId },
+    type: { stringValue: typeValue },
+    ...patchFields,
+  };
+  logDebug(options, {
+    kind: 'request',
+    method: 'POST',
+    url: createUrl,
+    context: 'submitEnvDocumentsPush/create',
+  });
+  const createRes = await fetch(createUrl, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${idToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ fields: createFields }),
+  });
+  if (!createRes.ok) {
+    throw await toFirestoreError(`create ${documentId}`, createRes, options);
+  }
+}
+
+export async function submitEnvDocumentsPush(
+  appId: string,
+  idToken: string,
+  payload: { config?: ConfigDTO; secrets?: SecretDTO },
+  options?: FirestoreClientOptions
+): Promise<void> {
+  const project = getEnsembleFirebaseProject();
+  if (payload.config) {
+    await upsertEnvArtifactDocument(
+      appId,
+      idToken,
+      project,
+      'appConfig',
+      EnsembleDocumentType.Environment,
+      JSON.stringify(payload.config),
+      'envVariables',
+      configDtoToStringMap(payload.config),
+      options
+    );
+  }
+  if (payload.secrets) {
+    await upsertEnvArtifactDocument(
+      appId,
+      idToken,
+      project,
+      'secrets',
+      EnsembleDocumentType.Secrets,
+      JSON.stringify(payload.secrets),
+      'secrets',
+      secretsDtoToStringMap(payload.secrets),
+      options
+    );
+  }
+}
+
 function getCollaboratorRole(
   collaboratorsField:
     | { mapValue?: { fields?: Record<string, { stringValue?: string }> } }
@@ -1028,6 +1244,8 @@ export async function fetchCloudApp(
   const translations: TranslationDTO[] = [];
   const assets: AssetDTO[] = [];
   let theme: ThemeDTO | undefined;
+  let config: ConfigDTO | undefined;
+  let secrets: SecretDTO | undefined;
   const i18nDocs: FirestoreDocument[] = [];
   for (const doc of artifacts) {
     const docId = getDocId(doc.name);
@@ -1035,6 +1253,8 @@ export async function fetchCloudApp(
     if (type === 'screen') screens.push(toScreenDTO(doc));
     else if (type === 'i18n') i18nDocs.push(doc);
     else if (type === 'asset') assets.push(toAssetDTO(doc));
+    else if (type === 'config' || docId === 'appConfig') config = toConfigDTO(doc) ?? config;
+    else if (type === 'secrets' || docId === 'secrets') secrets = toSecretDTO(doc) ?? secrets;
     else if (type === 'theme') {
       if (!theme || docId === 'theme') {
         theme = toThemeDTO(doc);
@@ -1065,6 +1285,8 @@ export async function fetchCloudApp(
     ...(theme && { theme }),
     ...(translations.length > 0 && { translations }),
     ...(assets.length > 0 && { assets }),
+    ...(config && { config }),
+    ...(secrets && { secrets }),
   };
 }
 

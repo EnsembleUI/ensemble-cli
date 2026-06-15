@@ -1,7 +1,13 @@
 import fs from 'fs/promises';
 import path from 'path';
 
-function parseEnvConfig(raw: string): {
+export interface EnvEntry {
+  key: string;
+  value: string;
+  overwrite?: boolean;
+}
+
+function parseEnvFile(raw: string): {
   lines: string[];
   keyToLineIndex: Map<string, number>;
 } {
@@ -18,18 +24,47 @@ function parseEnvConfig(raw: string): {
   return { lines, keyToLineIndex };
 }
 
-export async function upsertEnvConfig(
+export async function envFileExists(projectRoot: string, fileName: string): Promise<boolean> {
+  try {
+    await fs.access(path.join(projectRoot, fileName));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function readEnvFile(projectRoot: string, fileName: string): Promise<EnvEntry[]> {
+  const envPath = path.join(projectRoot, fileName);
+  let raw = '';
+  try {
+    raw = await fs.readFile(envPath, 'utf8');
+  } catch {
+    return [];
+  }
+  const parsed = parseEnvFile(raw);
+  const entries: EnvEntry[] = [];
+  for (const [key, lineIndex] of parsed.keyToLineIndex) {
+    const line = parsed.lines[lineIndex] ?? '';
+    const eq = line.indexOf('=');
+    if (eq <= 0) continue;
+    entries.push({ key, value: line.slice(eq + 1) });
+  }
+  return entries.sort((a, b) => a.key.localeCompare(b.key));
+}
+
+export async function upsertEnvFile(
   projectRoot: string,
-  entries: Array<{ key: string; value: string; overwrite?: boolean }>
+  fileName: string,
+  entries: EnvEntry[]
 ): Promise<void> {
-  const envPath = path.join(projectRoot, '.env.config');
+  const envPath = path.join(projectRoot, fileName);
   let raw = '';
   try {
     raw = await fs.readFile(envPath, 'utf8');
   } catch {
     raw = '';
   }
-  const parsed = parseEnvConfig(raw);
+  const parsed = parseEnvFile(raw);
   while (parsed.lines.length > 0 && parsed.lines[parsed.lines.length - 1].trim() === '') {
     parsed.lines.pop();
   }
@@ -45,4 +80,21 @@ export async function upsertEnvConfig(
   }
   const normalized = parsed.lines.join('\n').replace(/\n*$/, '\n');
   await fs.writeFile(envPath, normalized, 'utf8');
+}
+
+export async function writeEnvFile(
+  projectRoot: string,
+  fileName: string,
+  entries: EnvEntry[]
+): Promise<void> {
+  const envPath = path.join(projectRoot, fileName);
+  const normalized = entries
+    .map((entry) => `${entry.key}=${entry.value}`)
+    .join('\n')
+    .replace(/\n*$/, '\n');
+  await fs.writeFile(envPath, normalized, 'utf8');
+}
+
+export async function upsertEnvConfig(projectRoot: string, entries: EnvEntry[]): Promise<void> {
+  await upsertEnvFile(projectRoot, '.env.config', entries);
 }

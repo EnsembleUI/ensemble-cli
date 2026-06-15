@@ -6,6 +6,7 @@ import {
   checkAppAccess,
   fetchCloudApp,
   submitCliPush,
+  submitEnvDocumentsPush,
   FirestoreClientError,
   type FirestoreClientOptions,
   type CloudApp,
@@ -21,6 +22,13 @@ import { withSpinner } from '../lib/spinner.js';
 import { writeVerboseJson } from '../core/debugFiles.js';
 import { computePushPlan, type PushSummary, type PushCounts } from '../core/sync.js';
 import { buildAndWriteManifest } from '../core/manifest.js';
+import {
+  buildEnvPushDiff,
+  cloudHasNonAssetConfig,
+  cloudHasSecrets,
+  mergeConfigDtoForPush,
+  readProjectEnvFiles,
+} from '../core/envSync.js';
 import { ui } from '../core/ui.js';
 
 export interface PushOptions {
@@ -64,11 +72,14 @@ function yamlArtifactChangeTotal(summary: PushSummary): number {
   );
 }
 
-function printPushSummary(summary: PushSummary, options: { verbose?: boolean; isNoop?: boolean }) {
+function printPushSummary(
+  summary: PushSummary,
+  options: { verbose?: boolean; isNoop?: boolean; envChanged?: boolean }
+) {
   const { appName, environment, counts } = summary;
   const totalChanges = counts.created + counts.updated + counts.deleted;
 
-  if (options.isNoop || totalChanges === 0) {
+  if ((options.isNoop || totalChanges === 0) && !options.envChanged) {
     ui.info(
       `Pushed app "${appName}" to environment "${environment}" (no changes; already up to date).`
     );
@@ -79,6 +90,7 @@ function printPushSummary(summary: PushSummary, options: { verbose?: boolean; is
   if (counts.created > 0) parts.push(`${counts.created} created`);
   if (counts.updated > 0) parts.push(`${counts.updated} updated`);
   if (counts.deleted > 0) parts.push(`${counts.deleted} deleted`);
+  if (options.envChanged) parts.push('env files updated');
 
   ui.success(`Pushed app "${appName}" to environment "${environment}" (${parts.join(', ')}).`);
 
@@ -330,12 +342,47 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
       updatedBy,
     });
     bundle = plan.bundle;
+
+    const localEnv = await readProjectEnvFiles(root, data.assetFiles ?? []);
+    const assetFileNames = data.assetFiles ?? [];
+    const envPushDiff = buildEnvPushDiff(
+      localEnv,
+      { config: cloudApp.config, secrets: cloudApp.secrets },
+      assetFileNames
+    );
+    const { configChanged: envConfigChanged, secretsChanged: envSecretsChanged } = envPushDiff;
+
+    if (!localEnv.envConfigPresent && cloudHasNonAssetConfig(cloudApp.config, assetFileNames)) {
+      ui.warn(
+        '.env.config is missing locally. Run `ensemble pull` to restore env vars from cloud. Config env push skipped.'
+      );
+    }
+    if (!localEnv.envSecretsPresent && cloudHasSecrets(cloudApp.secrets)) {
+      ui.warn(
+        '.env.secrets is missing locally. Run `ensemble pull` to restore secrets from cloud. Secrets env push skipped.'
+      );
+    }
+    const localConfigDto = envPushDiff.local.config;
+    const localSecretsDto = envPushDiff.local.secrets;
+    const pushConfigDto =
+      envConfigChanged && localConfigDto
+        ? mergeConfigDtoForPush(localConfigDto, cloudApp.config, data.assetFiles ?? [])
+        : localConfigDto;
+
     await writeVerboseJson(root, 'ensemble-bundle.json', bundle, {
       verbose,
     });
-    await writeVerboseJson(root, 'ensemble-diff.json', plan.diff, {
-      verbose,
-    });
+    await writeVerboseJson(
+      root,
+      'ensemble-diff.json',
+      {
+        ...plan.diff,
+        env: envPushDiff,
+      },
+      {
+        verbose,
+      }
+    );
 
     const summary = plan.summary;
     const yamlChangeTotal = yamlArtifactChangeTotal(summary);
@@ -343,18 +390,41 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
       .map((item) => (item as { fileName?: string }).fileName)
       .filter((fn): fn is string => typeof fn === 'string' && fn.length > 0);
 
-    if (yamlChangeTotal === 0 && assetsToUpload.length === 0) {
+    if (
+      yamlChangeTotal === 0 &&
+      assetsToUpload.length === 0 &&
+      !envConfigChanged &&
+      !envSecretsChanged
+    ) {
       ui.info('Up to date. Nothing to push.');
       return;
     }
 
     const pushPayload = buildPushPayload(bundle!, plan.diff, cloudApp, updatedBy);
-    await writeVerboseJson(root, 'ensemble-push-payload.json', pushPayload, {
-      verbose,
-    });
+    await writeVerboseJson(
+      root,
+      'ensemble-push-payload.json',
+      {
+        ...pushPayload,
+        ...(envConfigChanged || envSecretsChanged
+          ? {
+              env: {
+                ...(pushConfigDto && { config: pushConfigDto }),
+                ...(localSecretsDto && { secrets: localSecretsDto }),
+              },
+            }
+          : {}),
+      },
+      {
+        verbose,
+      }
+    );
 
     if (options.dryRun) {
       printPushDryRun(plan.diff);
+      if (envConfigChanged || envSecretsChanged) {
+        ui.note('Env file changes would also be pushed (.env.config / .env.secrets).');
+      }
       return;
     }
 
@@ -362,6 +432,14 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
     for (const line of formatDiffSummary(plan.diff)) {
       // eslint-disable-next-line no-console
       console.log(line);
+    }
+    if (envConfigChanged) {
+      // eslint-disable-next-line no-console
+      console.log('  env:\n        ✏️  modified     .env.config');
+    }
+    if (envSecretsChanged) {
+      // eslint-disable-next-line no-console
+      console.log('  env:\n        ✏️  modified     .env.secrets');
     }
 
     const appHome = appConfig.appHome as string | undefined;
@@ -415,10 +493,12 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
         hasDeletes || largeChangeSet
           ? `This will delete ${summary.counts.deleted} item(s) and apply ${yamlCreatedOrUpdated} other change(s)${
               assetsToUpload.length > 0 ? `, and upload ${assetsToUpload.length} asset(s)` : ''
+            }${
+              envConfigChanged || envSecretsChanged ? ', and update env files' : ''
             }. Continue? [y/N]`
           : `Proceed with push${
               assetsToUpload.length > 0 ? ` and upload ${assetsToUpload.length} asset(s)` : ''
-            }?`;
+            }${envConfigChanged || envSecretsChanged ? ' and update env files' : ''}?`;
 
       const { proceed } = await prompts({
         type: 'confirm',
@@ -449,6 +529,20 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
         if (assetsUploaded > 0) {
           ui.success(`Uploaded ${assetsUploaded} asset(s) and updated .env.config.`);
         }
+      }
+
+      if (envConfigChanged || envSecretsChanged) {
+        await withSpinner('Pushing env files to cloud...', () =>
+          submitEnvDocumentsPush(
+            appId,
+            idToken,
+            {
+              ...(pushConfigDto && { config: pushConfigDto }),
+              ...(localSecretsDto && { secrets: localSecretsDto }),
+            },
+            firestoreOptions
+          )
+        );
       }
 
       if (manifestNeedsRefresh && bundle) {
@@ -491,6 +585,10 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
       return;
     }
 
-    printPushSummary(summary, { verbose, isNoop: false });
+    printPushSummary(summary, {
+      verbose,
+      isNoop: false,
+      envChanged: envConfigChanged || envSecretsChanged,
+    });
   }
 }

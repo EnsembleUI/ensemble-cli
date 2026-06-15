@@ -21,6 +21,7 @@ import { type RootManifest } from '../core/manifest.js';
 import { writeVerboseJson } from '../core/debugFiles.js';
 import { computePullPlan, type PullSummary } from '../core/sync.js';
 import { applyCloudAssetsToFs, buildEnvConfigForCloudAssets } from '../core/pullAssets.js';
+import { applyCloudEnvToFs, readProjectEnvFiles } from '../core/envSync.js';
 import { ui } from '../core/ui.js';
 import { upsertEnvConfig } from '../core/envConfig.js';
 
@@ -267,6 +268,7 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
     localFiles,
     manifestExisting,
     enabledByProp,
+    localEnv: await readProjectEnvFiles(projectRoot, localFiles.assetFiles ?? []),
   });
 
   if (plan.allArtifactsMatch && plan.manifestMatch) {
@@ -372,6 +374,19 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
         `Some assets had invalid metadata and may be missing from .env.config (${envResult.failures.length}).`
       );
     }
+
+    await applyCloudEnvToFs(
+      projectRoot,
+      {
+        config: cloudApp.config,
+        secrets: cloudApp.secrets,
+      },
+      (cloudApp.assets ?? [])
+        .map((asset) => asset.fileName)
+        .filter(
+          (fileName): fileName is string => typeof fileName === 'string' && fileName.length > 0
+        )
+    );
   });
 
   printPullSummary(pullSummary);

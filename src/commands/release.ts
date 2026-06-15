@@ -17,6 +17,11 @@ import {
   uploadReleaseSnapshot,
 } from '../cloud/storageClient.js';
 import { applyCloudStateToFs } from '../core/applyToFs.js';
+import {
+  applyReleaseConfigToFs,
+  buildConfigDtoForReleaseSnapshot,
+  readProjectEnvFiles,
+} from '../core/envSync.js';
 import { buildDocumentsFromParsed } from '../core/buildDocuments.js';
 import { ArtifactProps, type ArtifactProp } from '../core/artifacts.js';
 import { collectAppFiles } from '../core/appCollector.js';
@@ -105,6 +110,8 @@ export async function releaseCreateCommand(options: ReleaseCreateOptions = {}): 
   const appName = (appConfig.name as string | undefined) ?? 'App';
   const appHome = appConfig.appHome as string | undefined;
   const localFiles = await collectAppFiles(root);
+  const localEnv = await readProjectEnvFiles(root, localFiles.assetFiles ?? []);
+  const localConfig = buildConfigDtoForReleaseSnapshot(localEnv.envConfig);
   const localApp = buildDocumentsFromParsed(localFiles, appId, appName, appHome, undefined);
   const snapshot: CloudApp = {
     id: localApp.id,
@@ -119,6 +126,7 @@ export async function releaseCreateCommand(options: ReleaseCreateOptions = {}): 
       localApp.translations.length > 0 && { translations: localApp.translations }),
     ...(localApp.theme && { theme: localApp.theme }),
     ...(localApp.assets && localApp.assets.length > 0 && { assets: localApp.assets }),
+    ...(localConfig && { config: localConfig }),
   };
 
   try {
@@ -384,6 +392,7 @@ export async function releaseUseCommand(options: ReleaseUseOptions = {}): Promis
         },
       })
     );
+    await applyReleaseConfigToFs(projectRoot, snapshot.config);
     ui.success(
       'Local files updated to selected release. Run "ensemble push" to apply to the cloud.'
     );
