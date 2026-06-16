@@ -23,6 +23,7 @@ import { writeVerboseJson } from '../core/debugFiles.js';
 import { computePushPlan, type PushSummary, type PushCounts } from '../core/sync.js';
 import { buildAndWriteManifest } from '../core/manifest.js';
 import { prepareEnvPushState } from '../core/envSync.js';
+import { writeEnvFile } from '../core/envConfig.js';
 import { ui } from '../core/ui.js';
 
 export interface PushOptions {
@@ -342,9 +343,15 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
       projectRoot: root,
       cloudEnv: { config: cloudApp.config, secrets: cloudApp.secrets },
       assetFileNames,
+      cloudAssets: cloudApp.assets,
       warn: (message) => ui.warn(message),
     });
-    const { diff: envPushDiff, pushConfigDto, pushSecretsDto: localSecretsDto } = envPush;
+    const {
+      diff: envPushDiff,
+      pushConfigDto,
+      pushSecretsDto: localSecretsDto,
+      pendingLocalEnvConfigWrite,
+    } = envPush;
     const envConfigChanged = envPushDiff.configChanged;
     const envSecretsChanged = envPushDiff.secretsChanged;
 
@@ -500,6 +507,10 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
     }
 
     try {
+      if (pendingLocalEnvConfigWrite) {
+        await writeEnvFile(root, '.env.config', pendingLocalEnvConfigWrite);
+      }
+
       if (yamlChangeTotal > 0 || assetsToUpload.length > 0 || assetsToArchive.length > 0) {
         const { assetsUploaded } = await withSpinner('Pushing changes to cloud...', () =>
           submitCliPush(appId, idToken, pushPayload, firestoreOptions, {

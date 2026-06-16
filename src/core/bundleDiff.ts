@@ -273,7 +273,7 @@ export function computeBundleDiff(
   );
 
   const assets = diffAssets(
-    localAppForAssets?.assets ?? bundle.assets,
+    localAppForAssets?.assets ?? [],
     cloudApp.assets as AssetDTO[] | undefined
   );
 

@@ -75,6 +75,37 @@ describe('computeBundleDiff', () => {
     });
   });
 
+  it('does not treat cloud-archived assets as new when local assets dir is empty', () => {
+    const archived = (fileName: string, id: string) => ({
+      ...asset(id, fileName, `builds/app/assets/${fileName}`),
+      isArchived: true,
+    });
+    const cloudApp = {
+      id: 'app1',
+      name: 'App',
+      assets: [
+        archived('gone.pdf', 'a1'),
+        archived('also-gone.png', 'a2'),
+        asset('a3', 'still-active.png', 'builds/app/assets/still-active.png'),
+      ],
+    };
+    const bundle = {
+      id: 'app1',
+      name: 'App',
+      assets: cloudApp.assets.map((item) => ({ ...item, isArchived: true })),
+    };
+    const localApp = { id: 'app1', name: 'App' };
+
+    const diff = computeBundleDiff(bundle, cloudApp, localApp);
+
+    expect(diff.assets.new).toHaveLength(0);
+    expect(diff.assets.changed).toHaveLength(1);
+    expect(diff.assets.changed[0]).toMatchObject({
+      fileName: 'still-active.png',
+      isArchived: true,
+    });
+  });
+
   it('detects changed screens', () => {
     const cloud: ApplicationDTO = {
       id: 'app1',
