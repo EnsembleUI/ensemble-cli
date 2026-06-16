@@ -112,13 +112,16 @@ export function mergeConfigDtoForPush(
   };
 }
 
+function entriesToRecord(entries: EnvEntry[]): Record<string, string> {
+  return Object.fromEntries(entries.map((entry) => [entry.key, entry.value]));
+}
+
 export function buildSecretsDtoFromEnvSecretsFile(entries: EnvEntry[]): SecretDTO | undefined {
-  if (entries.length === 0) return undefined;
-  const secrets: Record<string, string> = {};
-  for (const entry of entries) {
-    secrets[entry.key] = entry.value;
-  }
-  return { secrets };
+  return entries.length > 0 ? { secrets: entriesToRecord(entries) } : undefined;
+}
+
+export function buildConfigDtoFromEnvEntries(entries: EnvEntry[]): ConfigDTO | undefined {
+  return buildConfigDtoFromEntries(entries);
 }
 
 export function warnIfMissingEnvFilesForPush(
@@ -127,12 +130,15 @@ export function warnIfMissingEnvFilesForPush(
   assetFileNames: string[] = [],
   warn: (message: string) => void
 ): void {
-  if (!localEnv.envConfigPresent && cloudHasNonAssetConfig(cloudEnv.config, assetFileNames)) {
+  if (
+    !localEnv.envConfigPresent &&
+    configDtoToEnvEntries(stripAssetKeysFromConfigDto(cloudEnv.config, assetFileNames)).length > 0
+  ) {
     warn(
       '.env.config is missing locally. Run `ensemble pull` to restore env vars from cloud. Config env push skipped.'
     );
   }
-  if (!localEnv.envSecretsPresent && cloudHasSecrets(cloudEnv.secrets)) {
+  if (!localEnv.envSecretsPresent && secretsDtoToEnvEntries(cloudEnv.secrets).length > 0) {
     warn(
       '.env.secrets is missing locally. Run `ensemble pull` to restore secrets from cloud. Secrets env push skipped.'
     );
@@ -147,17 +153,6 @@ export async function readProjectEnvFiles(projectRoot: string): Promise<LocalEnv
   const envConfig = envConfigPresent ? await readEnvFile(projectRoot, '.env.config') : [];
   const envSecrets = envSecretsPresent ? await readEnvFile(projectRoot, '.env.secrets') : [];
   return { envConfig, envSecrets, envConfigPresent, envSecretsPresent };
-}
-
-export function cloudHasNonAssetConfig(
-  cloudConfig: ConfigDTO | undefined,
-  assetFileNames: string[] = []
-): boolean {
-  return configDtoToEnvEntries(stripAssetKeysFromConfigDto(cloudConfig, assetFileNames)).length > 0;
-}
-
-export function cloudHasSecrets(cloudSecrets: SecretDTO | undefined): boolean {
-  return secretsDtoToEnvEntries(cloudSecrets).length > 0;
 }
 
 function entriesEqual(a: EnvEntry[], b: EnvEntry[]): boolean {
@@ -275,10 +270,6 @@ export function buildEnvPushDiff(
   };
 }
 
-export function buildConfigDtoForReleaseSnapshot(entries: EnvEntry[]): ConfigDTO | undefined {
-  return buildConfigDtoFromEntries(entries);
-}
-
 export interface EnvPullChanges {
   assetFileNames: string[];
   configMatch: boolean;
@@ -316,8 +307,6 @@ export function computeEnvPullChanges(
 export interface EnvPushState {
   localEnv: LocalEnvFiles;
   diff: EnvPushDiff;
-  configChanged: boolean;
-  secretsChanged: boolean;
   pushConfigDto?: ConfigDTO;
   pushSecretsDto?: SecretDTO;
 }
@@ -337,14 +326,7 @@ export async function prepareEnvPushState(params: {
       ? mergeConfigDtoForPush(diff.local.config, params.cloudEnv.config, params.assetFileNames)
       : diff.local.config;
 
-  return {
-    localEnv,
-    diff,
-    configChanged: diff.configChanged,
-    secretsChanged: diff.secretsChanged,
-    pushConfigDto,
-    pushSecretsDto: diff.local.secrets,
-  };
+  return { localEnv, diff, pushConfigDto, pushSecretsDto: diff.local.secrets };
 }
 
 /** restores `.env.config` from a release snapshot; secrets are never included in releases */

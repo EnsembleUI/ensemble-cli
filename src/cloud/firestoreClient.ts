@@ -16,6 +16,7 @@ import type {
   SecretDTO,
 } from '../core/dto.js';
 import { EnsembleDocumentType } from '../core/dto.js';
+import { configDtoToEnvEntries, secretsDtoToEnvEntries } from '../core/envSync.js';
 import { getArtifactConfig, type ArtifactProp } from '../core/artifacts.js';
 import { processWithConcurrency } from '../core/concurrency.js';
 import { uploadProjectAssetsForPush } from '../core/pushAssets.js';
@@ -809,28 +810,8 @@ function encodeFirestoreStringMap(values: Record<string, string>): {
   return { mapValue: { fields } };
 }
 
-function configDtoToStringMap(config: ConfigDTO): Record<string, string> {
-  const envVariables = config.envVariables ?? {};
-  const result: Record<string, string> = {};
-  for (const [key, value] of Object.entries(envVariables)) {
-    if (value !== undefined && value !== null) {
-      result[key] = String(value);
-    }
-  }
-  return result;
-}
-
-function secretsDtoToStringMap(secrets: SecretDTO): Record<string, string> {
-  const nested =
-    secrets.secrets && typeof secrets.secrets === 'object'
-      ? (secrets.secrets as Record<string, unknown>)
-      : (secrets as Record<string, unknown>);
-  const result: Record<string, string> = {};
-  for (const [key, value] of Object.entries(nested)) {
-    if (key === 'secrets' || value === undefined || value === null) continue;
-    result[key] = String(value);
-  }
-  return result;
+function dtoToStringMap(entries: Array<{ key: string; value: string }>): Record<string, string> {
+  return Object.fromEntries(entries.map((entry) => [entry.key, entry.value]));
 }
 
 function parseJsonObjectField<T extends object>(content: string | undefined): T | undefined {
@@ -970,7 +951,7 @@ export async function submitEnvDocumentsPush(
       EnsembleDocumentType.Environment,
       JSON.stringify(payload.config),
       'envVariables',
-      configDtoToStringMap(payload.config),
+      dtoToStringMap(configDtoToEnvEntries(payload.config)),
       options
     );
   }
@@ -983,7 +964,7 @@ export async function submitEnvDocumentsPush(
       EnsembleDocumentType.Secrets,
       JSON.stringify(payload.secrets),
       'secrets',
-      secretsDtoToStringMap(payload.secrets),
+      dtoToStringMap(secretsDtoToEnvEntries(payload.secrets)),
       options
     );
   }

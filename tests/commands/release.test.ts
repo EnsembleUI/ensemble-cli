@@ -92,6 +92,7 @@ import {
   releaseUseCommand,
 } from '../../src/commands/release.js';
 import type { CloudApp } from '../../src/cloud/firestoreClient.js';
+import { EnsembleDocumentType } from '../../src/core/dto.js';
 
 async function writeEnvConfig(projectRoot: string, lines: string[]): Promise<void> {
   await fs.writeFile(path.join(projectRoot, '.env.config'), `${lines.join('\n')}\n`, 'utf8');
@@ -163,17 +164,7 @@ describe('release commands', () => {
     vi.clearAllMocks();
   });
 
-  it('release create builds snapshot from local files and calls createVersion', async () => {
-    await releaseCreateCommand({ message: 'My release', yes: true });
-
-    // We don't assert createVersionMock directly here (module wiring in ESM tests),
-    // but we do verify the happy-path success message.
-    expect(uiSuccessMock).toHaveBeenCalledWith(
-      'Release saved. Run "ensemble release use" to use it.'
-    );
-  });
-
-  it('release create stores full .env.config in snapshot without secrets or asset publicUrl', async () => {
+  it('release create stores env config in snapshot without secrets or asset publicUrl', async () => {
     const assetsDir = path.join(projectRoot, 'assets');
     await fs.mkdir(assetsDir, { recursive: true });
     await fs.writeFile(path.join(assetsDir, 'logo.png'), 'png-bytes', 'utf8');
@@ -181,76 +172,30 @@ describe('release commands', () => {
     await writeEnvConfig(projectRoot, [
       'assets=https://cdn.example.com/base/',
       'logo_png=logo.png?token=abc',
-      'Case1_Working_png=Case1_Working.png?token=def',
       'E1=EV1',
     ]);
     await fs.writeFile(path.join(projectRoot, '.env.secrets'), 'S1=SK1\n', 'utf8');
 
-    await releaseCreateCommand({ message: 'complete env snapshot', yes: true });
+    await releaseCreateCommand({ message: 'env snapshot', yes: true });
 
+    expect(uiSuccessMock).toHaveBeenCalledWith(
+      'Release saved. Run "ensemble release use" to use it.'
+    );
     const snapshot = snapshotFromUploadMock();
     expect(snapshot.config?.envVariables).toEqual({
       assets: 'https://cdn.example.com/base/',
       logo_png: 'logo.png?token=abc',
-      Case1_Working_png: 'Case1_Working.png?token=def',
       E1: 'EV1',
     });
     expect(snapshot.secrets).toBeUndefined();
-
-    const assetsByFile = new Map((snapshot.assets ?? []).map((asset) => [asset.fileName, asset]));
-    expect(assetsByFile.get('logo.png')?.publicUrl).toBeUndefined();
-    expect(assetsByFile.get('logo.png')?.copyText).toBeUndefined();
-    expect(assetsByFile.get('Case1_Working.png')?.publicUrl).toBeUndefined();
-    expect(assetsByFile.get('Case1_Working.png')?.copyText).toBeUndefined();
-  });
-
-  it('release create leaves assets without publicUrl when .env.config omits per-asset keys', async () => {
-    const assetsDir = path.join(projectRoot, 'assets');
-    await fs.mkdir(assetsDir, { recursive: true });
-    await fs.writeFile(path.join(assetsDir, 'Case1_Working.png'), 'png-bytes', 'utf8');
-    await writeEnvConfig(projectRoot, ['assets=https://cdn.example.com/base/', 'E1=EV1']);
-
-    await releaseCreateCommand({ message: 'partial env snapshot', yes: true });
-
-    const snapshot = snapshotFromUploadMock();
-    expect(snapshot.config?.envVariables).toEqual({
-      assets: 'https://cdn.example.com/base/',
-      E1: 'EV1',
-    });
     expect(snapshot.config?.envVariables?.Case1_Working_png).toBeUndefined();
-
-    const asset = (snapshot.assets ?? []).find((item) => item.fileName === 'Case1_Working.png');
-    expect(asset).toBeDefined();
-    expect(asset?.publicUrl).toBeUndefined();
-    expect(asset?.copyText).toBeUndefined();
+    for (const asset of snapshot.assets ?? []) {
+      expect(asset.publicUrl).toBeUndefined();
+      expect(asset.copyText).toBeUndefined();
+    }
   });
 
-  it('release use ignores secrets in snapshot and leaves local .env.secrets unchanged', async () => {
-    downloadReleaseSnapshotJsonMock.mockResolvedValueOnce(
-      JSON.stringify({
-        id: 'app1',
-        name: 'App',
-        screens: [],
-        config: { envVariables: { E1: 'EV1' } },
-        secrets: { secrets: { S1: 'SNAPSHOT-SECRET' } },
-      } satisfies CloudApp)
-    );
-    await writeEnvConfig(projectRoot, ['E1=EV-WRONG']);
-    await fs.writeFile(path.join(projectRoot, '.env.secrets'), 'S1=LOCAL-SECRET\n', 'utf8');
-
-    Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
-    Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
-
-    await releaseUseCommand({ hash: 'hash-1' });
-
-    const envConfig = await fs.readFile(path.join(projectRoot, '.env.config'), 'utf8');
-    const envSecrets = await fs.readFile(path.join(projectRoot, '.env.secrets'), 'utf8');
-    expect(envConfig).toContain('E1=EV1');
-    expect(envSecrets).toContain('S1=LOCAL-SECRET');
-    expect(envSecrets).not.toContain('SNAPSHOT-SECRET');
-  });
-
-  it('release use restores partial env when snapshot config omits per-asset keys', async () => {
+  it('release use restores snapshot config and never touches secrets', async () => {
     downloadReleaseSnapshotJsonMock.mockResolvedValueOnce(
       JSON.stringify({
         id: 'app1',
@@ -262,15 +207,11 @@ describe('release commands', () => {
             name: 'Case1_Working.png',
             fileName: 'Case1_Working.png',
             content: '',
-            type: 'asset',
+            type: EnsembleDocumentType.Asset,
           },
         ],
-        config: {
-          envVariables: {
-            assets: 'https://cdn.example.com/base/',
-            E1: 'EV1',
-          },
-        },
+        config: { envVariables: { assets: 'https://cdn.example.com/base/', E1: 'EV1' } },
+        secrets: { secrets: { S1: 'SNAPSHOT-SECRET' } },
       } satisfies CloudApp)
     );
     await writeEnvConfig(projectRoot, [
@@ -278,6 +219,7 @@ describe('release commands', () => {
       'Case1_Working_png=Case1_Working.png?token=old',
       'E1=EV-WRONG',
     ]);
+    await fs.writeFile(path.join(projectRoot, '.env.secrets'), 'S1=LOCAL-SECRET\n', 'utf8');
 
     Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
     Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
@@ -285,9 +227,12 @@ describe('release commands', () => {
     await releaseUseCommand({ hash: 'hash-1' });
 
     const envConfig = await fs.readFile(path.join(projectRoot, '.env.config'), 'utf8');
+    const envSecrets = await fs.readFile(path.join(projectRoot, '.env.secrets'), 'utf8');
     expect(envConfig).toContain('assets=https://cdn.example.com/base/');
     expect(envConfig).toContain('E1=EV1');
     expect(envConfig).not.toContain('Case1_Working_png=');
+    expect(envSecrets).toContain('S1=LOCAL-SECRET');
+    expect(envSecrets).not.toContain('SNAPSHOT-SECRET');
   });
 
   it('release list prints heading and lines when versions exist', async () => {

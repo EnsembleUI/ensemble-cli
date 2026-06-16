@@ -19,7 +19,7 @@ import {
 import { applyCloudStateToFs } from '../core/applyToFs.js';
 import {
   applyReleaseConfigToFs,
-  buildConfigDtoForReleaseSnapshot,
+  buildConfigDtoFromEnvEntries,
   readProjectEnvFiles,
 } from '../core/envSync.js';
 import { buildDocumentsFromParsed } from '../core/buildDocuments.js';
@@ -111,7 +111,7 @@ export async function releaseCreateCommand(options: ReleaseCreateOptions = {}): 
   const appHome = appConfig.appHome as string | undefined;
   const localFiles = await collectAppFiles(root);
   const localEnv = await readProjectEnvFiles(root);
-  const localConfig = buildConfigDtoForReleaseSnapshot(localEnv.envConfig);
+  const localConfig = buildConfigDtoFromEnvEntries(localEnv.envConfig);
   const localApp = buildDocumentsFromParsed(localFiles, appId, appName, appHome, undefined);
   const snapshot: CloudApp = {
     id: localApp.id,

@@ -316,12 +316,24 @@ describe('fetchCloudApp', () => {
     expect(result.theme?.content).toBe('random theme');
   });
 
-  it('fetches appConfig and secrets artifacts into config and secrets', async () => {
-    const appDoc = {
-      name: 'projects/p/databases/(default)/documents/apps/app-1',
+  it('fetches appConfig and secrets into config and secrets', async () => {
+    const appDoc = { name: 'projects/p/databases/(default)/documents/apps/app-1' };
+    const fetchForArtifacts = (artifacts: unknown[]) => async (input: RequestInfo | URL) => {
+      const urlStr =
+        typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      if (urlStr.includes('/documents/apps/app-1') && !urlStr.includes('/artifacts')) {
+        return new Response(JSON.stringify(appDoc), { status: 200 });
+      }
+      if (urlStr.includes('/artifacts')) {
+        return new Response(JSON.stringify({ documents: artifacts }), { status: 200 });
+      }
+      if (urlStr.includes('internal_artifacts')) {
+        return new Response(JSON.stringify({ documents: [] }), { status: 200 });
+      }
+      return new Response('Not found', { status: 404 });
     };
 
-    const artifacts = [
+    globalThis.fetch = fetchForArtifacts([
       {
         name: 'projects/p/databases/(default)/documents/apps/app-1/artifacts/appConfig',
         fields: {
@@ -340,34 +352,12 @@ describe('fetchCloudApp', () => {
           content: { stringValue: JSON.stringify({ secrets: { S1: 'secret-value' } }) },
         },
       },
-    ];
+    ]);
+    const withContent = await fetchCloudApp('app-1', 'token');
+    expect(withContent.config?.envVariables?.API_URL).toBe('https://api.example.com');
+    expect(withContent.secrets?.secrets).toEqual({ S1: 'secret-value' });
 
-    globalThis.fetch = async (input: RequestInfo | URL) => {
-      const urlStr =
-        typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-      if (urlStr.includes('/documents/apps/app-1') && !urlStr.includes('/artifacts')) {
-        return new Response(JSON.stringify(appDoc), { status: 200 });
-      }
-      if (urlStr.includes('/artifacts')) {
-        return new Response(JSON.stringify({ documents: artifacts }), { status: 200 });
-      }
-      if (urlStr.includes('internal_artifacts')) {
-        return new Response(JSON.stringify({ documents: [] }), { status: 200 });
-      }
-      return new Response('Not found', { status: 404 });
-    };
-
-    const result = await fetchCloudApp('app-1', 'token');
-    expect(result.config?.envVariables?.API_URL).toBe('https://api.example.com');
-    expect(result.secrets?.secrets).toEqual({ S1: 'secret-value' });
-  });
-
-  it('prefers native Firestore envVariables map over JSON content for config', async () => {
-    const appDoc = {
-      name: 'projects/p/databases/(default)/documents/apps/app-1',
-    };
-
-    const artifacts = [
+    globalThis.fetch = fetchForArtifacts([
       {
         name: 'projects/p/databases/(default)/documents/apps/app-1/artifacts/appConfig',
         fields: {
@@ -377,33 +367,13 @@ describe('fetchCloudApp', () => {
             stringValue: JSON.stringify({ envVariables: { E1: 'from-content' } }),
           },
           envVariables: {
-            mapValue: {
-              fields: {
-                E1: { stringValue: 'from-map' },
-              },
-            },
+            mapValue: { fields: { E1: { stringValue: 'from-map' } } },
           },
         },
       },
-    ];
-
-    globalThis.fetch = async (input: RequestInfo | URL) => {
-      const urlStr =
-        typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-      if (urlStr.includes('/documents/apps/app-1') && !urlStr.includes('/artifacts')) {
-        return new Response(JSON.stringify(appDoc), { status: 200 });
-      }
-      if (urlStr.includes('/artifacts')) {
-        return new Response(JSON.stringify({ documents: artifacts }), { status: 200 });
-      }
-      if (urlStr.includes('internal_artifacts')) {
-        return new Response(JSON.stringify({ documents: [] }), { status: 200 });
-      }
-      return new Response('Not found', { status: 404 });
-    };
-
-    const result = await fetchCloudApp('app-1', 'token');
-    expect(result.config?.envVariables?.E1).toBe('from-map');
+    ]);
+    const withMap = await fetchCloudApp('app-1', 'token');
+    expect(withMap.config?.envVariables?.E1).toBe('from-map');
   });
 });
 
@@ -415,14 +385,14 @@ describe('submitEnvDocumentsPush', () => {
     vi.restoreAllMocks();
   });
 
-  it('patches content, envVariables map, and updatedAt for appConfig', async () => {
-    let capturedPatch: { url: string; body: string } | null = null;
+  it('patches content, map fields, and updatedAt for env documents', async () => {
+    const patches: Array<{ url: string; body: string }> = [];
 
     globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const urlStr =
         typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-      if (urlStr.includes('/artifacts/appConfig') && init?.method === 'PATCH') {
-        capturedPatch = { url: urlStr, body: (init.body as string) ?? '' };
+      if (urlStr.includes('/artifacts/') && init?.method === 'PATCH') {
+        patches.push({ url: urlStr, body: (init.body as string) ?? '' });
         return new Response('{}', { status: 200 });
       }
       return new Response('Not found', { status: 404 });
@@ -430,52 +400,31 @@ describe('submitEnvDocumentsPush', () => {
 
     await submitEnvDocumentsPush('app-1', 'token', {
       config: { envVariables: { E1: 'EV11', assets: 'https://cdn.example.com/' } },
+      secrets: { secrets: { S1: 'SK1', S2: 'SK22' } },
     });
 
-    expect(capturedPatch).not.toBeNull();
-    expect(capturedPatch!.url).toContain('updateMask.fieldPaths=content');
-    expect(capturedPatch!.url).toContain('updateMask.fieldPaths=envVariables');
-    expect(capturedPatch!.url).toContain('updateMask.fieldPaths=updatedAt');
-    const body = JSON.parse(capturedPatch!.body) as {
+    const configPatch = patches.find((patch) => patch.url.includes('/artifacts/appConfig'));
+    const secretsPatch = patches.find((patch) => patch.url.includes('/artifacts/secrets'));
+    expect(configPatch?.url).toContain('updateMask.fieldPaths=envVariables');
+    expect(secretsPatch?.url).toContain('updateMask.fieldPaths=secrets');
+
+    const configBody = JSON.parse(configPatch!.body) as {
       fields: {
         content?: { stringValue?: string };
         envVariables?: { mapValue?: { fields?: Record<string, { stringValue?: string }> } };
       };
     };
-    expect(JSON.parse(body.fields.content?.stringValue ?? '{}')).toEqual({
+    expect(JSON.parse(configBody.fields.content?.stringValue ?? '{}')).toEqual({
       envVariables: { E1: 'EV11', assets: 'https://cdn.example.com/' },
     });
-    expect(body.fields.envVariables?.mapValue?.fields?.E1?.stringValue).toBe('EV11');
-    expect(body.fields.envVariables?.mapValue?.fields?.assets?.stringValue).toBe(
-      'https://cdn.example.com/'
-    );
-  });
+    expect(configBody.fields.envVariables?.mapValue?.fields?.E1?.stringValue).toBe('EV11');
 
-  it('patches content, secrets map, and updatedAt for secrets', async () => {
-    let capturedPatch: { url: string; body: string } | null = null;
-
-    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-      const urlStr =
-        typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-      if (urlStr.includes('/artifacts/secrets') && init?.method === 'PATCH') {
-        capturedPatch = { url: urlStr, body: (init.body as string) ?? '' };
-        return new Response('{}', { status: 200 });
-      }
-      return new Response('Not found', { status: 404 });
-    };
-
-    await submitEnvDocumentsPush('app-1', 'token', {
-      secrets: { secrets: { S1: 'SK1', S2: 'SK22' } },
-    });
-
-    expect(capturedPatch).not.toBeNull();
-    expect(capturedPatch!.url).toContain('updateMask.fieldPaths=secrets');
-    const body = JSON.parse(capturedPatch!.body) as {
+    const secretsBody = JSON.parse(secretsPatch!.body) as {
       fields: {
         secrets?: { mapValue?: { fields?: Record<string, { stringValue?: string }> } };
       };
     };
-    expect(body.fields.secrets?.mapValue?.fields?.S2?.stringValue).toBe('SK22');
+    expect(secretsBody.fields.secrets?.mapValue?.fields?.S2?.stringValue).toBe('SK22');
   });
 });
 

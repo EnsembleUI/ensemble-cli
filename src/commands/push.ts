@@ -344,13 +344,9 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
       assetFileNames,
       warn: (message) => ui.warn(message),
     });
-    const {
-      diff: envPushDiff,
-      configChanged: envConfigChanged,
-      secretsChanged: envSecretsChanged,
-      pushConfigDto,
-      pushSecretsDto: localSecretsDto,
-    } = envPush;
+    const { diff: envPushDiff, pushConfigDto, pushSecretsDto: localSecretsDto } = envPush;
+    const envConfigChanged = envPushDiff.configChanged;
+    const envSecretsChanged = envPushDiff.secretsChanged;
 
     await writeVerboseJson(root, 'ensemble-bundle.json', bundle, {
       verbose,
