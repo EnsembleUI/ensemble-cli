@@ -11,10 +11,12 @@ import {
   buildConfigDtoFromEnvConfigFile,
   buildEnvPushDiff,
   buildSecretsDtoFromEnvSecretsFile,
+  computeEnvPullChanges,
   configDtoToEnvEntries,
   envConfigEntriesMatchCloud,
   envSecretsEntriesMatchCloud,
   mergeConfigDtoForPush,
+  prepareEnvPushState,
   readProjectEnvFiles,
   secretsDtoToEnvEntries,
   warnIfMissingEnvFilesForPush,
@@ -292,6 +294,50 @@ describe('envSync', () => {
         ['Case1_Working.png']
       )
     ).toBe(false);
+  });
+
+  it('computeEnvPullChanges lists env files that differ from cloud', () => {
+    const result = computeEnvPullChanges(
+      {
+        envConfig: [{ key: 'E1', value: 'EV1' }],
+        envSecrets: [{ key: 'S1', value: 'SK1' }],
+        envConfigPresent: true,
+        envSecretsPresent: true,
+      },
+      { envVariables: { E1: 'EV2', assets: 'https://cdn.example.com/' } },
+      { secrets: { S1: 'SK1' } },
+      ['logo.png'],
+      [{ fileName: 'logo.png' }]
+    );
+
+    expect(result.configMatch).toBe(false);
+    expect(result.secretsMatch).toBe(true);
+    expect(result.match).toBe(false);
+    expect(result.filesToUpdate).toEqual(['.env.config']);
+  });
+
+  it('prepareEnvPushState builds merged config for push', async () => {
+    await fs.writeFile(path.join(tmpDir, '.env.config'), 'E1=EV11\n', 'utf8');
+
+    const state = await prepareEnvPushState({
+      projectRoot: tmpDir,
+      cloudEnv: {
+        config: {
+          envVariables: {
+            assets: 'https://cdn.example.com/',
+            E1: 'EV1',
+          },
+        },
+      },
+      assetFileNames: [],
+      warn: () => {},
+    });
+
+    expect(state.configChanged).toBe(true);
+    expect(state.pushConfigDto?.envVariables).toEqual({
+      assets: 'https://cdn.example.com/',
+      E1: 'EV11',
+    });
   });
 
   it('warns when env files are missing locally but cloud has values', () => {

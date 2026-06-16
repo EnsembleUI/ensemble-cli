@@ -22,12 +22,7 @@ import { withSpinner } from '../lib/spinner.js';
 import { writeVerboseJson } from '../core/debugFiles.js';
 import { computePushPlan, type PushSummary, type PushCounts } from '../core/sync.js';
 import { buildAndWriteManifest } from '../core/manifest.js';
-import {
-  buildEnvPushDiff,
-  mergeConfigDtoForPush,
-  readProjectEnvFiles,
-  warnIfMissingEnvFilesForPush,
-} from '../core/envSync.js';
+import { prepareEnvPushState } from '../core/envSync.js';
 import { ui } from '../core/ui.js';
 
 export interface PushOptions {
@@ -342,27 +337,20 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
     });
     bundle = plan.bundle;
 
-    const localEnv = await readProjectEnvFiles(root);
     const assetFileNames = data.assetFiles ?? [];
-    const envPushDiff = buildEnvPushDiff(
-      localEnv,
-      { config: cloudApp.config, secrets: cloudApp.secrets },
-      assetFileNames
-    );
-    const { configChanged: envConfigChanged, secretsChanged: envSecretsChanged } = envPushDiff;
-
-    warnIfMissingEnvFilesForPush(
-      localEnv,
-      { config: cloudApp.config, secrets: cloudApp.secrets },
+    const envPush = await prepareEnvPushState({
+      projectRoot: root,
+      cloudEnv: { config: cloudApp.config, secrets: cloudApp.secrets },
       assetFileNames,
-      (message) => ui.warn(message)
-    );
-    const localConfigDto = envPushDiff.local.config;
-    const localSecretsDto = envPushDiff.local.secrets;
-    const pushConfigDto =
-      envConfigChanged && localConfigDto
-        ? mergeConfigDtoForPush(localConfigDto, cloudApp.config, data.assetFiles ?? [])
-        : localConfigDto;
+      warn: (message) => ui.warn(message),
+    });
+    const {
+      diff: envPushDiff,
+      configChanged: envConfigChanged,
+      secretsChanged: envSecretsChanged,
+      pushConfigDto,
+      pushSecretsDto: localSecretsDto,
+    } = envPush;
 
     await writeVerboseJson(root, 'ensemble-bundle.json', bundle, {
       verbose,

@@ -1,12 +1,7 @@
 import type { CloudApp } from '../cloud/firestoreClient.js';
 import type { ParsedAppFiles } from './appCollector.js';
 import type { ApplicationDTO } from './dto.js';
-import {
-  envConfigEntriesMatchCloud,
-  envSecretsEntriesMatchCloud,
-  mergeAssetFileNamesForEnvCompare,
-  type LocalEnvFiles,
-} from './envSync.js';
+import { computeEnvPullChanges, type LocalEnvFiles } from './envSync.js';
 import {
   ArtifactProps,
   type ArtifactProp,
@@ -317,17 +312,14 @@ export function computePullPlan({
     }
   }
 
-  const envAssetFileNames = mergeAssetFileNamesForEnvCompare(
+  const envPull = computeEnvPullChanges(
+    localEnv,
+    cloudApp.config,
+    cloudApp.secrets,
     localFiles.assetFiles ?? [],
     cloudApp.assets
   );
-  const envConfigMatch = envConfigEntriesMatchCloud(
-    localEnv?.envConfig ?? [],
-    cloudApp.config,
-    envAssetFileNames
-  );
-  const envSecretsMatch = envSecretsEntriesMatchCloud(localEnv?.envSecrets ?? [], cloudApp.secrets);
-  const envMatch = envConfigMatch && envSecretsMatch;
+  const envMatch = envPull.match;
 
   const allArtifactsMatch =
     ArtifactProps.every((prop) => matchesByProp[prop] ?? true) && assetsMatch && envMatch;
@@ -458,13 +450,9 @@ export function computePullPlan({
   ).length;
   skippedCount += missingPublicUrl;
 
-  if (!envConfigMatch) {
+  for (const envFile of envPull.filesToUpdate) {
     updatedCount += 1;
-    changes.push({ kind: 'env', file: '.env.config', operation: 'update' });
-  }
-  if (!envSecretsMatch) {
-    updatedCount += 1;
-    changes.push({ kind: 'env', file: '.env.secrets', operation: 'update' });
+    changes.push({ kind: 'env', file: envFile, operation: 'update' });
   }
 
   const summary: PullSummary = {
