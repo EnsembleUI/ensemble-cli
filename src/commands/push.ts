@@ -368,10 +368,12 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
     const assetsToUpload = plan.diff.assets.new
       .map((item) => (item as { fileName?: string }).fileName)
       .filter((fn): fn is string => typeof fn === 'string' && fn.length > 0);
+    const assetsToArchive = plan.diff.assets.changed.filter((item) => item.isArchived === true);
 
     if (
       yamlChangeTotal === 0 &&
       assetsToUpload.length === 0 &&
+      assetsToArchive.length === 0 &&
       !envConfigChanged &&
       !envSecretsChanged
     ) {
@@ -498,7 +500,7 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
     }
 
     try {
-      if (yamlChangeTotal > 0 || assetsToUpload.length > 0) {
+      if (yamlChangeTotal > 0 || assetsToUpload.length > 0 || assetsToArchive.length > 0) {
         const { assetsUploaded } = await withSpinner('Pushing changes to cloud...', () =>
           submitCliPush(appId, idToken, pushPayload, firestoreOptions, {
             projectRoot: root,

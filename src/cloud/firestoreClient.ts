@@ -294,6 +294,7 @@ interface PushPayloadShape {
   actions?: YamlArtifactPushOperation[];
   translations?: YamlArtifactPushOperation[];
   theme?: YamlArtifactPushOperation;
+  assets?: YamlArtifactPushOperation[];
 }
 
 type CreateYamlOp = Extract<YamlArtifactPushOperation, { operation: 'create' }>;
@@ -319,6 +320,86 @@ function getFirestoreConcurrency(): number {
     return DEFAULT_FIRESTORE_CONCURRENCY;
   }
   return Math.floor(parsed);
+}
+
+async function applyAssetArchiveOperations(
+  appId: string,
+  idToken: string,
+  project: string,
+  ops: YamlArtifactPushOperation[] | undefined,
+  options?: FirestoreClientOptions
+): Promise<void> {
+  if (!ops || ops.length === 0) return;
+
+  const baseCollectionUrl = `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents/apps/${appId}/artifacts`;
+  const concurrency = getFirestoreConcurrency();
+
+  await processWithConcurrency(
+    ops,
+    async (op) => {
+      if (op.operation !== 'update') return;
+
+      const docId = op.id;
+      const docUrl = `${baseCollectionUrl}/${encodeURIComponent(docId)}`;
+      const historyFields = encodeHistoryFields(op.history);
+      const historyUrl = `${docUrl}/history`;
+
+      logDebug(options, {
+        kind: 'push_operation',
+        appId,
+        operation: 'update',
+        artifactKind: 'screens',
+        documentId: docId,
+      });
+      logDebug(options, {
+        kind: 'request',
+        method: 'POST',
+        url: historyUrl,
+        context: 'submitCliPush/writeAssetHistory',
+      });
+      const historyRes = await fetch(historyUrl, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${idToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ fields: historyFields }),
+      });
+      if (!historyRes.ok) {
+        throw await toFirestoreError(
+          `write history for asset "${op.history.name}"`,
+          historyRes,
+          options
+        );
+      }
+
+      const { fields: updateFields, fieldPaths } = encodeUpdateFields('screens', op.updates);
+      if (fieldPaths.length === 0) return;
+
+      const params = fieldPaths
+        .map((path) => `updateMask.fieldPaths=${encodeURIComponent(path)}`)
+        .join('&');
+      const patchUrl = `${docUrl}?${params}`;
+      logDebug(options, {
+        kind: 'request',
+        method: 'PATCH',
+        url: patchUrl,
+        context: 'submitCliPush/patchAsset',
+      });
+      const patchRes = await fetch(patchUrl, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${idToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ fields: updateFields }),
+      });
+      if (!patchRes.ok) {
+        throw await toFirestoreError(`archive asset "${op.history.name}"`, patchRes, options);
+      }
+    },
+    concurrency
+  );
 }
 
 async function applyYamlOperationsForKind(
@@ -478,6 +559,7 @@ export async function submitCliPush(
   if (p.theme) {
     await applyYamlOperationsForKind('theme', appId, idToken, project, [p.theme], options);
   }
+  await applyAssetArchiveOperations(appId, idToken, project, p.assets, options);
 
   const names = extras?.assetFileNames?.filter((n) => n.trim() !== '') ?? [];
   if (names.length === 0 || !extras?.projectRoot) {

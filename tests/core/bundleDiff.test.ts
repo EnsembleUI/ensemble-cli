@@ -55,6 +55,26 @@ describe('computeBundleDiff', () => {
     expect(diff.assets.new[0]).toMatchObject({ fileName: 'new.png' });
   });
 
+  it('detects assets deleted locally as archive changes', () => {
+    const cloudApp = {
+      id: 'app1',
+      name: 'App',
+      assets: [asset('a1', 'logo.png', ''), asset('a2', 'old.png', '')],
+    };
+    const localApp = {
+      id: 'app1',
+      name: 'App',
+      assets: [asset('asset:logo.png', 'logo.png', '')],
+    };
+    const diff = computeBundleDiff(localApp, cloudApp, localApp);
+    expect(diff.assets.changed).toHaveLength(1);
+    expect(diff.assets.changed[0]).toMatchObject({
+      id: 'a2',
+      fileName: 'old.png',
+      isArchived: true,
+    });
+  });
+
   it('detects changed screens', () => {
     const cloud: ApplicationDTO = {
       id: 'app1',
@@ -313,6 +333,28 @@ describe('buildPushPayload', () => {
     if (updateItem && updateItem.operation === 'update') {
       expect(updateItem.id).toBe('i18n_ar');
       expect(updateItem.updates.defaultLocale).toBe(true);
+    }
+  });
+
+  it('archives assets removed locally', () => {
+    const cloudApp: ApplicationDTO = {
+      id: 'app1',
+      name: 'App',
+      assets: [asset('a1', 'old.png', '')],
+    };
+    const bundle: ApplicationDTO = {
+      id: 'app1',
+      name: 'App',
+      assets: [],
+    };
+    const diff = computeBundleDiff(bundle, cloudApp, bundle);
+    const payload = buildPushPayload(bundle, diff, cloudApp, updatedBy);
+    expect(payload.assets).toHaveLength(1);
+    const archiveItem = payload.assets![0];
+    expect(archiveItem.operation).toBe('update');
+    if (archiveItem.operation === 'update') {
+      expect(archiveItem.id).toBe('a1');
+      expect(archiveItem.updates.isArchived).toBe(true);
     }
   });
 

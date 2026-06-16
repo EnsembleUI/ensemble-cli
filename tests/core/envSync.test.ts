@@ -151,7 +151,7 @@ describe('envSync', () => {
     }
   );
 
-  it('mergeConfigDtoForPush preserves cloud asset keys and drops removed non-asset keys', () => {
+  it('mergeConfigDtoForPush uses local asset keys only and drops removed non-asset keys', () => {
     expect(
       mergeConfigDtoForPush(
         { envVariables: { E1: 'EV11', E2: 'EV2' } },
@@ -162,11 +162,17 @@ describe('envSync', () => {
             E1: 'EV1',
           },
         },
-        ['logo.png']
+        ['logo.png'],
+        {
+          envVariables: {
+            assets: 'https://cdn.example.com/',
+            logo_png: 'logo.png?local=abc',
+          },
+        }
       ).envVariables
     ).toEqual({
       assets: 'https://cdn.example.com/',
-      logo_png: 'logo.png?token=abc',
+      logo_png: 'logo.png?local=abc',
       E1: 'EV11',
       E2: 'EV2',
     });
@@ -174,10 +180,18 @@ describe('envSync', () => {
     expect(
       mergeConfigDtoForPush(
         { envVariables: { E1: 'EV11' } },
-        { envVariables: { assets: 'https://cdn.example.com/', E1: 'EV1', E2: 'EV2' } },
-        ['logo.png']
+        {
+          envVariables: {
+            assets: 'https://cdn.example.com/',
+            logo_png: 'logo.png?token=abc',
+            E1: 'EV1',
+            E2: 'EV2',
+          },
+        },
+        [],
+        undefined
       ).envVariables
-    ).toEqual({ assets: 'https://cdn.example.com/', E1: 'EV11' });
+    ).toEqual({ E1: 'EV11' });
   });
 
   it('computeEnvPullChanges flags config mismatch including missing asset env keys', () => {
@@ -208,7 +222,7 @@ describe('envSync', () => {
     expect(result.filesToUpdate).toEqual(['.env.config']);
   });
 
-  it('prepareEnvPushState merges local config with cloud asset keys', async () => {
+  it('prepareEnvPushState omits cloud asset keys when no local asset files exist', async () => {
     await fs.writeFile(path.join(tmpDir, '.env.config'), 'E1=EV11\n', 'utf8');
 
     const state = await prepareEnvPushState({
@@ -221,10 +235,7 @@ describe('envSync', () => {
     });
 
     expect(state.diff.configChanged).toBe(true);
-    expect(state.pushConfigDto?.envVariables).toEqual({
-      assets: 'https://cdn.example.com/',
-      E1: 'EV11',
-    });
+    expect(state.pushConfigDto?.envVariables).toEqual({ E1: 'EV11' });
   });
 
   it('applyReleaseConfigToFs restores full snapshot config', async () => {

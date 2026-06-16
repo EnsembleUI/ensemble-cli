@@ -98,18 +98,52 @@ export function buildConfigDtoFromEnvConfigFile(
   });
 }
 
+export function buildLocalAssetConfigFromEnvFile(
+  entries: EnvEntry[],
+  assetFileNames: string[] = []
+): ConfigDTO | undefined {
+  const assetKeys = collectAssetEnvKeys(assetFileNames);
+  const envVariables: Record<string, string> = {};
+  for (const entry of entries) {
+    if (assetKeys.has(entry.key)) {
+      envVariables[entry.key] = entry.value;
+    }
+  }
+  return Object.keys(envVariables).length > 0 ? { envVariables } : undefined;
+}
+
 export function mergeConfigDtoForPush(
   localNonAssetConfig: ConfigDTO | undefined,
   cloudConfig: ConfigDTO | undefined,
-  assetFileNames: string[] = []
+  assetFileNames: string[] = [],
+  localAssetConfig?: ConfigDTO
 ): ConfigDTO {
-  const { asset } = partitionConfigEnvVariables(cloudConfig, assetFileNames);
-  return {
-    envVariables: {
-      ...asset,
-      ...(localNonAssetConfig?.envVariables ?? {}),
-    },
-  };
+  const { asset: cloudAsset } = partitionConfigEnvVariables(cloudConfig, assetFileNames);
+  const localAsset = localAssetConfig?.envVariables ?? {};
+  const envVariables: Record<string, string> = {};
+  for (const [key, value] of Object.entries(localNonAssetConfig?.envVariables ?? {})) {
+    if (typeof value === 'string') {
+      envVariables[key] = value;
+    }
+  }
+
+  if (assetFileNames.length > 0) {
+    if (typeof localAsset.assets === 'string' && localAsset.assets.trim() !== '') {
+      envVariables.assets = localAsset.assets;
+    } else if (typeof cloudAsset.assets === 'string' && cloudAsset.assets.trim() !== '') {
+      envVariables.assets = cloudAsset.assets;
+    }
+
+    for (const fileName of assetFileNames) {
+      const envKey = deriveAssetEnvKey(fileName);
+      const value = localAsset[envKey];
+      if (typeof value === 'string') {
+        envVariables[envKey] = value;
+      }
+    }
+  }
+
+  return { envVariables };
 }
 
 function entriesToRecord(entries: EnvEntry[]): Record<string, string> {
@@ -323,7 +357,12 @@ export async function prepareEnvPushState(params: {
 
   const pushConfigDto =
     diff.configChanged && diff.local.config
-      ? mergeConfigDtoForPush(diff.local.config, params.cloudEnv.config, params.assetFileNames)
+      ? mergeConfigDtoForPush(
+          diff.local.config,
+          params.cloudEnv.config,
+          params.assetFileNames,
+          buildLocalAssetConfigFromEnvFile(localEnv.envConfig, params.assetFileNames)
+        )
       : diff.local.config;
 
   return { localEnv, diff, pushConfigDto, pushSecretsDto: diff.local.secrets };

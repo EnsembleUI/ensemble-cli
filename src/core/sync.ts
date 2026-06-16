@@ -74,10 +74,11 @@ function computeKindCounts(items: BundleDiff['screens']): PushCounts {
 }
 
 function computeAssetCounts(items: BundleDiff['assets']): PushCounts {
+  const deleted = items.changed.filter((item) => item.isArchived === true).length;
   return {
     created: items.new.length,
-    updated: 0,
-    deleted: 0,
+    updated: items.changed.filter((item) => item.isArchived !== true).length,
+    deleted,
   };
 }
 
