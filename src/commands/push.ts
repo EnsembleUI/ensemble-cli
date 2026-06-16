@@ -24,10 +24,9 @@ import { computePushPlan, type PushSummary, type PushCounts } from '../core/sync
 import { buildAndWriteManifest } from '../core/manifest.js';
 import {
   buildEnvPushDiff,
-  cloudHasNonAssetConfig,
-  cloudHasSecrets,
   mergeConfigDtoForPush,
   readProjectEnvFiles,
+  warnIfMissingEnvFilesForPush,
 } from '../core/envSync.js';
 import { ui } from '../core/ui.js';
 
@@ -343,7 +342,7 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
     });
     bundle = plan.bundle;
 
-    const localEnv = await readProjectEnvFiles(root, data.assetFiles ?? []);
+    const localEnv = await readProjectEnvFiles(root);
     const assetFileNames = data.assetFiles ?? [];
     const envPushDiff = buildEnvPushDiff(
       localEnv,
@@ -352,16 +351,12 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
     );
     const { configChanged: envConfigChanged, secretsChanged: envSecretsChanged } = envPushDiff;
 
-    if (!localEnv.envConfigPresent && cloudHasNonAssetConfig(cloudApp.config, assetFileNames)) {
-      ui.warn(
-        '.env.config is missing locally. Run `ensemble pull` to restore env vars from cloud. Config env push skipped.'
-      );
-    }
-    if (!localEnv.envSecretsPresent && cloudHasSecrets(cloudApp.secrets)) {
-      ui.warn(
-        '.env.secrets is missing locally. Run `ensemble pull` to restore secrets from cloud. Secrets env push skipped.'
-      );
-    }
+    warnIfMissingEnvFilesForPush(
+      localEnv,
+      { config: cloudApp.config, secrets: cloudApp.secrets },
+      assetFileNames,
+      (message) => ui.warn(message)
+    );
     const localConfigDto = envPushDiff.local.config;
     const localSecretsDto = envPushDiff.local.secrets;
     const pushConfigDto =

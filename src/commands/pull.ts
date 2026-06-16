@@ -268,7 +268,7 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
     localFiles,
     manifestExisting,
     enabledByProp,
-    localEnv: await readProjectEnvFiles(projectRoot, localFiles.assetFiles ?? []),
+    localEnv: await readProjectEnvFiles(projectRoot),
   });
 
   if (plan.allArtifactsMatch && plan.manifestMatch) {

@@ -46,18 +46,38 @@ export function collectAssetEnvKeys(assetFileNames: string[] = []): Set<string> 
   return new Set(['assets', ...assetFileNames.map(deriveAssetEnvKey)]);
 }
 
+function filterConfigEnvVariables(
+  config: ConfigDTO | undefined,
+  includeKey: (key: string) => boolean
+): Record<string, string> {
+  const vars = config?.envVariables;
+  if (!vars || typeof vars !== 'object') return {};
+  const envVariables: Record<string, string> = {};
+  for (const [key, value] of Object.entries(vars)) {
+    if (!includeKey(key) || value === undefined || value === null) continue;
+    envVariables[key] = String(value);
+  }
+  return envVariables;
+}
+
+function buildConfigDtoFromEntries(
+  entries: EnvEntry[],
+  options?: { excludeKeys?: Set<string> }
+): ConfigDTO | undefined {
+  const envVariables: Record<string, string> = {};
+  for (const entry of entries) {
+    if (options?.excludeKeys?.has(entry.key)) continue;
+    envVariables[entry.key] = entry.value;
+  }
+  return Object.keys(envVariables).length > 0 ? { envVariables } : undefined;
+}
+
 export function stripAssetKeysFromConfigDto(
   config: ConfigDTO | undefined,
   assetFileNames: string[] = []
 ): ConfigDTO | undefined {
   const assetKeys = collectAssetEnvKeys(assetFileNames);
-  const envVariables: Record<string, string> = {};
-  const vars = config?.envVariables;
-  if (!vars || typeof vars !== 'object') return undefined;
-  for (const [key, value] of Object.entries(vars)) {
-    if (assetKeys.has(key) || value === undefined || value === null) continue;
-    envVariables[key] = String(value);
-  }
+  const envVariables = filterConfigEnvVariables(config, (key) => !assetKeys.has(key));
   return Object.keys(envVariables).length > 0 ? { envVariables } : undefined;
 }
 
@@ -65,13 +85,9 @@ export function buildConfigDtoFromEnvConfigFile(
   entries: EnvEntry[],
   assetFileNames: string[] = []
 ): ConfigDTO | undefined {
-  const assetKeys = collectAssetEnvKeys(assetFileNames);
-  const envVariables: Record<string, string> = {};
-  for (const entry of entries) {
-    if (assetKeys.has(entry.key)) continue;
-    envVariables[entry.key] = entry.value;
-  }
-  return Object.keys(envVariables).length > 0 ? { envVariables } : undefined;
+  return buildConfigDtoFromEntries(entries, {
+    excludeKeys: collectAssetEnvKeys(assetFileNames),
+  });
 }
 
 export function mergeConfigDtoForPush(
@@ -80,19 +96,12 @@ export function mergeConfigDtoForPush(
   assetFileNames: string[] = []
 ): ConfigDTO {
   const assetKeys = collectAssetEnvKeys(assetFileNames);
-  const merged: Record<string, string> = {};
-
-  for (const [key, value] of Object.entries(cloudConfig?.envVariables ?? {})) {
-    if (assetKeys.has(key) && value !== undefined && value !== null) {
-      merged[key] = String(value);
-    }
-  }
-
-  for (const [key, value] of Object.entries(localNonAssetConfig?.envVariables ?? {})) {
-    merged[key] = String(value);
-  }
-
-  return { envVariables: merged };
+  return {
+    envVariables: {
+      ...filterConfigEnvVariables(cloudConfig, (key) => assetKeys.has(key)),
+      ...(localNonAssetConfig?.envVariables ?? {}),
+    },
+  };
 }
 
 export function buildSecretsDtoFromEnvSecretsFile(entries: EnvEntry[]): SecretDTO | undefined {
@@ -104,11 +113,25 @@ export function buildSecretsDtoFromEnvSecretsFile(entries: EnvEntry[]): SecretDT
   return { secrets };
 }
 
-export async function readProjectEnvFiles(
-  projectRoot: string,
-  assetFileNames: string[] = []
-): Promise<LocalEnvFiles> {
-  void assetFileNames;
+export function warnIfMissingEnvFilesForPush(
+  localEnv: LocalEnvFiles,
+  cloudEnv: CloudEnvState,
+  assetFileNames: string[] = [],
+  warn: (message: string) => void
+): void {
+  if (!localEnv.envConfigPresent && cloudHasNonAssetConfig(cloudEnv.config, assetFileNames)) {
+    warn(
+      '.env.config is missing locally. Run `ensemble pull` to restore env vars from cloud. Config env push skipped.'
+    );
+  }
+  if (!localEnv.envSecretsPresent && cloudHasSecrets(cloudEnv.secrets)) {
+    warn(
+      '.env.secrets is missing locally. Run `ensemble pull` to restore secrets from cloud. Secrets env push skipped.'
+    );
+  }
+}
+
+export async function readProjectEnvFiles(projectRoot: string): Promise<LocalEnvFiles> {
   const [envConfigPresent, envSecretsPresent] = await Promise.all([
     envFileExists(projectRoot, '.env.config'),
     envFileExists(projectRoot, '.env.secrets'),
@@ -245,12 +268,7 @@ export function buildEnvPushDiff(
 }
 
 export function buildConfigDtoForReleaseSnapshot(entries: EnvEntry[]): ConfigDTO | undefined {
-  if (entries.length === 0) return undefined;
-  const envVariables: Record<string, string> = {};
-  for (const entry of entries) {
-    envVariables[entry.key] = entry.value;
-  }
-  return { envVariables };
+  return buildConfigDtoFromEntries(entries);
 }
 
 /** restores `.env.config` from a release snapshot; secrets are never included in releases */
@@ -286,12 +304,8 @@ async function upsertCloudAssetConfigEntries(
   assetFileNames: string[] = []
 ): Promise<void> {
   const assetKeys = collectAssetEnvKeys(assetFileNames);
-  const vars = cloudConfig?.envVariables ?? {};
-  const entries: EnvEntry[] = [];
-  for (const [key, value] of Object.entries(vars)) {
-    if (!assetKeys.has(key) || value === undefined || value === null) continue;
-    entries.push({ key, value: String(value) });
-  }
+  const envVariables = filterConfigEnvVariables(cloudConfig, (key) => assetKeys.has(key));
+  const entries = Object.entries(envVariables).map(([key, value]) => ({ key, value }));
   if (entries.length > 0) {
     await upsertEnvFile(projectRoot, '.env.config', entries);
   }

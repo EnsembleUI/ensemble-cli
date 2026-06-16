@@ -17,6 +17,7 @@ import {
   mergeConfigDtoForPush,
   readProjectEnvFiles,
   secretsDtoToEnvEntries,
+  warnIfMissingEnvFilesForPush,
 } from '../../src/core/envSync.js';
 import type { ConfigDTO, SecretDTO } from '../../src/core/dto.js';
 
@@ -88,7 +89,7 @@ describe('envSync', () => {
     );
     await fs.writeFile(path.join(tmpDir, '.env.secrets'), 'S1=local-secret\n', 'utf8');
 
-    const local = await readProjectEnvFiles(tmpDir, ['logo.png']);
+    const local = await readProjectEnvFiles(tmpDir);
     expect(buildConfigDtoFromEnvConfigFile(local.envConfig, ['logo.png'])).toEqual({
       envVariables: { API_URL: 'https://local.example.com' },
     });
@@ -105,7 +106,7 @@ describe('envSync', () => {
     );
     await fs.writeFile(path.join(tmpDir, '.env.secrets'), 'S1=local-secret\n', 'utf8');
 
-    const local = await readProjectEnvFiles(tmpDir, []);
+    const local = await readProjectEnvFiles(tmpDir);
     expect(
       envConfigEntriesMatchCloud(local.envConfig, {
         envVariables: { API_URL: 'https://cloud.example.com' },
@@ -291,6 +292,27 @@ describe('envSync', () => {
         ['Case1_Working.png']
       )
     ).toBe(false);
+  });
+
+  it('warns when env files are missing locally but cloud has values', () => {
+    const warnings: string[] = [];
+    warnIfMissingEnvFilesForPush(
+      {
+        envConfig: [],
+        envSecrets: [],
+        envConfigPresent: false,
+        envSecretsPresent: false,
+      },
+      {
+        config: { envVariables: { E1: 'EV1' } },
+        secrets: { secrets: { S1: 'SK1' } },
+      },
+      [],
+      (message) => warnings.push(message)
+    );
+    expect(warnings).toHaveLength(2);
+    expect(warnings[0]).toContain('.env.config is missing');
+    expect(warnings[1]).toContain('.env.secrets is missing');
   });
 
   it('does not treat missing env files as empty local deletes on push', () => {
