@@ -13,7 +13,6 @@ import {
   computeEnvPullChanges,
   pruneStaleAssetEnvEntries,
   prepareEnvPushState,
-  warnIfMissingEnvFilesForPush,
   type CloudEnvState,
   type LocalEnvFiles,
 } from '../../src/core/envSync.js';
@@ -75,6 +74,8 @@ describe('envSync', () => {
     cloudAssets?: Array<{ fileName?: string; copyText?: string }>;
     configChanged: boolean;
     secretsChanged: boolean;
+    wouldClearConfig?: boolean;
+    wouldClearSecrets?: boolean;
     cloudConfig?: Record<string, string>;
     localConfig?: Record<string, string>;
   }>([
@@ -111,7 +112,7 @@ describe('envSync', () => {
       secretsChanged: false,
     },
     {
-      name: 'skips push when env files are missing',
+      name: 'flags clear-all push when env files are missing but cloud has values',
       local: {
         envConfig: [],
         envSecrets: [],
@@ -123,8 +124,10 @@ describe('envSync', () => {
         secrets: { secrets: { S1: 'SK1' } },
       },
       assets: [],
-      configChanged: false,
-      secretsChanged: false,
+      configChanged: true,
+      secretsChanged: true,
+      wouldClearConfig: true,
+      wouldClearSecrets: true,
     },
     {
       name: 'shows full push config vs cloud including asset keys',
@@ -205,12 +208,16 @@ describe('envSync', () => {
       cloudAssets,
       configChanged,
       secretsChanged,
+      wouldClearConfig = false,
+      wouldClearSecrets = false,
       cloudConfig,
       localConfig,
     }) => {
       const diff = buildEnvPushDiff(local, cloud, assets, cloudAssets);
       expect(diff.configChanged).toBe(configChanged);
       expect(diff.secretsChanged).toBe(secretsChanged);
+      expect(diff.wouldClearConfig).toBe(wouldClearConfig);
+      expect(diff.wouldClearSecrets).toBe(wouldClearSecrets);
       if (!configChanged && !secretsChanged) {
         expect(diff.local).toEqual({});
         expect(diff.cloud).toEqual({});
@@ -380,7 +387,6 @@ describe('envSync', () => {
         config: { envVariables: { assets: 'https://cdn.example.com/', E1: 'EV1' } },
       },
       assetFileNames: [],
-      warn: () => {},
     });
 
     expect(state.diff.configChanged).toBe(true);
@@ -398,7 +404,6 @@ describe('envSync', () => {
       projectRoot: tmpDir,
       cloudEnv: { config: { envVariables: { E1: 'EV1' } } },
       assetFileNames: ['img1.png'],
-      warn: () => {},
     });
 
     const envConfigBeforeConfirm = await fs.readFile(path.join(tmpDir, '.env.config'), 'utf8');
@@ -425,26 +430,5 @@ describe('envSync', () => {
     expect(envConfig).toContain('assets=https://cdn.example.com/');
     expect(envConfig).toContain('logo_png=logo.png');
     expect(envConfig).toContain('E1=EV1');
-  });
-
-  it('warnIfMissingEnvFilesForPush warns when cloud has values but local files are missing', () => {
-    const warnings: string[] = [];
-    warnIfMissingEnvFilesForPush(
-      {
-        envConfig: [],
-        envSecrets: [],
-        envConfigPresent: false,
-        envSecretsPresent: false,
-      },
-      {
-        config: { envVariables: { E1: 'EV1' } },
-        secrets: { secrets: { S1: 'SK1' } },
-      },
-      [],
-      (message) => warnings.push(message)
-    );
-    expect(warnings).toHaveLength(2);
-    expect(warnings[0]).toContain('.env.config is missing');
-    expect(warnings[1]).toContain('.env.secrets is missing');
   });
 });

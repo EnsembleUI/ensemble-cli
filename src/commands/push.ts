@@ -344,7 +344,6 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
       cloudEnv: { config: cloudApp.config, secrets: cloudApp.secrets },
       assetFileNames,
       cloudAssets: cloudApp.assets,
-      warn: (message) => ui.warn(message),
     });
     const {
       diff: envPushDiff,
@@ -354,6 +353,7 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
     } = envPush;
     const envConfigChanged = envPushDiff.configChanged;
     const envSecretsChanged = envPushDiff.secretsChanged;
+    const { wouldClearConfig, wouldClearSecrets } = envPushDiff;
 
     await writeVerboseJson(root, 'ensemble-bundle.json', bundle, {
       verbose,
@@ -413,6 +413,11 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
       if (envConfigChanged || envSecretsChanged) {
         ui.note('Env file changes would also be pushed (.env.config / .env.secrets).');
       }
+      if (wouldClearConfig || wouldClearSecrets) {
+        ui.warn(
+          'Push would delete all cloud env/secrets (.env.config and/or .env.secrets missing or empty).'
+        );
+      }
       return;
     }
 
@@ -429,6 +434,8 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
       // eslint-disable-next-line no-console
       console.log('  env:\n        ✏️  modified     .env.secrets');
     }
+
+    const isInteractive = Boolean(process.stdout.isTTY && process.stdin.isTTY);
 
     const appHome = appConfig.appHome as string | undefined;
     const cloudHome = getCloudHomeScreenName(cloudApp);
@@ -447,10 +454,40 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
       }
     }
 
+    if (wouldClearConfig || wouldClearSecrets) {
+      const targets = [
+        wouldClearConfig && 'env variables (.env.config)',
+        wouldClearSecrets && 'secrets (.env.secrets)',
+      ].filter((t): t is string => Boolean(t));
+      ui.warn(`Pushing will delete all cloud ${targets.join(' and ')}.`);
+
+      if (!options.yes) {
+        if (!isInteractive) {
+          ui.error(
+            'Refusing to clear cloud env/secrets non-interactively without --yes. Re-run with --dry-run to inspect changes.'
+          );
+          process.exitCode = 1;
+          return;
+        }
+        const { proceed: clearEnv } = await prompts({
+          type: 'confirm',
+          name: 'proceed',
+          message: `Delete all ${targets.join(' and ')} from cloud? Continue? [y/N]`,
+          initial: false,
+        });
+        if (!clearEnv) {
+          ui.warn('Push cancelled.');
+          process.exitCode = 130;
+          return;
+        }
+      } else {
+        ui.note('Proceeding without interactive confirmation because --yes was provided.');
+      }
+    }
+
     const manifestNeedsRefresh = hasManifestRelevantChanges(cloudApp, plan.diff);
 
     let confirmed = options.yes ?? false;
-    const isInteractive = Boolean(process.stdout.isTTY && process.stdin.isTTY);
     const hasDeletes = summary.counts.deleted > 0;
     const largeChangeSet = yamlChangeTotal >= DESTRUCTIVE_CHANGE_PROMPT_THRESHOLD;
 

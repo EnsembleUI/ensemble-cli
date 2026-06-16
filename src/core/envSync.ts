@@ -155,6 +155,39 @@ export function buildSecretsDtoFromEnvSecretsFile(entries: EnvEntry[]): SecretDT
     : undefined;
 }
 
+function localNonAssetConfigEntries(
+  localEnv: LocalEnvFiles,
+  assetFileNames: string[],
+  cloudAssets?: CloudAssetEnvRef[]
+): EnvEntry[] {
+  if (!localEnv.envConfigPresent) return [];
+  return configDtoToEnvEntries(
+    buildConfigDtoFromEnvConfigFile(localEnv.envConfig, assetFileNames, cloudAssets)
+  );
+}
+
+function wouldClearConfigOnPush(
+  localEnv: LocalEnvFiles,
+  cloudConfig: ConfigDTO | undefined,
+  assetFileNames: string[],
+  cloudAssets?: CloudAssetEnvRef[]
+): boolean {
+  const cloudNonAsset = configDtoToEnvEntries(
+    stripAssetKeysFromConfigDto(cloudConfig, assetFileNames, cloudAssets)
+  );
+  return (
+    cloudNonAsset.length > 0 &&
+    localNonAssetConfigEntries(localEnv, assetFileNames, cloudAssets).length === 0
+  );
+}
+
+function wouldClearSecretsOnPush(localEnv: LocalEnvFiles, cloudSecrets?: SecretDTO): boolean {
+  return (
+    secretsDtoToEnvEntries(cloudSecrets).length > 0 &&
+    (!localEnv.envSecretsPresent || localEnv.envSecrets.length === 0)
+  );
+}
+
 export function pruneStaleAssetEnvEntries(
   entries: EnvEntry[],
   assetFileNames: string[],
@@ -209,29 +242,6 @@ export function buildPushConfigDto(
   return { envVariables };
 }
 
-export function warnIfMissingEnvFilesForPush(
-  localEnv: LocalEnvFiles,
-  cloudEnv: CloudEnvState,
-  assetFileNames: string[] = [],
-  warn: (message: string) => void
-): void {
-  const checks: Array<[boolean, string]> = [
-    [
-      !localEnv.envConfigPresent &&
-        configDtoToEnvEntries(stripAssetKeysFromConfigDto(cloudEnv.config, assetFileNames)).length >
-          0,
-      '.env.config is missing locally. Run `ensemble pull` to restore env vars from cloud. Config env push skipped.',
-    ],
-    [
-      !localEnv.envSecretsPresent && secretsDtoToEnvEntries(cloudEnv.secrets).length > 0,
-      '.env.secrets is missing locally. Run `ensemble pull` to restore secrets from cloud. Secrets env push skipped.',
-    ],
-  ];
-  for (const [missing, message] of checks) {
-    if (missing) warn(message);
-  }
-}
-
 export async function readProjectEnvFiles(projectRoot: string): Promise<LocalEnvFiles> {
   const [envConfigPresent, envSecretsPresent] = await Promise.all([
     envFileExists(projectRoot, '.env.config'),
@@ -284,15 +294,14 @@ export function envSecretsEntriesMatchCloud(
   localEntries: EnvEntry[],
   cloudSecrets: SecretDTO | undefined
 ): boolean {
-  return entriesEqual(
-    secretsDtoToEnvEntries(buildSecretsDtoFromEnvSecretsFile(localEntries)),
-    secretsDtoToEnvEntries(cloudSecrets)
-  );
+  return entriesEqual(localEntries, secretsDtoToEnvEntries(cloudSecrets));
 }
 
 export interface EnvPushDiff {
   configChanged: boolean;
   secretsChanged: boolean;
+  wouldClearConfig: boolean;
+  wouldClearSecrets: boolean;
   local: { config?: ConfigDTO; secrets?: SecretDTO };
   cloud: { config?: ConfigDTO; secrets?: SecretDTO };
 }
@@ -303,24 +312,33 @@ export function buildEnvPushDiff(
   assetFileNames: string[] = [],
   cloudAssets?: CloudAssetEnvRef[]
 ): EnvPushDiff {
+  const pushConfig = buildPushConfigDto(localEnv, cloudEnv.config, assetFileNames, cloudAssets);
+  const wouldClearConfig = wouldClearConfigOnPush(
+    localEnv,
+    cloudEnv.config,
+    assetFileNames,
+    cloudAssets
+  );
+  const wouldClearSecrets = wouldClearSecretsOnPush(localEnv, cloudEnv.secrets);
   const configChanged =
-    localEnv.envConfigPresent &&
-    !configEntriesEqual(
-      buildPushConfigDto(localEnv, cloudEnv.config, assetFileNames, cloudAssets),
-      cloudEnv.config
-    );
+    wouldClearConfig ||
+    (localEnv.envConfigPresent && !configEntriesEqual(pushConfig, cloudEnv.config));
   const secretsChanged =
-    localEnv.envSecretsPresent &&
-    !envSecretsEntriesMatchCloud(localEnv.envSecrets, cloudEnv.secrets);
+    wouldClearSecrets ||
+    (localEnv.envSecretsPresent &&
+      !entriesEqual(localEnv.envSecrets, secretsDtoToEnvEntries(cloudEnv.secrets)));
+  const pushSecrets: SecretDTO = {
+    secrets: Object.fromEntries(localEnv.envSecrets.map((e) => [e.key, e.value])),
+  };
 
   return {
     configChanged,
     secretsChanged,
+    wouldClearConfig,
+    wouldClearSecrets,
     local: {
-      ...(configChanged && {
-        config: buildPushConfigDto(localEnv, cloudEnv.config, assetFileNames, cloudAssets),
-      }),
-      ...(secretsChanged && { secrets: buildSecretsDtoFromEnvSecretsFile(localEnv.envSecrets) }),
+      ...(configChanged && { config: pushConfig }),
+      ...(secretsChanged && { secrets: pushSecrets }),
     },
     cloud: {
       ...(configChanged && cloudEnv.config && { config: cloudEnv.config }),
@@ -376,7 +394,6 @@ export async function prepareEnvPushState(params: {
   cloudEnv: CloudEnvState;
   assetFileNames: string[];
   cloudAssets?: CloudAssetEnvRef[];
-  warn: (message: string) => void;
 }): Promise<EnvPushState> {
   const localEnvRaw = await readProjectEnvFiles(params.projectRoot);
   const prunedEnvConfig = localEnvRaw.envConfigPresent
@@ -390,19 +407,10 @@ export async function prepareEnvPushState(params: {
     params.cloudAssets
   );
 
-  warnIfMissingEnvFilesForPush(localEnv, params.cloudEnv, params.assetFileNames, params.warn);
-
   return {
     localEnv,
     diff,
-    pushConfigDto: localEnvRaw.envConfigPresent
-      ? buildPushConfigDto(
-          localEnv,
-          params.cloudEnv.config,
-          params.assetFileNames,
-          params.cloudAssets
-        )
-      : undefined,
+    pushConfigDto: diff.local.config,
     pushSecretsDto: diff.local.secrets,
     ...(localEnvRaw.envConfigPresent &&
       !entriesEqual(prunedEnvConfig, localEnvRaw.envConfig) && {
