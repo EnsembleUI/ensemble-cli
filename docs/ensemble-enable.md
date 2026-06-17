@@ -24,7 +24,7 @@ ensemble enable [modules...] [key=value...]
 
 ```
 enable.ts
-  ├── starterProject.ts     detect starter root (pubspec + ensemble.properties + ensemble_modules.dart)
+  ├── starterProject.ts     cwd or --project must be starter root (no walk-up)
   ├── modulesCache.ts       fetch/cache tooling from GitHub releases
   ├── enableRuntime.ts      jiti-load registry data; prompts use cached param definitions
   └── moduleRunner.ts       fvm dart run <cached-script> cwd=user project

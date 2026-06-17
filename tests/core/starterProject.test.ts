@@ -35,25 +35,36 @@ describe('starterProject', () => {
     );
   }
 
-  it('resolves starter root from cwd or parent directories', async () => {
+  it('accepts cwd when it is the starter root', async () => {
     await writeStarterLayout(tmpDir);
-    const nested = path.join(tmpDir, 'apps', 'mobile');
-    await fs.mkdir(nested, { recursive: true });
-    process.chdir(nested);
-
     const root = await resolveStarterProjectRoot();
     expect(await fs.realpath(root)).toBe(await fs.realpath(tmpDir));
   });
 
+  it('rejects cwd when not the starter root', async () => {
+    await writeStarterLayout(tmpDir);
+    const nested = path.join(tmpDir, 'ensemble', 'apps', 'kpnApp');
+    await fs.mkdir(nested, { recursive: true });
+    process.chdir(nested);
+
+    await expect(resolveStarterProjectRoot()).rejects.toThrow(/Not at starter project root/i);
+  });
+
   it('throws when starter markers are missing', async () => {
-    await expect(resolveStarterProjectRoot()).rejects.toThrow(
-      /Could not find an Ensemble starter project/
-    );
+    await expect(resolveStarterProjectRoot()).rejects.toThrow(/Not at starter project root/i);
   });
 
   it('throws when explicit project path is invalid', async () => {
-    await expect(resolveStarterProjectRoot(tmpDir)).rejects.toThrow(
-      /This does not look like an Ensemble starter project/
-    );
+    await expect(resolveStarterProjectRoot(tmpDir)).rejects.toThrow(/Not a starter project/i);
+  });
+
+  it('accepts an explicit starter root via --project', async () => {
+    await writeStarterLayout(tmpDir);
+    const nested = path.join(tmpDir, 'ensemble', 'apps', 'kpnApp');
+    await fs.mkdir(nested, { recursive: true });
+    process.chdir(nested);
+
+    const root = await resolveStarterProjectRoot(tmpDir);
+    expect(await fs.realpath(root)).toBe(await fs.realpath(tmpDir));
   });
 });
