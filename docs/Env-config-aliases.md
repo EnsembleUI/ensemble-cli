@@ -71,11 +71,11 @@ api_url=https://prod.ensemble.com
 
 For the active alias (`--app` or `ensemble.config.json` → `default`):
 
-| Situation | Files used |
-|-----------|------------|
-| Alias is **default** and only base files exist | `.env.config` + `.env.secrets` |
-| Alias is **not default** | `.env.config.<alias>` + `.env.secrets.<alias>` (created on pull if missing) |
-| Alias has **both** scoped files (any alias) | scoped pair wins over base |
+| Situation                                      | Files used                                                                  |
+| ---------------------------------------------- | --------------------------------------------------------------------------- |
+| Alias is **default** and only base files exist | `.env.config` + `.env.secrets`                                              |
+| Alias is **not default**                       | `.env.config.<alias>` + `.env.secrets.<alias>` (created on pull if missing) |
+| Alias has **both** scoped files (any alias)    | scoped pair wins over base                                                  |
 
 No mixing across tiers. Config and secrets always come from the same tier.
 
@@ -93,9 +93,9 @@ Commands use the resolved pair for the selected `--app` alias (see resolution ru
 
 ### Missing vs empty (push)
 
-| Local state | Push behavior |
-|-------------|---------------|
-| File **missing** | Ignored — no env push for that side, no cloud wipe |
+| Local state             | Push behavior                                                     |
+| ----------------------- | ----------------------------------------------------------------- |
+| File **missing**        | Ignored — no env push for that side, no cloud wipe                |
 | File **present, empty** | Wipe — warn + `[y/N]` before deleting all cloud keys on that side |
 
 ### Pushing env variables

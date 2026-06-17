@@ -19,7 +19,9 @@ import {
 } from '../../src/core/envSync.js';
 import { envConfigScopedFile, envSecretsScopedFile } from '../../src/core/envConfig.js';
 
-function localEnv(overrides: Partial<LocalEnvFiles> & Pick<LocalEnvFiles, 'envConfig'>): LocalEnvFiles {
+function localEnv(
+  overrides: Partial<LocalEnvFiles> & Pick<LocalEnvFiles, 'envConfig'>
+): LocalEnvFiles {
   const baseConfig = overrides.baseConfig ?? overrides.envConfig;
   return {
     appKey: 'default',
@@ -479,13 +481,18 @@ describe('envSync', () => {
   });
 
   it('applyReleaseConfigToFs restores full snapshot config', async () => {
-    await applyReleaseConfigToFs(tmpDir, {
-      envVariables: {
-        assets: 'https://cdn.example.com/',
-        logo_png: 'logo.png',
-        E1: 'EV1',
+    await applyReleaseConfigToFs(
+      tmpDir,
+      {
+        envVariables: {
+          assets: 'https://cdn.example.com/',
+          logo_png: 'logo.png',
+          E1: 'EV1',
+        },
       },
-    }, 'default', 'default');
+      'default',
+      'default'
+    );
 
     const envConfig = await fs.readFile(path.join(tmpDir, '.env.config'), 'utf8');
     expect(envConfig).toContain('assets=https://cdn.example.com/');

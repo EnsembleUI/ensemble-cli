@@ -852,6 +852,35 @@ describe('createVersion', () => {
     expect(capturedUrl).toContain('documentId=');
   });
 
+  it('uses provided id as document id', async () => {
+    let capturedUrl: string | null = null;
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const urlStr =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : (input as Request).url;
+      if (urlStr.includes('/versions') && init?.method === 'POST') {
+        capturedUrl = urlStr;
+        return new Response(JSON.stringify({}), { status: 200 });
+      }
+      return new Response('', { status: 404 });
+    };
+
+    const result = await createVersion('app1', 'token', {
+      id: 'abc123',
+      message: 'Release 1',
+      createdAt: '2025-01-15T12:00:00Z',
+      expiresAt: '2025-02-15T12:00:00Z',
+      createdBy: { name: 'User', id: 'uid1' },
+      snapshotPath: 'releases/app1/abc123.json',
+    });
+
+    expect(result.id).toBe('abc123');
+    expect(capturedUrl).toContain('documentId=abc123');
+  });
+
   it('throws FirestoreClientError on 403', async () => {
     globalThis.fetch = async (input: RequestInfo | URL) => {
       const urlStr =

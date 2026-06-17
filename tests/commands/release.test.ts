@@ -91,6 +91,7 @@ import {
   releaseListCommand,
   releaseUseCommand,
 } from '../../src/commands/release.js';
+import { resolveAppContext } from '../../src/config/projectConfig.js';
 import type { CloudApp } from '../../src/cloud/firestoreClient.js';
 import { EnsembleDocumentType } from '../../src/core/dto.js';
 
@@ -193,6 +194,27 @@ describe('release commands', () => {
       expect(asset.publicUrl).toBeUndefined();
       expect(asset.copyText).toBeUndefined();
     }
+  });
+
+  it('release create hints alias-specific use command for non-default app', async () => {
+    vi.mocked(resolveAppContext).mockResolvedValueOnce({
+      projectRoot,
+      config: {
+        default: 'dev',
+        apps: {
+          dev: { appId: 'app-dev', name: 'Dev App' },
+          uat: { appId: 'app-uat', name: 'Uat App' },
+        },
+      },
+      appKey: 'uat',
+      appId: 'app-uat',
+    });
+
+    await releaseCreateCommand({ appKey: 'uat', message: 'uat release', yes: true });
+
+    expect(uiSuccessMock).toHaveBeenCalledWith(
+      'Release saved. Run "ensemble release use --app uat" to use it.'
+    );
   });
 
   it('release use restores snapshot config and never touches secrets', async () => {

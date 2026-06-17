@@ -63,6 +63,10 @@ function formatReleaseLine(index: number, v: VersionDoc): string {
   return `${index + 1}. ${date} — ${msg} [hash: ${v.id}]`;
 }
 
+function releaseUseHint(appKey: string, defaultAppKey: string): string {
+  return appKey === defaultAppKey ? 'ensemble release use' : `ensemble release use --app ${appKey}`;
+}
+
 export async function releaseCreateCommand(options: ReleaseCreateOptions = {}): Promise<void> {
   const root = process.cwd();
   const { config, appKey, appId } = await resolveAppContext(options.appKey);
@@ -140,6 +144,7 @@ export async function releaseCreateCommand(options: ReleaseCreateOptions = {}): 
       appId,
       idToken,
       {
+        id: versionId,
         message: message.trim(),
         createdAt: now.toISOString(),
         createdBy: { name: session.name ?? 'User', id: userId },
@@ -148,7 +153,7 @@ export async function releaseCreateCommand(options: ReleaseCreateOptions = {}): 
       },
       firestoreOptions
     );
-    ui.success('Release saved. Run "ensemble release use" to use it.');
+    ui.success(`Release saved. Run "${releaseUseHint(appKey, config.default)}" to use it.`);
   } catch (err) {
     if (err instanceof FirestoreClientError) {
       ui.error(err.message);
@@ -242,7 +247,7 @@ export async function releaseListCommand(options: ReleaseListOptions = {}): Prom
       return;
     }
 
-    ui.heading(`Releases for app "${appConfig.name ?? appKey}":`);
+    ui.heading(`Releases for "${appKey}":`);
     versions.forEach((v, idx) => {
       ui.note(formatReleaseLine(idx, v));
     });

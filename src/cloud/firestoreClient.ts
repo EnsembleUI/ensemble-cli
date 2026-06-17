@@ -216,6 +216,8 @@ export interface VersionMetadata {
 export type VersionDoc = VersionMetadata;
 
 export interface CreateVersionParams {
+  /** When set, used as the Firestore version document id (and should match the storage object name). */
+  id?: string;
   message: string;
   createdAt: string;
   createdBy: { name: string; email?: string; id: string };
@@ -1434,7 +1436,7 @@ export async function createVersion(
   options?: FirestoreClientOptions
 ): Promise<{ id: string }> {
   const project = getEnsembleFirebaseProject();
-  const versionId = generateVersionId();
+  const versionId = params.id ?? generateVersionId();
   const parent = `projects/${project}/databases/(default)/documents/apps/${appId}`;
   const url = `https://firestore.googleapis.com/v1/${parent}/versions?documentId=${encodeURIComponent(versionId)}`;
 

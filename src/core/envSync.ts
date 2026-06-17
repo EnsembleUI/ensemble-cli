@@ -200,9 +200,7 @@ function wouldClearConfigOnPush(
 
 function wouldClearSecretsOnPush(localEnv: LocalEnvFiles, cloudSecrets?: SecretDTO): boolean {
   if (!localEnv.envSecretsPresent) return false;
-  return (
-    secretsDtoToEnvEntries(cloudSecrets).length > 0 && localEnv.envSecrets.length === 0
-  );
+  return secretsDtoToEnvEntries(cloudSecrets).length > 0 && localEnv.envSecrets.length === 0;
 }
 
 export function pruneStaleAssetEnvEntries(
@@ -266,26 +264,20 @@ export async function readProjectEnvFiles(
 ): Promise<LocalEnvFiles> {
   const scopedConfigFile = envConfigScopedFile(appKey);
   const scopedSecretsFile = envSecretsScopedFile(appKey);
-  const [
-    baseConfigPresent,
-    scopedConfigPresent,
-    baseSecretsPresent,
-    scopedSecretsPresent,
-  ] = await Promise.all([
-    envFileExists(projectRoot, ENV_CONFIG_BASE),
-    envFileExists(projectRoot, scopedConfigFile),
-    envFileExists(projectRoot, ENV_SECRETS_BASE),
-    envFileExists(projectRoot, scopedSecretsFile),
-  ]);
+  const [baseConfigPresent, scopedConfigPresent, baseSecretsPresent, scopedSecretsPresent] =
+    await Promise.all([
+      envFileExists(projectRoot, ENV_CONFIG_BASE),
+      envFileExists(projectRoot, scopedConfigFile),
+      envFileExists(projectRoot, ENV_SECRETS_BASE),
+      envFileExists(projectRoot, scopedSecretsFile),
+    ]);
   const scopedPairPresent = scopedConfigPresent && scopedSecretsPresent;
   const useScoped = scopedPairPresent || appKey !== defaultAppKey;
   const configWriteFile = useScoped ? scopedConfigFile : ENV_CONFIG_BASE;
   const secretsWriteFile = useScoped ? scopedSecretsFile : ENV_SECRETS_BASE;
 
   const baseConfig = baseConfigPresent ? await readEnvFile(projectRoot, ENV_CONFIG_BASE) : [];
-  const scopedConfig = scopedConfigPresent
-    ? await readEnvFile(projectRoot, scopedConfigFile)
-    : [];
+  const scopedConfig = scopedConfigPresent ? await readEnvFile(projectRoot, scopedConfigFile) : [];
   const baseSecrets = baseSecretsPresent ? await readEnvFile(projectRoot, ENV_SECRETS_BASE) : [];
   const scopedSecrets = scopedSecretsPresent
     ? await readEnvFile(projectRoot, scopedSecretsFile)
@@ -460,11 +452,7 @@ export async function prepareEnvPushState(params: {
     params.defaultAppKey
   );
   const prunedConfigSource = localEnvRaw.envConfigPresent
-    ? pruneStaleAssetEnvEntries(
-        localEnvRaw.envConfig,
-        params.assetFileNames,
-        params.cloudAssets
-      )
+    ? pruneStaleAssetEnvEntries(localEnvRaw.envConfig, params.assetFileNames, params.cloudAssets)
     : localEnvRaw.envConfig;
   const localEnv: LocalEnvFiles = {
     ...localEnvRaw,

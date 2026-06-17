@@ -417,9 +417,7 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
         ui.note('Env file changes would also be pushed (.env.config / .env.secrets).');
       }
       if (wouldClearConfig || wouldClearSecrets) {
-        ui.warn(
-          'Push would delete all cloud env/secrets (local env file present but empty).'
-        );
+        ui.warn('Push would delete all cloud env/secrets (local env file present but empty).');
       }
       return;
     }
