@@ -341,6 +341,8 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
     const assetFileNames = data.assetFiles ?? [];
     const envPush = await prepareEnvPushState({
       projectRoot: root,
+      appKey,
+      defaultAppKey: config.default,
       cloudEnv: { config: cloudApp.config, secrets: cloudApp.secrets },
       assetFileNames,
       cloudAssets: cloudApp.assets,
@@ -350,6 +352,7 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
       pushConfigDto,
       pushSecretsDto: localSecretsDto,
       pendingLocalEnvConfigWrite,
+      localEnv: envLocal,
     } = envPush;
     const envConfigChanged = envPushDiff.configChanged;
     const envSecretsChanged = envPushDiff.secretsChanged;
@@ -415,7 +418,7 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
       }
       if (wouldClearConfig || wouldClearSecrets) {
         ui.warn(
-          'Push would delete all cloud env/secrets (.env.config and/or .env.secrets missing or empty).'
+          'Push would delete all cloud env/secrets (local env file present but empty).'
         );
       }
       return;
@@ -428,11 +431,11 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
     }
     if (envConfigChanged) {
       // eslint-disable-next-line no-console
-      console.log('  env:\n        ✏️  modified     .env.config');
+      console.log(`  env:\n        ✏️  modified     ${envLocal.configWriteFile}`);
     }
     if (envSecretsChanged) {
       // eslint-disable-next-line no-console
-      console.log('  env:\n        ✏️  modified     .env.secrets');
+      console.log(`  env:\n        ✏️  modified     ${envLocal.secretsWriteFile}`);
     }
 
     const isInteractive = Boolean(process.stdout.isTTY && process.stdin.isTTY);
@@ -456,8 +459,8 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
 
     if (wouldClearConfig || wouldClearSecrets) {
       const targets = [
-        wouldClearConfig && 'env variables (.env.config)',
-        wouldClearSecrets && 'secrets (.env.secrets)',
+        wouldClearConfig && `env variables (${envLocal.configWriteFile})`,
+        wouldClearSecrets && `secrets (${envLocal.secretsWriteFile})`,
       ].filter((t): t is string => Boolean(t));
       ui.warn(`Pushing will delete all cloud ${targets.join(' and ')}.`);
 
@@ -545,7 +548,7 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
 
     try {
       if (pendingLocalEnvConfigWrite) {
-        await writeEnvFile(root, '.env.config', pendingLocalEnvConfigWrite);
+        await writeEnvFile(root, envLocal.configWriteFile, pendingLocalEnvConfigWrite);
       }
 
       if (yamlChangeTotal > 0 || assetsToUpload.length > 0 || assetsToArchive.length > 0) {

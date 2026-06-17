@@ -110,7 +110,7 @@ export async function releaseCreateCommand(options: ReleaseCreateOptions = {}): 
   const appName = (appConfig.name as string | undefined) ?? 'App';
   const appHome = appConfig.appHome as string | undefined;
   const localFiles = await collectAppFiles(root);
-  const localEnv = await readProjectEnvFiles(root);
+  const localEnv = await readProjectEnvFiles(root, appKey, config.default);
   const localConfig = buildConfigDtoFromEnvEntries(localEnv.envConfig);
   const localApp = buildDocumentsFromParsed(localFiles, appId, appName, appHome, undefined);
   const snapshot: CloudApp = {
@@ -392,7 +392,7 @@ export async function releaseUseCommand(options: ReleaseUseOptions = {}): Promis
         },
       })
     );
-    await applyReleaseConfigToFs(projectRoot, snapshot.config);
+    await applyReleaseConfigToFs(projectRoot, snapshot.config, appKey, config.default);
     ui.success(
       'Local files updated to selected release. Run "ensemble push" to apply to the cloud.'
     );

@@ -1041,16 +1041,8 @@ describe('push/pull integration (commands)', () => {
     expect(payload.secrets?.secrets?.S1).toBe('local-secret');
   });
 
-  it.each([
-    ['deleted', async () => {}],
-    [
-      'empty',
-      async () => {
-        await fs.writeFile(path.join(projectRoot, '.env.secrets'), '', 'utf8');
-      },
-    ],
-  ])('push clears cloud secrets when .env.secrets is %s', async (_label, setupSecrets) => {
-    await setupSecrets();
+  it('push clears cloud secrets when .env.secrets is empty', async () => {
+    await fs.writeFile(path.join(projectRoot, '.env.secrets'), '', 'utf8');
     (resolveAppContext as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       projectRoot,
       config: {
@@ -1082,5 +1074,32 @@ describe('push/pull integration (commands)', () => {
       ]
     )[2];
     expect(payload.secrets?.secrets).toEqual({});
+  });
+
+  it('push skips secrets when .env.secrets is missing', async () => {
+    (resolveAppContext as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      projectRoot,
+      config: {
+        default: 'dev',
+        apps: {
+          dev: { appId: 'app1', name: 'App', appHome: undefined, options: appOptionsRef.value },
+        },
+      },
+      appKey: 'dev',
+      appId: 'app1',
+    });
+    (cloudModuleMock.fetchCloudApp as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: 'app1',
+      name: 'App',
+      screens: [],
+      widgets: [],
+      scripts: [],
+      translations: [],
+      secrets: { secrets: { S1: 'cloud-secret' } },
+    });
+
+    await pushCommand({ yes: true });
+
+    expect(cloudModuleMock.submitEnvDocumentsPush).not.toHaveBeenCalled();
   });
 });

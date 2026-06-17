@@ -3,7 +3,11 @@ import path from 'node:path';
 import type { ConfigDTO, SecretDTO } from './dto.js';
 import { deriveAssetEnvKey, resolveAssetEnvKey } from './pullAssets.js';
 import {
+  ENV_CONFIG_BASE,
+  ENV_SECRETS_BASE,
+  envConfigScopedFile,
   envFileExists,
+  envSecretsScopedFile,
   readEnvFile,
   upsertEnvFile,
   writeEnvFile,
@@ -16,10 +20,22 @@ export interface CloudEnvState {
 }
 
 export interface LocalEnvFiles {
+  appKey: string;
+  useScoped: boolean;
+  configWriteFile: string;
+  secretsWriteFile: string;
   envConfig: EnvEntry[];
   envSecrets: EnvEntry[];
+  baseConfig: EnvEntry[];
+  scopedConfig: EnvEntry[];
+  baseSecrets: EnvEntry[];
+  scopedSecrets: EnvEntry[];
   envConfigPresent: boolean;
   envSecretsPresent: boolean;
+  baseConfigPresent: boolean;
+  scopedConfigPresent: boolean;
+  baseSecretsPresent: boolean;
+  scopedSecretsPresent: boolean;
 }
 
 export type CloudAssetEnvRef = {
@@ -172,6 +188,7 @@ function wouldClearConfigOnPush(
   assetFileNames: string[],
   cloudAssets?: CloudAssetEnvRef[]
 ): boolean {
+  if (!localEnv.envConfigPresent) return false;
   const cloudNonAsset = configDtoToEnvEntries(
     stripAssetKeysFromConfigDto(cloudConfig, assetFileNames, cloudAssets)
   );
@@ -182,9 +199,9 @@ function wouldClearConfigOnPush(
 }
 
 function wouldClearSecretsOnPush(localEnv: LocalEnvFiles, cloudSecrets?: SecretDTO): boolean {
+  if (!localEnv.envSecretsPresent) return false;
   return (
-    secretsDtoToEnvEntries(cloudSecrets).length > 0 &&
-    (!localEnv.envSecretsPresent || localEnv.envSecrets.length === 0)
+    secretsDtoToEnvEntries(cloudSecrets).length > 0 && localEnv.envSecrets.length === 0
   );
 }
 
@@ -242,16 +259,55 @@ export function buildPushConfigDto(
   return { envVariables };
 }
 
-export async function readProjectEnvFiles(projectRoot: string): Promise<LocalEnvFiles> {
-  const [envConfigPresent, envSecretsPresent] = await Promise.all([
-    envFileExists(projectRoot, '.env.config'),
-    envFileExists(projectRoot, '.env.secrets'),
+export async function readProjectEnvFiles(
+  projectRoot: string,
+  appKey: string,
+  defaultAppKey: string
+): Promise<LocalEnvFiles> {
+  const scopedConfigFile = envConfigScopedFile(appKey);
+  const scopedSecretsFile = envSecretsScopedFile(appKey);
+  const [
+    baseConfigPresent,
+    scopedConfigPresent,
+    baseSecretsPresent,
+    scopedSecretsPresent,
+  ] = await Promise.all([
+    envFileExists(projectRoot, ENV_CONFIG_BASE),
+    envFileExists(projectRoot, scopedConfigFile),
+    envFileExists(projectRoot, ENV_SECRETS_BASE),
+    envFileExists(projectRoot, scopedSecretsFile),
   ]);
+  const scopedPairPresent = scopedConfigPresent && scopedSecretsPresent;
+  const useScoped = scopedPairPresent || appKey !== defaultAppKey;
+  const configWriteFile = useScoped ? scopedConfigFile : ENV_CONFIG_BASE;
+  const secretsWriteFile = useScoped ? scopedSecretsFile : ENV_SECRETS_BASE;
+
+  const baseConfig = baseConfigPresent ? await readEnvFile(projectRoot, ENV_CONFIG_BASE) : [];
+  const scopedConfig = scopedConfigPresent
+    ? await readEnvFile(projectRoot, scopedConfigFile)
+    : [];
+  const baseSecrets = baseSecretsPresent ? await readEnvFile(projectRoot, ENV_SECRETS_BASE) : [];
+  const scopedSecrets = scopedSecretsPresent
+    ? await readEnvFile(projectRoot, scopedSecretsFile)
+    : [];
+
   return {
-    envConfigPresent,
-    envSecretsPresent,
-    envConfig: envConfigPresent ? await readEnvFile(projectRoot, '.env.config') : [],
-    envSecrets: envSecretsPresent ? await readEnvFile(projectRoot, '.env.secrets') : [],
+    appKey,
+    useScoped,
+    configWriteFile,
+    secretsWriteFile,
+    baseConfig,
+    scopedConfig,
+    baseSecrets,
+    scopedSecrets,
+    envConfig: useScoped ? scopedConfig : baseConfig,
+    envSecrets: useScoped ? scopedSecrets : baseSecrets,
+    baseConfigPresent,
+    scopedConfigPresent,
+    baseSecretsPresent,
+    scopedSecretsPresent,
+    envConfigPresent: useScoped ? scopedConfigPresent : baseConfigPresent,
+    envSecretsPresent: useScoped ? scopedSecretsPresent : baseSecretsPresent,
   };
 }
 
@@ -352,7 +408,7 @@ export interface EnvPullChanges {
   configMatch: boolean;
   secretsMatch: boolean;
   match: boolean;
-  filesToUpdate: Array<'.env.config' | '.env.secrets'>;
+  filesToUpdate: string[];
 }
 
 export function computeEnvPullChanges(
@@ -366,12 +422,13 @@ export function computeEnvPullChanges(
   const configMatch = envConfigEntriesMatchCloud(
     localEnv?.envConfig ?? [],
     cloudConfig,
-    assetFileNames
+    assetFileNames,
+    cloudAssets
   );
   const secretsMatch = envSecretsEntriesMatchCloud(localEnv?.envSecrets ?? [], cloudSecrets);
-  const filesToUpdate: EnvPullChanges['filesToUpdate'] = [];
-  if (!configMatch) filesToUpdate.push('.env.config');
-  if (!secretsMatch) filesToUpdate.push('.env.secrets');
+  const filesToUpdate: string[] = [];
+  if (!configMatch) filesToUpdate.push(localEnv?.configWriteFile ?? ENV_CONFIG_BASE);
+  if (!secretsMatch) filesToUpdate.push(localEnv?.secretsWriteFile ?? ENV_SECRETS_BASE);
   return {
     assetFileNames,
     configMatch,
@@ -391,15 +448,31 @@ export interface EnvPushState {
 
 export async function prepareEnvPushState(params: {
   projectRoot: string;
+  appKey: string;
+  defaultAppKey: string;
   cloudEnv: CloudEnvState;
   assetFileNames: string[];
   cloudAssets?: CloudAssetEnvRef[];
 }): Promise<EnvPushState> {
-  const localEnvRaw = await readProjectEnvFiles(params.projectRoot);
-  const prunedEnvConfig = localEnvRaw.envConfigPresent
-    ? pruneStaleAssetEnvEntries(localEnvRaw.envConfig, params.assetFileNames, params.cloudAssets)
+  const localEnvRaw = await readProjectEnvFiles(
+    params.projectRoot,
+    params.appKey,
+    params.defaultAppKey
+  );
+  const prunedConfigSource = localEnvRaw.envConfigPresent
+    ? pruneStaleAssetEnvEntries(
+        localEnvRaw.envConfig,
+        params.assetFileNames,
+        params.cloudAssets
+      )
     : localEnvRaw.envConfig;
-  const localEnv = { ...localEnvRaw, envConfig: prunedEnvConfig };
+  const localEnv: LocalEnvFiles = {
+    ...localEnvRaw,
+    envConfig: prunedConfigSource,
+    ...(localEnvRaw.useScoped
+      ? { scopedConfig: prunedConfigSource }
+      : { baseConfig: prunedConfigSource }),
+  };
   const diff = buildEnvPushDiff(
     localEnv,
     params.cloudEnv,
@@ -413,37 +486,49 @@ export async function prepareEnvPushState(params: {
     pushConfigDto: diff.local.config,
     pushSecretsDto: diff.local.secrets,
     ...(localEnvRaw.envConfigPresent &&
-      !entriesEqual(prunedEnvConfig, localEnvRaw.envConfig) && {
-        pendingLocalEnvConfigWrite: prunedEnvConfig,
+      !entriesEqual(prunedConfigSource, localEnvRaw.envConfig) && {
+        pendingLocalEnvConfigWrite: prunedConfigSource,
       }),
   };
 }
 
 export async function applyReleaseConfigToFs(
   projectRoot: string,
-  config: ConfigDTO | undefined
+  config: ConfigDTO | undefined,
+  appKey: string,
+  defaultAppKey: string
 ): Promise<void> {
   const configEntries = configDtoToEnvEntries(config);
-  if (configEntries.length > 0) await writeEnvFile(projectRoot, '.env.config', configEntries);
+  if (configEntries.length === 0) return;
+  const { configWriteFile } = await readProjectEnvFiles(projectRoot, appKey, defaultAppKey);
+  await writeEnvFile(projectRoot, configWriteFile, configEntries);
 }
 
 export async function applyCloudEnvToFs(
   projectRoot: string,
   cloudEnv: CloudEnvState,
-  assetFileNames: string[] = []
+  assetFileNames: string[] = [],
+  appKey = 'default',
+  defaultAppKey = appKey
 ): Promise<void> {
+  const layout = await readProjectEnvFiles(projectRoot, appKey, defaultAppKey);
+  const configWriteFile = layout.configWriteFile;
+  const secretsWriteFile = layout.secretsWriteFile;
+
   const assetKeys = collectAssetEnvKeys(assetFileNames);
   const cloudVars = cloudEnv.config?.envVariables ?? {};
   const assetEntries = [...assetKeys]
     .map((key) => ({ key, value: cloudVars[key] }))
     .filter((entry): entry is EnvEntry => typeof entry.value === 'string');
-  if (assetEntries.length > 0) await upsertEnvFile(projectRoot, '.env.config', assetEntries);
+  if (assetEntries.length > 0) {
+    await upsertEnvFile(projectRoot, configWriteFile, assetEntries);
+  }
 
-  const existing = await readEnvFile(projectRoot, '.env.config');
+  const existing = await readEnvFile(projectRoot, configWriteFile);
   const keptAssetEntries = existing.filter((entry) => assetKeys.has(entry.key));
   const nonAssetEntries = configDtoToEnvEntries(
     stripAssetKeysFromConfigDto(cloudEnv.config, assetFileNames)
   );
-  await writeEnvFile(projectRoot, '.env.config', [...keptAssetEntries, ...nonAssetEntries]);
-  await writeEnvFile(projectRoot, '.env.secrets', secretsDtoToEnvEntries(cloudEnv.secrets));
+  await writeEnvFile(projectRoot, configWriteFile, [...keptAssetEntries, ...nonAssetEntries]);
+  await writeEnvFile(projectRoot, secretsWriteFile, secretsDtoToEnvEntries(cloudEnv.secrets));
 }

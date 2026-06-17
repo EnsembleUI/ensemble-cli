@@ -7,6 +7,17 @@ export interface EnvEntry {
   overwrite?: boolean;
 }
 
+export const ENV_CONFIG_BASE = '.env.config';
+export const ENV_SECRETS_BASE = '.env.secrets';
+
+export function envConfigScopedFile(appKey: string): string {
+  return `${ENV_CONFIG_BASE}.${appKey}`;
+}
+
+export function envSecretsScopedFile(appKey: string): string {
+  return `${ENV_SECRETS_BASE}.${appKey}`;
+}
+
 function parseEnvFile(raw: string): {
   lines: string[];
   keyToLineIndex: Map<string, number>;
