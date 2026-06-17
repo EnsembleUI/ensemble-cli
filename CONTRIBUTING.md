@@ -32,7 +32,7 @@ src/
 ├── cloud/      # Firestore API client
 ├── commands/   # CLI commands
 ├── config/     # Global & project config
-├── core/       # Domain logic (app collection, DTOs, diff)
+├── core/       # Domain logic (app collection, DTOs, diff, starter enable)
 └── lib/        # Shared utilities
 tests/
 ├── auth/       # Auth unit tests (token, session)

@@ -19,6 +19,7 @@ ensemble push
 ensemble pull
 ensemble release
 ensemble add
+ensemble enable
 ensemble update
 ```
 
@@ -34,7 +35,8 @@ ensemble update
 | `ensemble pull`    | Pull artifacts from the cloud and overwrite local files                   |
 | `ensemble release` | Manage releases (snapshots) of your app (interactive menu or subcommands) |
 | `ensemble add`     | Add a new screen, widget, script, action, translation, or asset           |
-| `ensemble update`  | Update the CLI to the latest version                                      |
+| `ensemble enable`  | Enable starter modules (camera, location, google_maps, etc.) in a Flutter app |
+| `ensemble update`  | Update the CLI to the latest version                                        |
 
 ### Options
 
@@ -56,8 +58,39 @@ ensemble update
 - **release list** — `--limit <n>` — Maximum number of releases to show (default: 20)
 - **release list** — `--json` — Print releases as machine-readable JSON (for scripts)
 - **release use** — `--app <alias>` — App alias (default: `default`)
-- **release use** — `--hash <hash>` — Non-interactive: use release by hash
 - **release use** — `--hash <hash>` — Non-interactive: use release by hash (printed by `release list`)
+
+### `ensemble enable`
+
+`ensemble enable` fetches the latest stable module tooling from [EnsembleUI/ensemble](https://github.com/EnsembleUI/ensemble) (latest GitHub release), caches it under `~/.ensemble/cache/modules_dir/<release-tag>/`, and runs module scripts against your starter project.
+
+- **Interactive**
+
+  ```bash
+  ensemble enable
+  ```
+
+- **Direct**
+
+  ```bash
+  ensemble enable camera
+  ensemble enable camera location
+  ensemble enable google_maps --platform web googleMapsApiKey=YOUR_KEY ensemble_version=1.2.40
+  ensemble enable camera --project ./my-starter-app
+  ```
+
+- **Options**
+  - `--project <path>` — Starter project root (default: auto-detect from current directory)
+  - `--platform <platforms>` — `ios`, `android`, `web`, or comma-separated list
+  - `--verbose` — Print dart commands
+  - Module parameters use `key=value` (keys match `src/modules_scripts.ts` in cached tooling), or prompts in interactive mode
+
+- **Notes**
+  - Does not require `ensemble login`
+  - Uses `fvm dart` when the project has `.fvmrc`
+  - Checks GitHub for the latest release on each run; re-downloads only when the cached release tag differs (or cache is missing). Offline runs use the cached release.
+  - After `pubspec.yaml` changes, run `flutter pub get`
+  - Team architecture notes: [docs/ensemble-enable.md](docs/ensemble-enable.md)
 
 ### `ensemble add`
 

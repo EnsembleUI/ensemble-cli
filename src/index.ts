@@ -16,6 +16,7 @@ import { addCommand } from './commands/add.js';
 import { pullCommand } from './commands/pull.js';
 import { releaseCreateCommand, releaseListCommand, releaseUseCommand } from './commands/release.js';
 import { updateCommand } from './commands/update.js';
+import { enableCommand } from './commands/enable.js';
 import { printCliError, resolveDebugFlag } from './core/cliError.js';
 import { ui } from './core/ui.js';
 
@@ -214,6 +215,27 @@ program
     await updateCommand();
   });
 
+program
+  .command('enable')
+  .description('Enable Ensemble starter modules (camera, location, google_maps, etc.).')
+  .argument('[modules...]', 'Module names to enable (e.g. camera location google_maps)')
+  .option('--project <path>', 'Starter project root (default: auto-detect from cwd)')
+  .option('--platform <platforms>', 'Target platform(s): ios, android, web (comma-separated)')
+  .option('--verbose', 'Print dart commands', false)
+  .action(
+    async (
+      modules: string[],
+      options: { project?: string; platform?: string; verbose?: boolean }
+    ) => {
+      await enableCommand({
+        modules,
+        project: options.project,
+        platform: options.platform,
+        verbose: options.verbose,
+      });
+    }
+  );
+
 function checkForUpdates(): void {
   // Skip update checks in CI or when explicitly disabled.
   const ci = process.env.CI;
@@ -222,11 +244,11 @@ function checkForUpdates(): void {
     return;
   }
 
-  // Use the user's existing npm + auth config to query GitHub Packages.
   // IMPORTANT: This command string must remain a static literal and MUST NOT
   // interpolate user-controlled input to avoid shell injection risks.
-  exec(
+  const child = exec(
     'npm view @ensembleui/cli version --registry=https://registry.npmjs.org',
+    { timeout: 5_000 },
     (error, stdout) => {
       if (error) {
         return;
@@ -238,6 +260,7 @@ function checkForUpdates(): void {
       ui.note('Run "ensemble update" to upgrade.');
     }
   );
+  child.unref();
 }
 
 checkForUpdates();
