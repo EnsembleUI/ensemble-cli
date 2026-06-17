@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
+import { execFileSync } from 'node:child_process';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -8,6 +9,12 @@ import {
   collectGitWorkspaceChanges,
   snapshotGitWorkspace,
 } from '../../src/core/gitProjectChanges.js';
+
+function initGitRepo(repoDir: string): void {
+  execFileSync('git', ['init'], { cwd: repoDir });
+  execFileSync('git', ['config', 'user.email', 'ensemble-cli-test@example.com'], { cwd: repoDir });
+  execFileSync('git', ['config', 'user.name', 'Ensemble CLI Test'], { cwd: repoDir });
+}
 
 describe('gitProjectChanges', () => {
   let tmpDir: string;
@@ -30,8 +37,7 @@ describe('gitProjectChanges', () => {
     const pubspecPath = path.join(tmpDir, 'pubspec.yaml');
     await fs.writeFile(pubspecPath, 'name: demo\n');
 
-    const { execFileSync } = await import('node:child_process');
-    execFileSync('git', ['init'], { cwd: tmpDir });
+    initGitRepo(tmpDir);
     execFileSync('git', ['add', 'pubspec.yaml'], { cwd: tmpDir });
     execFileSync('git', ['commit', '-m', 'init'], { cwd: tmpDir });
 
