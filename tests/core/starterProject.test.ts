@@ -29,7 +29,10 @@ describe('starterProject', () => {
       'name: demo\ndependencies:\n  ensemble:\n    git:\n      url: https://github.com/EnsembleUI/ensemble.git\n'
     );
     await fs.writeFile(path.join(root, 'ensemble', 'ensemble.properties'), 'appId=demo\n');
-    await fs.writeFile(path.join(root, 'lib', 'generated', 'ensemble_modules.dart'), '// generated\n');
+    await fs.writeFile(
+      path.join(root, 'lib', 'generated', 'ensemble_modules.dart'),
+      '// generated\n'
+    );
   }
 
   it('resolves starter root from cwd or parent directories', async () => {
@@ -43,7 +46,9 @@ describe('starterProject', () => {
   });
 
   it('throws when starter markers are missing', async () => {
-    await expect(resolveStarterProjectRoot()).rejects.toThrow(/Could not find an Ensemble starter project/);
+    await expect(resolveStarterProjectRoot()).rejects.toThrow(
+      /Could not find an Ensemble starter project/
+    );
   });
 
   it('throws when explicit project path is invalid', async () => {

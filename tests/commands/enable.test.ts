@@ -3,30 +3,26 @@ import { describe, expect, it } from 'vitest';
 import { parseEnableTokens } from '../../src/commands/enable.js';
 
 describe('parseEnableTokens', () => {
-  it('splits module names from key=value parameters', () => {
-    const { moduleNames, inlineArgs } = parseEnableTokens([
+  it('splits script names from key=value parameters', () => {
+    const { scriptNames, argsArray } = parseEnableTokens([
       'google_maps',
-      'googleMapsApiKey=abc',
+      'webGoogleMapsApiKey=abc',
       'ensemble_version=1.2.40',
     ]);
 
-    expect(moduleNames).toEqual(['google_maps']);
-    expect(inlineArgs).toEqual({
-      googleMapsApiKey: 'abc',
-      ensemble_version: '1.2.40',
-    });
+    expect(scriptNames).toEqual(['google_maps']);
+    expect(argsArray).toEqual(['webGoogleMapsApiKey=abc', 'ensemble_version=1.2.40']);
   });
 
-  it('supports multiple modules and ignores non-module tokens', () => {
-    const { moduleNames, inlineArgs } = parseEnableTokens([
+  it('treats every non key=value token as a script name', () => {
+    const { scriptNames, argsArray } = parseEnableTokens([
       'camera',
       'location',
       'cameraDescription=Hello',
-      '__googleMapsApiKey',
       'not-a-module',
     ]);
 
-    expect(moduleNames).toEqual(['camera', 'location']);
-    expect(inlineArgs).toEqual({ cameraDescription: 'Hello' });
+    expect(scriptNames).toEqual(['camera', 'location', 'not-a-module']);
+    expect(argsArray).toEqual(['cameraDescription=Hello']);
   });
 });

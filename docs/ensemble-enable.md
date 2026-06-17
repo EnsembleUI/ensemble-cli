@@ -11,12 +11,11 @@ The CLI does **not** vendor module scripts. It downloads tooling from [EnsembleU
 ```bash
 ensemble enable [modules...] [key=value...]
   --project <path>    # starter root (default: auto-detect from cwd)
-  --platform <list>   # ios, android, web (comma-separated)
   --verbose           # print dart command lines
 ```
 
-- **Interactive** (TTY): multiselect modules + prompts for missing params.
-- **Direct**: `ensemble enable camera --platform ios cameraDescription=... ensemble_version=1.2.44`
+- **Interactive** (TTY): cached runtime `selectModules` + `checkAndAskForMissingArgs`.
+- **Direct**: `ensemble enable camera platform=ios cameraDescription=... ensemble_version=1.2.44`
 - Does **not** require `ensemble login`.
 
 ---
@@ -27,21 +26,19 @@ ensemble enable [modules...] [key=value...]
 enable.ts
   ├── starterProject.ts     detect starter root (pubspec + ensemble.properties + ensemble_modules.dart)
   ├── modulesCache.ts       fetch/cache tooling from GitHub releases
-  ├── moduleRegistry.ts     load modules_scripts.ts + utility_scripts.ts via jiti
-  ├── moduleParams.ts       prompts + key=value args (mirrors starter utils)
+  ├── enableRuntime.ts      jiti-load registry data; prompts use cached param definitions
   └── moduleRunner.ts       fvm dart run <cached-script> cwd=user project
         └── gitProjectChanges.ts   list Modified files (git snapshot diff)
 ```
 
+| Module             | Role                                                                                                     |
+| ------------------ | -------------------------------------------------------------------------------------------------------- |
+| `modulesCache.ts`  | Resolve latest **stable** GitHub release; cache under `~/.ensemble/cache/modules_dir/<tag>/`             |
+| `enableRuntime.ts` | jiti-load `modules_scripts.ts` + `utility_scripts.ts`; prompts via CLI `prompts` using cached param defs |
+| `moduleRunner.ts`  | Runs scripts sequentially; partial success on batch failure                                              |
+| `dartToolchain.ts` | `fvm dart` when `.fvmrc` / `.fvm/fvm_config.json` exists, else `dart`                                    |
 
-| Module              | Role                                                                                                |
-| ------------------- | --------------------------------------------------------------------------------------------------- |
-| `modulesCache.ts`   | Resolve latest **stable** GitHub release; cache under `~/.ensemble/cache/modules_dir/<tag>/`        |
-| `moduleRegistry.ts` | Registry lookup, name aliases (`generate_keystore` → `generateKeystore`)                            |
-| `moduleParams.ts`   | `platform`, `ensemble_version`, per-module params; `googleMapsApiKey` fans out to per-platform keys |
-| `moduleRunner.ts`   | Runs scripts sequentially; partial success on batch failure                                         |
-| `dartToolchain.ts`  | `fvm dart` when `.fvmrc` / `.fvm/fvm_config.json` exists, else `dart`                               |
-
+**Not duplicated in CLI:** module list, parameter keys, prompt text, `commonParameters` — all from cached Ensemble `src/`.
 
 ---
 
@@ -53,8 +50,8 @@ enable.ts
 modules_dir/
   .ref                    # last successfully cached release tag
   ensemble-v1.2.44/       # example tag — not hardcoded
-    src/modules_scripts.ts
-    scripts/modules/*.dart
+    src/*
+    scripts/*
 ```
 
 **On each run:**
@@ -75,7 +72,7 @@ fvm dart run <abs-path-to-cached-script> key=value key=value ...
 # cwd: user starter project root
 ```
 
-Args are `key=value` only (no `--flags`). Each script receives only keys declared in its registry entry plus common params (`platform`, `ensemble_version`).
+Args are `key=value` only (no `--flags`). Each script receives only keys declared in its registry entry plus `commonParameters` from cached `utility_scripts.ts`.
 
 ---
 
@@ -90,7 +87,6 @@ If the project root has a `.git` directory, the CLI snapshots tracked + untracke
 
 ## Important distinctions
 
-
 | Term               | Meaning                                                                                      |
 | ------------------ | -------------------------------------------------------------------------------------------- |
 | `ensemble_version` | Flutter **package** git ref in pubspec (e.g. `1.2.44`) — prompted / passed by user           |
@@ -98,18 +94,17 @@ If the project root has a `.git` directory, the CLI snapshots tracked + untracke
 | Starter project    | User’s Flutter app being modified                                                            |
 | Module tooling     | Downloaded `starter/src` + `starter/scripts` from ensemble repo                              |
 
-
 ---
 
 ## Testing
 
 ```bash
-npm test                    # unit tests including parseEnableTokens, cache paths, git diff, registry
+npm test
 npm run build
-node dist/index.js enable camera --project ./my-app --platform ios ...
+node dist/index.js enable camera --project ./my-app platform=ios ...
 ```
 
-Fixtures: `tests/fixtures/starter-cache/` (minimal registry for `moduleRegistry` tests).
+Fixtures: `tests/fixtures/starter-cache/` (minimal cached `src/` tree for `enableRuntime` tests).
 
 ---
 
@@ -125,4 +120,3 @@ Fixtures: `tests/fixtures/starter-cache/` (minimal registry for `moduleRegistry`
 ## Related
 
 - Issue: [ensemble-cli#3](https://github.com/EnsembleUI/ensemble-cli/issues/3)
-

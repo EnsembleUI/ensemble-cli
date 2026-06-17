@@ -1,105 +1,76 @@
-import prompts from 'prompts';
-
 import { ENSEMBLE_MODULES_REPO, ensureModulesTooling } from '../core/modulesCache.js';
 import {
-  findStarterScript,
+  assertRequiredParamsPresent,
   formatModuleLabel,
-  loadStarterRegistry,
-  normalizeModuleName,
-} from '../core/moduleRegistry.js';
+  loadEnableRuntime,
+  parseEnableTokens,
+  resolveScript,
+  type EnableScript,
+} from '../core/enableRuntime.js';
 import { ModuleBatchError, runStarterScriptsSequentially } from '../core/moduleRunner.js';
-import { resolveScriptArguments, type StarterArgMap } from '../core/moduleParams.js';
 import { resolveStarterProjectRoot } from '../core/starterProject.js';
 import { ui } from '../core/ui.js';
-import type { StarterScript } from '../core/starterTypes.js';
+
+export { parseEnableTokens } from '../core/enableRuntime.js';
 
 export interface EnableCommandOptions {
   modules?: string[];
   project?: string;
-  platform?: string;
   verbose?: boolean;
 }
 
-const MODULE_NAME_RE = /^[a-z][a-z0-9_]*$/;
-const NON_INTERACTIVE_HINT = 'Module name required for non-interactive use.\n\nExample:\n  ensemble enable camera';
+const NON_INTERACTIVE_HINT =
+  'Module name required for non-interactive use.\n\nExample:\n  ensemble enable camera';
 
 function isInteractiveTty(): boolean {
   return Boolean(process.stdout.isTTY && process.stdin.isTTY);
 }
 
-/** split commander [modules...] tokens into module names and key=value params */
-export function parseEnableTokens(tokens: string[]): {
-  moduleNames: string[];
-  inlineArgs: StarterArgMap;
-} {
-  const moduleNames: string[] = [];
-  const inlineArgs: StarterArgMap = {};
-  for (const token of tokens) {
-    if (token.includes('=')) {
-      const eq = token.indexOf('=');
-      const key = token.slice(0, eq);
-      if (key) inlineArgs[key] = token.slice(eq + 1);
-    } else if (MODULE_NAME_RE.test(token)) {
-      moduleNames.push(token);
-    }
-  }
-  return { moduleNames, inlineArgs };
-}
-
 async function resolveScripts(
-  moduleNames: string[],
-  registry: Awaited<ReturnType<typeof loadStarterRegistry>>,
+  scriptNames: string[],
+  runtime: Awaited<ReturnType<typeof loadEnableRuntime>>,
   interactive: boolean
-): Promise<StarterScript[]> {
-  const names = moduleNames.map(normalizeModuleName).filter(Boolean);
-  if (names.length > 0) return names.map((name) => findStarterScript(name, registry));
+): Promise<EnableScript[]> {
+  if (scriptNames.length > 0) {
+    return scriptNames.map((name) => resolveScript(name, runtime));
+  }
   if (!interactive) throw new Error(NON_INTERACTIVE_HINT);
 
-  const { selected } = await prompts({
-    type: 'multiselect',
-    name: 'selected',
-    message: 'What do you want to enable?',
-    choices: registry.modules.map((module) => ({
-      title: formatModuleLabel(module.name),
-      value: module.name,
-    })),
-    hint: '- Space to select. Return to submit.',
-  });
-
-  if (!selected?.length) {
+  const selected = await runtime.selectModules();
+  if (selected.length === 0) {
     ui.warn('Enable command cancelled.');
     process.exitCode = 130;
     return [];
   }
-
-  return selected.map((name: string) => findStarterScript(name, registry));
+  return selected;
 }
 
 export async function enableCommand(options: EnableCommandOptions = {}): Promise<void> {
   const interactive = isInteractiveTty();
-  const { moduleNames, inlineArgs } = parseEnableTokens(options.modules ?? []);
+  const { scriptNames, argsArray: tokenArgs } = parseEnableTokens(options.modules ?? []);
   const projectRoot = await resolveStarterProjectRoot(options.project);
   const tooling = await ensureModulesTooling();
 
   if (tooling.usedCacheFallback) {
-    ui.warn(`Could not fetch latest module tooling.\nUsing cached module tooling (${tooling.ref}).`);
+    ui.warn(
+      `Could not fetch latest module tooling.\nUsing cached module tooling (${tooling.ref}).`
+    );
   }
 
-  const registry = await loadStarterRegistry(tooling.cacheDir);
-  const scripts = await resolveScripts(moduleNames, registry, interactive);
+  const runtime = await loadEnableRuntime(tooling.cacheDir);
+  const scripts = await resolveScripts(scriptNames, runtime, interactive);
   if (scripts.length === 0) return;
 
-  const argsArray = await resolveScriptArguments({
-    scripts,
-    provided: { ...(options.platform ? { platform: options.platform } : {}), ...inlineArgs },
-    interactive,
-  });
+  const finalArgs = interactive
+    ? await runtime.checkAndAskForMissingArgs(scripts, tokenArgs)
+    : (assertRequiredParamsPresent(scripts, runtime.commonParameters, tokenArgs), tokenArgs);
 
   const runOptions = {
     cacheDir: tooling.cacheDir,
     projectRoot,
     scripts,
-    argsArray,
+    argsArray: finalArgs,
+    commonParameters: runtime.commonParameters,
     verbose: options.verbose,
   };
 
@@ -120,7 +91,7 @@ export async function enableCommand(options: EnableCommandOptions = {}): Promise
 }
 
 function printEnableSummary(options: {
-  scripts: StarterScript[];
+  scripts: EnableScript[];
   results: Array<{ scriptName: string; modifiedFiles: string[] }>;
   toolingRef: string;
 }): void {

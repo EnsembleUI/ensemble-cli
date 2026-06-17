@@ -2,10 +2,18 @@ import path from 'path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
-import { assertDartAvailable, resolveDartInvocation, type DartInvocation } from './dartToolchain.js';
+import {
+  argsForScript,
+  normalizeArgsForDart,
+  type EnableParameter,
+  type EnableScript,
+} from './enableRuntime.js';
+import {
+  assertDartAvailable,
+  resolveDartInvocation,
+  type DartInvocation,
+} from './dartToolchain.js';
 import { collectGitWorkspaceChanges, snapshotGitWorkspace } from './gitProjectChanges.js';
-import { formatArgsForScript } from './moduleParams.js';
-import type { StarterScript } from './starterTypes.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -46,8 +54,9 @@ function throwModuleError(scriptName: string, err: unknown): never {
 async function runStarterScript(options: {
   cacheDir: string;
   projectRoot: string;
-  script: StarterScript;
+  script: EnableScript;
   argsArray: string[];
+  commonParameters: EnableParameter[];
   dart: DartInvocation;
   verbose?: boolean;
 }): Promise<ModuleRunResult> {
@@ -56,7 +65,11 @@ async function runStarterScript(options: {
     ...options.dart.prefixArgs,
     'run',
     path.join(options.cacheDir, options.script.path),
-    ...formatArgsForScript(options.script, options.argsArray),
+    ...argsForScript(
+      options.script,
+      normalizeArgsForDart(options.argsArray),
+      options.commonParameters
+    ),
   ];
 
   if (options.verbose) {
@@ -84,8 +97,9 @@ async function runStarterScript(options: {
 export async function runStarterScriptsSequentially(options: {
   cacheDir: string;
   projectRoot: string;
-  scripts: StarterScript[];
+  scripts: EnableScript[];
   argsArray: string[];
+  commonParameters: EnableParameter[];
   verbose?: boolean;
 }): Promise<ModuleRunResult[]> {
   const dart = await resolveDartInvocation(options.projectRoot);

@@ -11,12 +11,7 @@ import { fileExists } from './fs.js';
 
 export const ENSEMBLE_MODULES_REPO = 'EnsembleUI/ensemble';
 
-const STARTER_PATHS = [
-  'starter/src/',
-  'starter/scripts/',
-  'starter/package.json',
-  'starter/tsconfig.json',
-];
+const STARTER_PATHS = ['starter/src/', 'starter/scripts/'];
 const FETCH_TIMEOUT_MS = 15_000;
 const REGISTRY_REL = path.join('src', 'modules_scripts.ts');
 
@@ -71,23 +66,25 @@ async function hasRegistry(ref: string): Promise<boolean> {
   return fileExists(path.join(getModulesReleaseCacheDir(ref), REGISTRY_REL));
 }
 
-async function cachedOrThrow(cachedRef: string | null, err: unknown): Promise<ModulesToolingResult> {
+async function cachedOrThrow(
+  cachedRef: string | null,
+  err: unknown
+): Promise<ModulesToolingResult> {
   if (cachedRef && (await hasRegistry(cachedRef))) return toolingResult(cachedRef, true);
   throw unavailableError(err instanceof Error ? err.message : String(err));
 }
 
 async function fetchLatestRef(): Promise<string> {
-  const response = await fetch(
-    'https://api.github.com/repos/EnsembleUI/ensemble/releases/latest',
-    {
-      headers: { Accept: 'application/vnd.github+json' },
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    }
-  );
+  const response = await fetch('https://api.github.com/repos/EnsembleUI/ensemble/releases/latest', {
+    headers: { Accept: 'application/vnd.github+json' },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
   if (!response.ok) {
     throw new Error(`HTTP ${response.status} while fetching latest ensemble release`);
   }
-  const tag = getStableReleaseTag((await response.json()) as Parameters<typeof getStableReleaseTag>[0]);
+  const tag = getStableReleaseTag(
+    (await response.json()) as Parameters<typeof getStableReleaseTag>[0]
+  );
   if (!tag) throw new Error('Latest GitHub release is not a stable release');
   return tag;
 }
@@ -129,7 +126,8 @@ async function downloadRelease(ref: string): Promise<void> {
     });
 
     const starter = path.join(tmp, 'starter');
-    if (!(await fileExists(starter))) throw new Error('Downloaded archive did not contain starter/');
+    if (!(await fileExists(starter)))
+      throw new Error('Downloaded archive did not contain starter/');
 
     for (const entry of await fs.readdir(starter)) {
       const target = path.join(dest, entry);

@@ -218,23 +218,19 @@ program
 program
   .command('enable')
   .description('Enable Ensemble starter modules (camera, location, google_maps, etc.).')
-  .argument('[modules...]', 'Module names to enable (e.g. camera location google_maps)')
+  .argument(
+    '[modules...]',
+    'Module names and key=value params (e.g. camera platform=ios ensemble_version=1.2.40)'
+  )
   .option('--project <path>', 'Starter project root (default: auto-detect from cwd)')
-  .option('--platform <platforms>', 'Target platform(s): ios, android, web (comma-separated)')
   .option('--verbose', 'Print dart commands', false)
-  .action(
-    async (
-      modules: string[],
-      options: { project?: string; platform?: string; verbose?: boolean }
-    ) => {
-      await enableCommand({
-        modules,
-        project: options.project,
-        platform: options.platform,
-        verbose: options.verbose,
-      });
-    }
-  );
+  .action(async (modules: string[], options: { project?: string; verbose?: boolean }) => {
+    await enableCommand({
+      modules,
+      project: options.project,
+      verbose: options.verbose,
+    });
+  });
 
 function checkForUpdates(): void {
   // Skip update checks in CI or when explicitly disabled.

@@ -10,7 +10,9 @@ const execFileAsync = promisify(execFile);
 const GIT_BUFFER = 10 * 1024 * 1024;
 
 async function hashFile(filePath: string): Promise<string> {
-  return createHash('sha256').update(await fs.readFile(filePath)).digest('hex');
+  return createHash('sha256')
+    .update(await fs.readFile(filePath))
+    .digest('hex');
 }
 
 async function isGitRepository(projectRoot: string): Promise<boolean> {

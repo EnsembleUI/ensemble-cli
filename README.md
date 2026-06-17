@@ -25,18 +25,18 @@ ensemble update
 
 ## Commands
 
-| Command            | Description                                                               |
-| ------------------ | ------------------------------------------------------------------------- |
-| `ensemble login`   | Log in to Ensemble (opens browser)                                        |
-| `ensemble logout`  | Log out and clear local auth session                                      |
-| `ensemble token`   | Print token for CI (set as `ENSEMBLE_TOKEN`); run `ensemble login` first  |
-| `ensemble init`    | Initialize or update `ensemble.config.json` in the project                |
-| `ensemble push`    | Scan the app directory and push changes to the cloud                      |
-| `ensemble pull`    | Pull artifacts from the cloud and overwrite local files                   |
-| `ensemble release` | Manage releases (snapshots) of your app (interactive menu or subcommands) |
-| `ensemble add`     | Add a new screen, widget, script, action, translation, or asset           |
+| Command            | Description                                                                   |
+| ------------------ | ----------------------------------------------------------------------------- |
+| `ensemble login`   | Log in to Ensemble (opens browser)                                            |
+| `ensemble logout`  | Log out and clear local auth session                                          |
+| `ensemble token`   | Print token for CI (set as `ENSEMBLE_TOKEN`); run `ensemble login` first      |
+| `ensemble init`    | Initialize or update `ensemble.config.json` in the project                    |
+| `ensemble push`    | Scan the app directory and push changes to the cloud                          |
+| `ensemble pull`    | Pull artifacts from the cloud and overwrite local files                       |
+| `ensemble release` | Manage releases (snapshots) of your app (interactive menu or subcommands)     |
+| `ensemble add`     | Add a new screen, widget, script, action, translation, or asset               |
 | `ensemble enable`  | Enable starter modules (camera, location, google_maps, etc.) in a Flutter app |
-| `ensemble update`  | Update the CLI to the latest version                                        |
+| `ensemble update`  | Update the CLI to the latest version                                          |
 
 ### Options
 
@@ -75,15 +75,14 @@ ensemble update
   ```bash
   ensemble enable camera
   ensemble enable camera location
-  ensemble enable google_maps --platform web googleMapsApiKey=YOUR_KEY ensemble_version=1.2.40
+  ensemble enable google_maps platform=web webGoogleMapsApiKey=YOUR_KEY ensemble_version=1.2.40
   ensemble enable camera --project ./my-starter-app
   ```
 
 - **Options**
   - `--project <path>` — Starter project root (default: auto-detect from current directory)
-  - `--platform <platforms>` — `ios`, `android`, `web`, or comma-separated list
   - `--verbose` — Print dart commands
-  - Module parameters use `key=value` (keys match `src/modules_scripts.ts` in cached tooling), or prompts in interactive mode
+  - Module parameters use `key=value` (keys match cached `src/modules_scripts.ts` and `src/utility_scripts.ts`), or prompts in interactive mode
 
 - **Notes**
   - Does not require `ensemble login`
