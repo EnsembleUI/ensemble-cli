@@ -1,6 +1,19 @@
 import fs from 'fs/promises';
 import path from 'path';
 
+import type { FirestoreClientOptions, FirestoreDebugEvent } from '../cloud/firestoreClient.js';
+
+export function createFirestoreDebugOptions(): FirestoreClientOptions {
+  return { debug: logFirestoreDebugEvent };
+}
+
+function logFirestoreDebugEvent(event: FirestoreDebugEvent): void {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { kind, url: _omit, ...payload } = event as FirestoreDebugEvent & { url: never };
+  // eslint-disable-next-line no-console
+  console.log(`[debug:firestore] ${kind}`, JSON.stringify(payload, null, 2));
+}
+
 interface WriteVerboseJsonOptions {
   verbose: boolean;
   truncateLargeContent?: boolean;
