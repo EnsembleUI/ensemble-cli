@@ -7,7 +7,6 @@ import {
   fetchCloudApp,
   submitCliPush,
   FirestoreClientError,
-  type FirestoreClientOptions,
   type CloudApp,
 } from '../cloud/firestoreClient.js';
 import { buildDocumentsFromParsed } from '../core/buildDocuments.js';
@@ -18,7 +17,7 @@ import { resolveVerboseFlag } from '../core/cliError.js';
 import { resolveAppContext } from '../config/projectConfig.js';
 import { getValidAuthSession } from '../auth/session.js';
 import { withSpinner } from '../lib/spinner.js';
-import { writeVerboseJson } from '../core/debugFiles.js';
+import { createFirestoreDebugOptions, writeVerboseJson } from '../core/debugFiles.js';
 import { computePushPlan, type PushSummary, type PushCounts } from '../core/sync.js';
 import { buildAndWriteManifest } from '../core/manifest.js';
 import { ui } from '../core/ui.js';
@@ -207,45 +206,7 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
   }
   const { idToken, userId } = session;
 
-  const debugEnabled = verbose;
-  const firestoreOptions: FirestoreClientOptions | undefined = debugEnabled
-    ? {
-        debug: (event) => {
-          // eslint-disable-next-line no-console
-          console.log(
-            `[debug:firestore] ${event.kind}`,
-            JSON.stringify(
-              {
-                ...(event.kind === 'request' && {
-                  method: event.method,
-                  url: event.url,
-                  context: event.context,
-                }),
-                ...(event.kind === 'response' && {
-                  method: event.method,
-                  url: event.url,
-                  status: event.status,
-                  context: event.context,
-                }),
-                ...(event.kind === 'list_documents' && {
-                  collection: event.collection,
-                  parentPath: event.parentPath,
-                  count: event.count,
-                }),
-                ...(event.kind === 'push_operation' && {
-                  appId: event.appId,
-                  operation: event.operation,
-                  artifactKind: event.artifactKind,
-                  documentId: event.documentId,
-                }),
-              },
-              null,
-              2
-            )
-          );
-        },
-      }
-    : undefined;
+  const firestoreOptions = verbose ? createFirestoreDebugOptions() : undefined;
 
   const [access, dataWithLang, cloudAppResult] = await withSpinner(
     'Preparing app for push...',

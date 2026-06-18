@@ -8,7 +8,6 @@ import {
   fetchCloudApp,
   FirestoreClientError,
   type CloudApp,
-  type FirestoreClientOptions,
 } from '../cloud/firestoreClient.js';
 import { collectAppFiles } from '../core/appCollector.js';
 import { ArtifactProps, type ArtifactProp } from '../core/artifacts.js';
@@ -18,7 +17,7 @@ import { getValidAuthSession } from '../auth/session.js';
 import { withSpinner } from '../lib/spinner.js';
 import { applyCloudStateToFs } from '../core/applyToFs.js';
 import { type RootManifest } from '../core/manifest.js';
-import { writeVerboseJson } from '../core/debugFiles.js';
+import { createFirestoreDebugOptions, writeVerboseJson } from '../core/debugFiles.js';
 import { computePullPlan, type PullSummary } from '../core/sync.js';
 import { applyCloudAssetsToFs, buildEnvConfigForCloudAssets } from '../core/pullAssets.js';
 import { ui } from '../core/ui.js';
@@ -164,45 +163,7 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
   }
   const { idToken, userId } = session;
 
-  const debugEnabled = verbose;
-  const firestoreOptions: FirestoreClientOptions | undefined = debugEnabled
-    ? {
-        debug: (event) => {
-          // eslint-disable-next-line no-console
-          console.log(
-            `[debug:firestore] ${event.kind}`,
-            JSON.stringify(
-              {
-                ...(event.kind === 'request' && {
-                  method: event.method,
-                  url: event.url,
-                  context: event.context,
-                }),
-                ...(event.kind === 'response' && {
-                  method: event.method,
-                  url: event.url,
-                  status: event.status,
-                  context: event.context,
-                }),
-                ...(event.kind === 'list_documents' && {
-                  collection: event.collection,
-                  parentPath: event.parentPath,
-                  count: event.count,
-                }),
-                ...(event.kind === 'push_operation' && {
-                  appId: event.appId,
-                  operation: event.operation,
-                  artifactKind: event.artifactKind,
-                  documentId: event.documentId,
-                }),
-              },
-              null,
-              2
-            )
-          );
-        },
-      }
-    : undefined;
+  const firestoreOptions = verbose ? createFirestoreDebugOptions() : undefined;
 
   const manifestPath = path.join(projectRoot, '.manifest.json');
   const readManifest = (): Promise<RootManifest> =>
