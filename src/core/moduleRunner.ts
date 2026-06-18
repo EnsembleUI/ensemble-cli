@@ -13,26 +13,8 @@ import {
   resolveDartInvocation,
   type DartInvocation,
 } from './dartToolchain.js';
-import { collectGitWorkspaceChanges, snapshotGitWorkspace } from './gitProjectChanges.js';
 
 const execFileAsync = promisify(execFile);
-
-interface ModuleRunResult {
-  scriptName: string;
-  modifiedFiles: string[];
-}
-
-export class ModuleBatchError extends Error {
-  constructor(
-    message: string,
-    readonly completed: ModuleRunResult[],
-    readonly failedScript: string,
-    readonly scriptOutput: string
-  ) {
-    super(message);
-    this.name = 'ModuleBatchError';
-  }
-}
 
 function readExecOutput(err: unknown): string {
   if (!err || typeof err !== 'object') return String(err);
@@ -59,8 +41,7 @@ async function runStarterScript(options: {
   commonParameters: EnableParameter[];
   dart: DartInvocation;
   verbose?: boolean;
-}): Promise<ModuleRunResult> {
-  const before = await snapshotGitWorkspace(options.projectRoot);
+}): Promise<void> {
   const commandArgs = [
     ...options.dart.prefixArgs,
     'run',
@@ -87,11 +68,6 @@ async function runStarterScript(options: {
   } catch (err) {
     throwModuleError(options.script.name, err);
   }
-
-  return {
-    scriptName: options.script.name,
-    modifiedFiles: await collectGitWorkspaceChanges(options.projectRoot, before),
-  };
 }
 
 export async function runStarterScriptsSequentially(options: {
@@ -101,23 +77,11 @@ export async function runStarterScriptsSequentially(options: {
   argsArray: string[];
   commonParameters: EnableParameter[];
   verbose?: boolean;
-}): Promise<ModuleRunResult[]> {
+}): Promise<void> {
   const dart = await resolveDartInvocation(options.projectRoot);
   await assertDartAvailable(dart);
 
-  const results: ModuleRunResult[] = [];
   for (const script of options.scripts) {
-    try {
-      results.push(await runStarterScript({ ...options, script, dart }));
-    } catch (err) {
-      const output = err instanceof Error ? err.message : String(err);
-      throw new ModuleBatchError(
-        `Failed to run ${script.name}: ${output}`,
-        results,
-        script.name,
-        output
-      );
-    }
+    await runStarterScript({ ...options, script, dart });
   }
-  return results;
 }

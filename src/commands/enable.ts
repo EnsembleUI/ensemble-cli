@@ -1,13 +1,12 @@
-import { ENSEMBLE_MODULES_REPO, ensureModulesTooling } from '../core/modulesCache.js';
+import { ensureModulesTooling } from '../core/modulesCache.js';
 import {
   assertRequiredParamsPresent,
-  formatModuleLabel,
   loadEnableRuntime,
   parseEnableTokens,
   resolveScript,
   type EnableScript,
 } from '../core/enableRuntime.js';
-import { ModuleBatchError, runStarterScriptsSequentially } from '../core/moduleRunner.js';
+import { runStarterScriptsSequentially } from '../core/moduleRunner.js';
 import { resolveStarterProjectRoot } from '../core/starterProject.js';
 import { ui } from '../core/ui.js';
 
@@ -65,60 +64,12 @@ export async function enableCommand(options: EnableCommandOptions = {}): Promise
     ? await runtime.checkAndAskForMissingArgs(scripts, tokenArgs)
     : (assertRequiredParamsPresent(scripts, runtime.commonParameters, tokenArgs), tokenArgs);
 
-  const runOptions = {
+  await runStarterScriptsSequentially({
     cacheDir: tooling.cacheDir,
     projectRoot,
     scripts,
     argsArray: finalArgs,
     commonParameters: runtime.commonParameters,
     verbose: options.verbose,
-  };
-
-  try {
-    printEnableSummary({
-      scripts,
-      results: await runStarterScriptsSequentially(runOptions),
-      toolingRef: tooling.ref,
-    });
-  } catch (err) {
-    if (err instanceof ModuleBatchError) {
-      printEnableSummary({ scripts, results: err.completed, toolingRef: tooling.ref });
-      ui.error(`Stopped at ${formatModuleLabel(err.failedScript)}.`);
-      throw new Error(err.scriptOutput);
-    }
-    throw err;
-  }
-}
-
-function printEnableSummary(options: {
-  scripts: EnableScript[];
-  results: Array<{ scriptName: string; modifiedFiles: string[] }>;
-  toolingRef: string;
-}): void {
-  const succeeded = new Set(options.results.map((result) => result.scriptName));
-  const enabled = options.scripts
-    .filter((script) => succeeded.has(script.name))
-    .map((script) => formatModuleLabel(script.name));
-  const modified = [...new Set(options.results.flatMap((result) => result.modifiedFiles))].sort();
-
-  if (enabled.length === 0) return;
-
-  ui.success('Enabled:');
-  // eslint-disable-next-line no-console
-  console.log(enabled.map((name) => `  - ${name}`).join('\n'));
-
-  ui.note('\nScripts:');
-  ui.note(`  Source: ${ENSEMBLE_MODULES_REPO}`);
-  ui.note(`  Ref: ${options.toolingRef}`);
-  ui.note('  Registry: src/modules_scripts.ts');
-
-  if (modified.length > 0) {
-    ui.note('\nModified:');
-    for (const file of modified) ui.note(`  - ${file}`);
-  }
-
-  if (modified.includes('pubspec.yaml')) {
-    ui.note('\nDependencies changed. Run:');
-    ui.note('  flutter pub get');
-  }
+  });
 }

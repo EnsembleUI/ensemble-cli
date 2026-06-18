@@ -28,7 +28,6 @@ enable.ts
   ├── modulesCache.ts       fetch/cache tooling from GitHub releases
   ├── enableRuntime.ts      jiti-load registry data; prompts use cached param definitions
   └── moduleRunner.ts       fvm dart run <cached-script> cwd=user project
-        └── gitProjectChanges.ts   list Modified files (git snapshot diff)
 ```
 
 | Module             | Role                                                                                                     |
@@ -73,15 +72,6 @@ fvm dart run <abs-path-to-cached-script> key=value key=value ...
 ```
 
 Args are `key=value` only (no `--flags`). Each script receives only keys declared in its registry entry plus `commonParameters` from cached `utility_scripts.ts`.
-
----
-
-## Modified files
-
-If the project root has a `.git` directory, the CLI snapshots tracked + untracked files (SHA-256) before/after each script and prints a deduped **Modified** list.
-
-- No `.git` in project root → Modified section omitted (known limitation for monorepo nested starters).
-- `pubspec.yaml` in Modified → suggests `flutter pub get`.
 
 ---
 
