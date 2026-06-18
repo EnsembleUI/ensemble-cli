@@ -216,8 +216,8 @@ export interface VersionMetadata {
 export type VersionDoc = VersionMetadata;
 
 export interface CreateVersionParams {
-  /** When set, used as the Firestore version document id (and should match the storage object name). */
-  id?: string;
+  /** Firestore version document id; must match the storage object name. */
+  id: string;
   message: string;
   createdAt: string;
   createdBy: { name: string; email?: string; id: string };
@@ -1420,11 +1420,6 @@ export async function fetchRootScreenName(
   return parseFirestoreString(doc.fields.name as { stringValue?: string });
 }
 
-/** Generate a URL-safe ID for version documents. */
-function generateVersionId(): string {
-  return crypto.randomUUID().replace(/-/g, '');
-}
-
 /**
  * Create a version (snapshot) document under apps/{appId}/versions.
  * expiresAt must be stored as Firestore Timestamp for TTL policy to work.
@@ -1436,7 +1431,7 @@ export async function createVersion(
   options?: FirestoreClientOptions
 ): Promise<{ id: string }> {
   const project = getEnsembleFirebaseProject();
-  const versionId = params.id ?? generateVersionId();
+  const versionId = params.id;
   const parent = `projects/${project}/databases/(default)/documents/apps/${appId}`;
   const url = `https://firestore.googleapis.com/v1/${parent}/versions?documentId=${encodeURIComponent(versionId)}`;
 

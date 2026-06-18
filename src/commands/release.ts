@@ -1,3 +1,4 @@
+import { Command } from 'commander';
 import crypto from 'crypto';
 import prompts from 'prompts';
 
@@ -65,6 +66,15 @@ function formatReleaseLine(index: number, v: VersionDoc): string {
 
 function releaseUseHint(appKey: string, defaultAppKey: string): string {
   return appKey === defaultAppKey ? 'ensemble release use' : `ensemble release use --app ${appKey}`;
+}
+
+function releasePushHint(appKey: string, defaultAppKey: string): string {
+  return appKey === defaultAppKey ? 'ensemble push' : `ensemble push --app ${appKey}`;
+}
+
+/** Commander stores --app on the release parent when subcommands also declare it; read parent opts. */
+export function resolveReleaseAppKey(command: Command): string | undefined {
+  return command.parent?.opts()?.app as string | undefined;
 }
 
 export async function releaseCreateCommand(options: ReleaseCreateOptions = {}): Promise<void> {
@@ -399,7 +409,7 @@ export async function releaseUseCommand(options: ReleaseUseOptions = {}): Promis
     );
     await applyReleaseConfigToFs(projectRoot, snapshot.config, appKey, config.default);
     ui.success(
-      'Local files updated to selected release. Run "ensemble push" to apply to the cloud.'
+      `Local files updated to selected release. Run "${releasePushHint(appKey, config.default)}" to apply to the cloud.`
     );
   } catch (err) {
     if (err instanceof FirestoreClientError) {

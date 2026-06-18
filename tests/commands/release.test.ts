@@ -21,25 +21,7 @@ const uiNoteMock = vi.hoisted(() => vi.fn());
 let projectRoot: string;
 
 vi.mock('../../src/config/projectConfig.js', () => ({
-  resolveAppContext: vi.fn(async (requestedAppKey?: string) => {
-    const appKey = requestedAppKey ?? 'default';
-    return {
-      projectRoot: projectRootRef.value,
-      config: {
-        default: 'default',
-        apps: {
-          default: {
-            appId: 'app1',
-            name: 'App',
-            appHome: undefined,
-            options: appOptionsRef.value,
-          },
-        },
-      },
-      appKey,
-      appId: 'app1',
-    };
-  }),
+  resolveAppContext: vi.fn(),
 }));
 
 vi.mock('../../src/auth/session.js', () => ({
@@ -95,6 +77,26 @@ import { resolveAppContext } from '../../src/config/projectConfig.js';
 import type { CloudApp } from '../../src/cloud/firestoreClient.js';
 import { EnsembleDocumentType } from '../../src/core/dto.js';
 
+function defaultAppContext(requestedAppKey?: string) {
+  const appKey = requestedAppKey ?? 'default';
+  return {
+    projectRoot: projectRootRef.value,
+    config: {
+      default: 'default',
+      apps: {
+        default: {
+          appId: 'app1',
+          name: 'App',
+          appHome: undefined,
+          options: appOptionsRef.value,
+        },
+      },
+    },
+    appKey,
+    appId: 'app1',
+  };
+}
+
 async function writeEnvConfig(projectRoot: string, lines: string[]): Promise<void> {
   await fs.writeFile(path.join(projectRoot, '.env.config'), `${lines.join('\n')}\n`, 'utf8');
 }
@@ -114,6 +116,9 @@ describe('release commands', () => {
     projectRootRef.value = projectRoot;
     appOptionsRef.value = {};
     process.chdir(projectRoot);
+    vi.mocked(resolveAppContext).mockImplementation(async (requestedAppKey?: string) =>
+      defaultAppContext(requestedAppKey)
+    );
 
     // Minimal app files for buildDocumentsFromParsed: appHome is "Home".
     await fs.mkdir(path.join(projectRoot, 'screens'), { recursive: true });
@@ -214,6 +219,91 @@ describe('release commands', () => {
 
     expect(uiSuccessMock).toHaveBeenCalledWith(
       'Release saved. Run "ensemble release use --app uat" to use it.'
+    );
+  });
+
+  it('release create passes the same version id to storage upload and Firestore', async () => {
+    await releaseCreateCommand({ message: 'sync ids', yes: true });
+
+    const uploadVersionId = uploadReleaseSnapshotMock.mock.calls[0]?.[2];
+    const createParams = createVersionMock.mock.calls[0]?.[2] as { id: string };
+    expect(typeof uploadVersionId).toBe('string');
+    expect(createParams.id).toBe(uploadVersionId);
+  });
+
+  it('release use restores config to scoped alias file for non-default app', async () => {
+    vi.mocked(resolveAppContext).mockResolvedValueOnce({
+      projectRoot,
+      config: {
+        default: 'dev',
+        apps: {
+          dev: { appId: 'app-dev', name: 'Dev App' },
+          uat: { appId: 'app-uat', name: 'Uat App' },
+        },
+      },
+      appKey: 'uat',
+      appId: 'app-uat',
+    });
+    getVersionMock.mockResolvedValue({
+      id: 'hash-1',
+      message: 'Uat release',
+      createdAt: '2025-01-15T12:00:00Z',
+      createdBy: { name: 'User', id: 'uid1' },
+      expiresAt: '2025-02-15T12:00:00Z',
+      snapshotPath: 'releases/app-uat/hash-1.json',
+    });
+    downloadReleaseSnapshotJsonMock.mockResolvedValueOnce(
+      JSON.stringify({
+        id: 'app-uat',
+        name: 'Uat App',
+        screens: [],
+        config: { envVariables: { E1: 'UAT-EV1' } },
+      } satisfies CloudApp)
+    );
+    await fs.writeFile(path.join(projectRoot, '.env.config'), 'E1=dev\n', 'utf8');
+    await fs.writeFile(path.join(projectRoot, '.env.config.uat'), 'E1=old-uat\n', 'utf8');
+
+    Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
+    Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
+
+    await releaseUseCommand({ appKey: 'uat', hash: 'hash-1' });
+
+    const baseConfig = await fs.readFile(path.join(projectRoot, '.env.config'), 'utf8');
+    const uatConfig = await fs.readFile(path.join(projectRoot, '.env.config.uat'), 'utf8');
+    expect(baseConfig).toContain('E1=dev');
+    expect(uatConfig).toContain('E1=UAT-EV1');
+    expect(uatConfig).not.toContain('old-uat');
+  });
+
+  it('release use hints alias-specific push command for non-default app', async () => {
+    vi.mocked(resolveAppContext).mockResolvedValueOnce({
+      projectRoot,
+      config: {
+        default: 'dev',
+        apps: {
+          dev: { appId: 'app-dev', name: 'Dev App' },
+          uat: { appId: 'app-uat', name: 'Uat App' },
+        },
+      },
+      appKey: 'uat',
+      appId: 'app-uat',
+    });
+    downloadReleaseSnapshotJsonMock.mockResolvedValueOnce(
+      JSON.stringify({
+        id: 'app-uat',
+        name: 'Uat App',
+        screens: [],
+        config: { envVariables: { E1: 'UAT-EV1' } },
+      } satisfies CloudApp)
+    );
+
+    Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
+    Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
+
+    await releaseUseCommand({ appKey: 'uat', hash: 'hash-1' });
+
+    expect(uiSuccessMock).toHaveBeenCalledWith(
+      'Local files updated to selected release. Run "ensemble push --app uat" to apply to the cloud.'
     );
   });
 

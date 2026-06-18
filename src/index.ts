@@ -14,17 +14,17 @@ import { initCommand } from './commands/init.js';
 import { pushCommand } from './commands/push.js';
 import { addCommand } from './commands/add.js';
 import { pullCommand } from './commands/pull.js';
-import { releaseCreateCommand, releaseListCommand, releaseUseCommand } from './commands/release.js';
+import {
+  releaseCreateCommand,
+  releaseListCommand,
+  releaseUseCommand,
+  resolveReleaseAppKey,
+} from './commands/release.js';
 import { updateCommand } from './commands/update.js';
 import { printCliError, resolveDebugFlag } from './core/cliError.js';
 import { ui } from './core/ui.js';
 
 const program = new Command();
-
-/** Commander stores --app on the release parent when subcommands also declare it; read parent opts. */
-function resolveReleaseAppKey(command: Command): string | undefined {
-  return command.parent?.opts()?.app as string | undefined;
-}
 
 program
   .name('ensemble')
