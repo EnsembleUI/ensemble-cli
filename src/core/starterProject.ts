@@ -22,9 +22,7 @@ export async function resolveStarterProjectRoot(explicitPath?: string): Promise<
 
   if (!(await isStarterProjectRoot(root))) {
     throw new Error(
-      explicitPath
-        ? 'Not a starter project. Expected pubspec.yaml (ensemble), ensemble/ensemble.properties, lib/generated/ensemble_modules.dart'
-        : 'Not at starter project root. cd to the Flutter starter root or pass --project <path>.'
+      'Not at starter project root. cd to the Flutter starter root or pass --project <path>.'
     );
   }
 

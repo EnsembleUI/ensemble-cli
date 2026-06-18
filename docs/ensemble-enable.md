@@ -34,7 +34,7 @@ enable.ts
 | ------------------ | -------------------------------------------------------------------------------------------------------- |
 | `modulesCache.ts`  | Resolve latest **stable** GitHub release; cache under `~/.ensemble/cache/modules_dir/<tag>/`             |
 | `enableRuntime.ts` | jiti-load `modules_scripts.ts` + `utility_scripts.ts`; prompts via CLI `prompts` using cached param defs |
-| `moduleRunner.ts`  | Runs scripts sequentially; partial success on batch failure                                              |
+| `moduleRunner.ts`  | Runs cached Dart scripts sequentially (`stdio: inherit`; script owns output)                             |
 | `dartToolchain.ts` | `fvm dart` when `.fvmrc` / `.fvm/fvm_config.json` exists, else `dart`                                    |
 
 **Not duplicated in CLI:** module list, parameter keys, prompt text, `commonParameters` — all from cached Ensemble `src/`.
@@ -102,7 +102,7 @@ Fixtures: `tests/fixtures/starter-cache/` (minimal cached `src/` tree for `enabl
 
 - Older starters may lack placeholders in `lib/generated/ensemble_modules.dart` → `Pattern not found` from Dart scripts.
 - Re-enabling an already-enabled module often fails (expected).
-- Batch enable stops at first failure but reports prior successes.
+- Batch enable stops at first failure.
 - Global `checkForUpdates()` runs on every CLI invocation; use `ENSEMBLE_NO_UPDATE_CHECK=1` to skip.
 
 ---

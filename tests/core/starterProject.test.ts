@@ -55,7 +55,7 @@ describe('starterProject', () => {
   });
 
   it('throws when explicit project path is invalid', async () => {
-    await expect(resolveStarterProjectRoot(tmpDir)).rejects.toThrow(/Not a starter project/i);
+    await expect(resolveStarterProjectRoot(tmpDir)).rejects.toThrow(/Not at starter project root/i);
   });
 
   it('accepts an explicit starter root via --project', async () => {
