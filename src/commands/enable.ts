@@ -9,6 +9,7 @@ import {
 import { runStarterScriptsSequentially } from '../core/moduleRunner.js';
 import { resolveStarterProjectRoot } from '../core/starterProject.js';
 import { ui } from '../core/ui.js';
+import { withSpinner } from '../lib/spinner.js';
 
 export { parseEnableTokens } from '../core/enableRuntime.js';
 
@@ -48,7 +49,7 @@ export async function enableCommand(options: EnableCommandOptions = {}): Promise
   const interactive = isInteractiveTty();
   const { scriptNames, argsArray: tokenArgs } = parseEnableTokens(options.modules ?? []);
   const projectRoot = await resolveStarterProjectRoot(options.project);
-  const tooling = await ensureModulesTooling();
+  const tooling = await withSpinner('Preparing module tooling...', () => ensureModulesTooling());
 
   if (tooling.usedCacheFallback) {
     ui.warn(
