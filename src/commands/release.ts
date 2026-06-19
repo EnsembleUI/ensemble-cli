@@ -1,3 +1,4 @@
+import { Command } from 'commander';
 import crypto from 'crypto';
 import prompts from 'prompts';
 
@@ -17,6 +18,11 @@ import {
   uploadReleaseSnapshot,
 } from '../cloud/storageClient.js';
 import { applyCloudStateToFs } from '../core/applyToFs.js';
+import {
+  applyReleaseConfigToFs,
+  buildConfigDtoFromEnvEntries,
+  readProjectEnvFiles,
+} from '../core/envSync.js';
 import { buildDocumentsFromParsed } from '../core/buildDocuments.js';
 import { ArtifactProps, type ArtifactProp } from '../core/artifacts.js';
 import { collectAppFiles } from '../core/appCollector.js';
@@ -56,6 +62,19 @@ function formatReleaseLine(index: number, v: VersionDoc): string {
   const date = v.createdAt ? new Date(v.createdAt).toLocaleString() : 'Unknown date';
   const msg = v.message?.trim() ? v.message : '(no message)';
   return `${index + 1}. ${date} — ${msg} [hash: ${v.id}]`;
+}
+
+function releaseUseHint(appKey: string, defaultAppKey: string): string {
+  return appKey === defaultAppKey ? 'ensemble release use' : `ensemble release use --app ${appKey}`;
+}
+
+function releasePushHint(appKey: string, defaultAppKey: string): string {
+  return appKey === defaultAppKey ? 'ensemble push' : `ensemble push --app ${appKey}`;
+}
+
+/** Commander stores --app on the release parent when subcommands also declare it; read parent opts. */
+export function resolveReleaseAppKey(command: Command): string | undefined {
+  return command.parent?.opts()?.app as string | undefined;
 }
 
 export async function releaseCreateCommand(options: ReleaseCreateOptions = {}): Promise<void> {
@@ -105,6 +124,8 @@ export async function releaseCreateCommand(options: ReleaseCreateOptions = {}): 
   const appName = (appConfig.name as string | undefined) ?? 'App';
   const appHome = appConfig.appHome as string | undefined;
   const localFiles = await collectAppFiles(root);
+  const localEnv = await readProjectEnvFiles(root, appKey, config.default);
+  const localConfig = buildConfigDtoFromEnvEntries(localEnv.envConfig);
   const localApp = buildDocumentsFromParsed(localFiles, appId, appName, appHome, undefined);
   const snapshot: CloudApp = {
     id: localApp.id,
@@ -119,6 +140,7 @@ export async function releaseCreateCommand(options: ReleaseCreateOptions = {}): 
       localApp.translations.length > 0 && { translations: localApp.translations }),
     ...(localApp.theme && { theme: localApp.theme }),
     ...(localApp.assets && localApp.assets.length > 0 && { assets: localApp.assets }),
+    ...(localConfig && { config: localConfig }),
   };
 
   try {
@@ -132,6 +154,7 @@ export async function releaseCreateCommand(options: ReleaseCreateOptions = {}): 
       appId,
       idToken,
       {
+        id: versionId,
         message: message.trim(),
         createdAt: now.toISOString(),
         createdBy: { name: session.name ?? 'User', id: userId },
@@ -140,7 +163,7 @@ export async function releaseCreateCommand(options: ReleaseCreateOptions = {}): 
       },
       firestoreOptions
     );
-    ui.success('Release saved. Run "ensemble release use" to use it.');
+    ui.success(`Release saved. Run "${releaseUseHint(appKey, config.default)}" to use it.`);
   } catch (err) {
     if (err instanceof FirestoreClientError) {
       ui.error(err.message);
@@ -234,7 +257,7 @@ export async function releaseListCommand(options: ReleaseListOptions = {}): Prom
       return;
     }
 
-    ui.heading(`Releases for app "${appConfig.name ?? appKey}":`);
+    ui.heading(`Releases for "${appKey}":`);
     versions.forEach((v, idx) => {
       ui.note(formatReleaseLine(idx, v));
     });
@@ -384,8 +407,9 @@ export async function releaseUseCommand(options: ReleaseUseOptions = {}): Promis
         },
       })
     );
+    await applyReleaseConfigToFs(projectRoot, snapshot.config, appKey, config.default);
     ui.success(
-      'Local files updated to selected release. Run "ensemble push" to apply to the cloud.'
+      `Local files updated to selected release. Run "${releasePushHint(appKey, config.default)}" to apply to the cloud.`
     );
   } catch (err) {
     if (err instanceof FirestoreClientError) {

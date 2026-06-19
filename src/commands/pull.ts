@@ -20,8 +20,9 @@ import { type RootManifest } from '../core/manifest.js';
 import { createFirestoreDebugOptions, writeVerboseJson } from '../core/debugFiles.js';
 import { computePullPlan, type PullSummary } from '../core/sync.js';
 import { applyCloudAssetsToFs, buildEnvConfigForCloudAssets } from '../core/pullAssets.js';
+import { upsertEnvFile } from '../core/envConfig.js';
+import { applyCloudEnvToFs, readProjectEnvFiles } from '../core/envSync.js';
 import { ui } from '../core/ui.js';
-import { upsertEnvConfig } from '../core/envConfig.js';
 
 export interface PullOptions {
   verbose?: boolean;
@@ -228,6 +229,7 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
     localFiles,
     manifestExisting,
     enabledByProp,
+    localEnv: await readProjectEnvFiles(projectRoot, appKey, config.default),
   });
 
   if (plan.allArtifactsMatch && plan.manifestMatch) {
@@ -323,16 +325,32 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
       }
     }
 
-    // Always (best-effort) update .env.config for assets so ${env.assets}${env.<key>} references work after pull.
+    // Always (best-effort) update env config for assets so ${env.assets}${env.<key>} references work after pull.
+    const envLayout = await readProjectEnvFiles(projectRoot, appKey, config.default);
     const envResult = buildEnvConfigForCloudAssets(cloudApp.assets);
     if (envResult.entries.length > 0) {
-      await upsertEnvConfig(projectRoot, envResult.entries);
+      await upsertEnvFile(projectRoot, envLayout.configWriteFile, envResult.entries);
     }
     if (envResult.failures.length > 0) {
       ui.warn(
-        `Some assets had invalid metadata and may be missing from .env.config (${envResult.failures.length}).`
+        `Some assets had invalid metadata and may be missing from ${envLayout.configWriteFile} (${envResult.failures.length}).`
       );
     }
+
+    await applyCloudEnvToFs(
+      projectRoot,
+      {
+        config: cloudApp.config,
+        secrets: cloudApp.secrets,
+      },
+      (cloudApp.assets ?? [])
+        .map((asset) => asset.fileName)
+        .filter(
+          (fileName): fileName is string => typeof fileName === 'string' && fileName.length > 0
+        ),
+      appKey,
+      config.default
+    );
   });
 
   printPullSummary(pullSummary);

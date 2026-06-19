@@ -1,6 +1,7 @@
 import type { CloudApp } from '../cloud/firestoreClient.js';
 import type { ParsedAppFiles } from './appCollector.js';
 import type { ApplicationDTO } from './dto.js';
+import { computeEnvPullChanges, type LocalEnvFiles } from './envSync.js';
 import {
   ArtifactProps,
   type ArtifactProp,
@@ -73,10 +74,11 @@ function computeKindCounts(items: BundleDiff['screens']): PushCounts {
 }
 
 function computeAssetCounts(items: BundleDiff['assets']): PushCounts {
+  const deleted = items.changed.filter((item) => item.isArchived === true).length;
   return {
     created: items.new.length,
-    updated: 0,
-    deleted: 0,
+    updated: items.changed.filter((item) => item.isArchived !== true).length,
+    deleted,
   };
 }
 
@@ -213,6 +215,7 @@ export interface ComputePullPlanArgs {
   localFiles: ParsedAppFiles;
   manifestExisting: RootManifest;
   enabledByProp: Record<ArtifactProp, boolean>;
+  localEnv?: LocalEnvFiles;
 }
 
 export function computePullPlan({
@@ -222,6 +225,7 @@ export function computePullPlan({
   localFiles,
   manifestExisting,
   enabledByProp,
+  localEnv,
 }: ComputePullPlanArgs): PullPlan {
   const matchesByProp: Partial<Record<ArtifactProp, boolean>> = {};
   let assetsMatch = true;
@@ -309,8 +313,17 @@ export function computePullPlan({
     }
   }
 
+  const envPull = computeEnvPullChanges(
+    localEnv,
+    cloudApp.config,
+    cloudApp.secrets,
+    localFiles.assetFiles ?? [],
+    cloudApp.assets
+  );
+  const envMatch = envPull.match;
+
   const allArtifactsMatch =
-    ArtifactProps.every((prop) => matchesByProp[prop] ?? true) && assetsMatch;
+    ArtifactProps.every((prop) => matchesByProp[prop] ?? true) && assetsMatch && envMatch;
 
   const changes: PullChange[] = [];
   let createdCount = 0;
@@ -437,6 +450,11 @@ export function computePullPlan({
     (a) => !a.publicUrl || typeof a.publicUrl !== 'string' || a.publicUrl.trim() === ''
   ).length;
   skippedCount += missingPublicUrl;
+
+  for (const envFile of envPull.filesToUpdate) {
+    updatedCount += 1;
+    changes.push({ kind: 'env', file: envFile, operation: 'update' });
+  }
 
   const summary: PullSummary = {
     appName,

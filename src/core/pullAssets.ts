@@ -72,9 +72,12 @@ function extractEnvKeyFromCopyText(copyText: string | undefined): string | undef
   return nonAssets.length === 1 ? nonAssets[0] : (nonAssets[0] ?? unique[0]);
 }
 
-function deriveEnvKeyFromFileName(fileName: string): string {
-  // Match the common behavior used in tests/mocks: replace non-word characters with underscores.
+export function deriveAssetEnvKey(fileName: string): string {
   return fileName.replace(/[^\w]+/g, '_');
+}
+
+export function resolveAssetEnvKey(asset: { fileName: string; copyText?: string }): string {
+  return extractEnvKeyFromCopyText(asset.copyText) ?? deriveAssetEnvKey(asset.fileName);
 }
 
 function tryDeriveAssetBaseAndValue(
@@ -144,7 +147,7 @@ export function buildEnvConfigForCloudAssets(
     const derived = tryDeriveAssetBaseAndValue(url, fileName);
     if (!derived) continue;
 
-    const envKey = extractEnvKeyFromCopyText(a.copyText) ?? deriveEnvKeyFromFileName(fileName);
+    const envKey = resolveAssetEnvKey({ fileName, copyText: a.copyText });
     derivedByFile.set(fileName, { ...derived, envKey, fileName });
     baseCounts.set(derived.baseUrl, (baseCounts.get(derived.baseUrl) ?? 0) + 1);
   }

@@ -1,6 +1,6 @@
 # Environment config + secrets files (`.env.config` / `.env.secrets` + per-alias overrides)
 
-This document proposes an environment-variable architecture for the Ensemble CLI that supports **multiple app environments** (or “targets”) cleanly and safely.
+This document describes the environment-variable architecture used by the Ensemble CLI for **multiple app environments** (or “targets”).
 
 The chosen approach is:
 
@@ -67,97 +67,68 @@ api_url=https://prod.ensemble.com
 
 ---
 
-## Resolution / precedence rules
+## Resolution rules
 
-When running a command for a given alias, apply the same rules to **config** and **secrets**:
+For the active alias (`--app` or `ensemble.config.json` → `default`):
 
-- Config:
-  1. Read `.env.config` if present (base defaults).
-  2. Read `.env.config.<alias>` if present (alias overrides).
-  3. Merge by key where **alias overrides win**.
-- Secrets:
-  1. Read `.env.secrets` if present (base defaults).
-  2. Read `.env.secrets.<alias>` if present (alias overrides).
-  3. Merge by key where **alias overrides win**.
+| Situation                                      | Files used                                                                  |
+| ---------------------------------------------- | --------------------------------------------------------------------------- |
+| Alias is **default** and only base files exist | `.env.config` + `.env.secrets`                                              |
+| Alias is **not default**                       | `.env.config.<alias>` + `.env.secrets.<alias>` (created on pull if missing) |
+| Alias has **both** scoped files (any alias)    | scoped pair wins over base                                                  |
 
-If only `.env.config` exists, behavior matches today (backwards compatible). Secrets files are additive and optional.
+No mixing across tiers. Config and secrets always come from the same tier.
 
-### Why this precedence?
-
-- Shared values (common across envs) live in one place.
-- Environment-specific values override without duplicating the whole file.
+Pulling a non-default alias (e.g. `ensemble pull --app uat`) writes cloud env into `.env.config.uat` / `.env.secrets.uat` and leaves base files untouched.
 
 ---
 
-## CLI behavior (proposed)
+## CLI behavior
 
-### Reading env config
+### Reading env files
 
-Commands that need env config should use the **effective env config** for the selected `--app` alias.
+Commands use the resolved pair for the selected `--app` alias (see resolution rules above).
 
-- If `--app` is omitted, treat it as `default` (existing behavior).
-- If `.env.config.<alias>` is missing, fall back to `.env.config` only.
+`--app` is optional and defaults to `ensemble.config.json` → `default`.
+
+### Missing vs empty (push)
+
+| Local state             | Push behavior                                                     |
+| ----------------------- | ----------------------------------------------------------------- |
+| File **missing**        | Ignored — no env push for that side, no cloud wipe                |
+| File **present, empty** | Wipe — warn + `[y/N]` before deleting all cloud keys on that side |
 
 ### Pushing env variables
 
-If the CLI supports pushing env vars to the cloud, it should be **explicitly scoped**:
-
-- `ensemble push --app prod` may only push the **prod effective env config**.
-- It must never push dev values to prod unless the user explicitly made them prod values (via `.env.config.prod` or identical base defaults).
-
-Recommended sync semantics:
-
-- Default: **upsert/patch** (add/update keys present in local effective env config).
-- Optional: `--delete-missing` (dangerous) to remove remote keys not present locally.
-- Optional: `--dry-run` to show changes without applying.
+- `ensemble push --app <alias>` pushes the **effective** env for that alias.
+- Config and secrets are pushed independently (missing file → that side skipped).
 
 ### Pulling env variables
 
-Similarly, pulling should be scoped:
+- `ensemble pull --app <alias>` writes cloud env into the scoped target file when in scoped mode (`.env.config.<alias>` / `.env.secrets.<alias>`), leaving the base file untouched.
+- In legacy mode, pull continues to write `.env.config` / `.env.secrets`.
 
-- `ensemble pull --app prod` should update **only** `.env.config.prod` (or optionally print a diff).
-- Avoid writing prod keys into `.env.config` unless explicitly requested.
+### Release use
+
+- `ensemble release use` restores snapshot config into the same write target as pull (scoped or base).
 
 ---
 
 ## Asset-generated keys and `.env.config`
 
-Today, the CLI “upserts” `.env.config` to ensure asset-related keys exist after:
+The CLI upserts `.env.config` for asset-related keys after:
 
 - `ensemble add asset`
 - `ensemble push` (asset upload)
-- `ensemble pull` (asset sync)
 
-This design proposes:
-
-- Keep `.env.config` as a base defaults file for users.
-- Write **asset-generated keys into the alias file** by default (because assets are associated with a specific app target).
-
-Suggested split:
-
-- `.env.config`: user-managed shared defaults (checked in or not—team choice)
-- `.env.config.<alias>`: app-target-specific values, including:
-  - `assets=<baseUrl>` for that target
-  - any cloud-provided asset usage env keys for that target
-
-Backwards-compatibility note:
-
-- If alias files are not in use yet, continue writing to `.env.config` as today.
-- Once alias files exist (or a new setting/flag opts into alias-mode), write to alias files.
+Pull writes asset env keys (`assets=`, per-asset keys) into the resolved config file for the active alias (base or scoped). `ensemble add asset` still upserts the base `.env.config`.
 
 ---
 
-## Safety and production protections
+## Safety
 
-To reduce “oops pushed dev to prod” failures:
-
-- **Require explicit target** for sensitive operations (recommended UX):
-  - For example, pushing env vars could require `--app` when multiple apps exist in `ensemble.config.json`.
-- **Stronger confirmations** for production-like aliases (e.g. `prod`, `production`):
-  - Show a diff summary
-  - Require a typed confirmation or `--yes`
-- **Never default to destructive deletes**:
-  - `--delete-missing` must be opt-in.
+- **Never default to destructive deletes** except when a local env file exists but is empty (explicit wipe semantics above).
+- **`--delete-missing`** is not implemented; local-only keys are not auto-deleted from cloud on push.
 
 ---
 
@@ -180,14 +151,6 @@ At minimum, consider adding these to `.gitignore`:
 ```
 
 If you _do_ want to commit alias files for non-secret config, use a more selective ignore pattern or separate “public” vs “secret” configs.
-
-### CLI handling expectations for secrets
-
-If/when the CLI reads or syncs secrets:
-
-- Never print secret values in logs (even in `--verbose`).
-- Prefer diff output that only shows keys changed (and counts), not values.
-- Consider stronger confirmations / restrictions for production aliases.
 
 ---
 
@@ -233,16 +196,11 @@ assets=https://assets.prod.ensemble.com/
 
 ---
 
-## Migration plan (incremental)
+## Migration plan
 
-1. **Introduce alias file support** in read-paths:
-   - merge base + alias override (alias wins)
-2. **Introduce alias-aware write-paths**:
-   - write generated keys (assets) into `.env.config.<alias>` when applicable
-3. **Add env push/pull commands or flags** (if desired):
-   - ensure all operations are scoped to `--app <alias>`
-4. **Add guardrails**:
-   - diffs, confirmations for prod, optional delete-missing
+1. Single-app projects: no change — keep using `.env.config` / `.env.secrets`.
+2. Multi-app projects: add `.env.config.<alias>` / `.env.secrets.<alias>` for per-target overrides; shared defaults stay in the base files.
+3. Existing single-app repos can opt in early by creating a scoped file (e.g. `.env.config.dev`).
 
 ---
 

@@ -82,6 +82,7 @@ const cloudModuleMock = vi.hoisted(() => {
         return { assetsUploaded: 0 };
       }
     ),
+    submitEnvDocumentsPush: vi.fn(async () => {}),
   };
 });
 
@@ -989,5 +990,116 @@ describe('push/pull integration (commands)', () => {
 
     process.exitCode = originalExitCode;
     errorSpy.mockRestore();
+  });
+
+  it('push uploads local env changes via submitEnvDocumentsPush', async () => {
+    await fs.writeFile(
+      path.join(projectRoot, '.env.config'),
+      'API_URL=https://local.example.com\n',
+      'utf8'
+    );
+    await fs.writeFile(path.join(projectRoot, '.env.secrets'), 'S1=local-secret\n', 'utf8');
+    (resolveAppContext as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      projectRoot,
+      config: {
+        default: 'dev',
+        apps: {
+          dev: { appId: 'app1', name: 'App', appHome: undefined, options: appOptionsRef.value },
+        },
+      },
+      appKey: 'dev',
+      appId: 'app1',
+    });
+    (cloudModuleMock.fetchCloudApp as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: 'app1',
+      name: 'App',
+      screens: [],
+      widgets: [],
+      scripts: [],
+      translations: [],
+      config: { envVariables: { API_URL: 'https://cloud.example.com' } },
+      secrets: { secrets: { S1: 'cloud-secret' } },
+    });
+
+    await pushCommand({ yes: true });
+
+    const { submitEnvDocumentsPush } = cloudModuleMock;
+    expect(submitEnvDocumentsPush).toHaveBeenCalledTimes(1);
+    const rawCall = submitEnvDocumentsPush.mock.calls[0];
+    expect(rawCall).toBeDefined();
+    const payload = (
+      rawCall as unknown as [
+        string,
+        string,
+        {
+          config?: { envVariables?: Record<string, string> };
+          secrets?: { secrets?: Record<string, string> };
+        },
+      ]
+    )[2];
+    expect(payload.config?.envVariables?.API_URL).toBe('https://local.example.com');
+    expect(payload.secrets?.secrets?.S1).toBe('local-secret');
+  });
+
+  it('push clears cloud secrets when .env.secrets is empty', async () => {
+    await fs.writeFile(path.join(projectRoot, '.env.secrets'), '', 'utf8');
+    (resolveAppContext as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      projectRoot,
+      config: {
+        default: 'dev',
+        apps: {
+          dev: { appId: 'app1', name: 'App', appHome: undefined, options: appOptionsRef.value },
+        },
+      },
+      appKey: 'dev',
+      appId: 'app1',
+    });
+    (cloudModuleMock.fetchCloudApp as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: 'app1',
+      name: 'App',
+      screens: [],
+      widgets: [],
+      scripts: [],
+      translations: [],
+      secrets: { secrets: { S1: 'cloud-secret' } },
+    });
+
+    await pushCommand({ yes: true });
+
+    const payload = (
+      (cloudModuleMock.submitEnvDocumentsPush as ReturnType<typeof vi.fn>).mock.calls[0] as [
+        string,
+        string,
+        { secrets?: { secrets?: Record<string, string> } },
+      ]
+    )[2];
+    expect(payload.secrets?.secrets).toEqual({});
+  });
+
+  it('push skips secrets when .env.secrets is missing', async () => {
+    (resolveAppContext as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      projectRoot,
+      config: {
+        default: 'dev',
+        apps: {
+          dev: { appId: 'app1', name: 'App', appHome: undefined, options: appOptionsRef.value },
+        },
+      },
+      appKey: 'dev',
+      appId: 'app1',
+    });
+    (cloudModuleMock.fetchCloudApp as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: 'app1',
+      name: 'App',
+      screens: [],
+      widgets: [],
+      scripts: [],
+      translations: [],
+      secrets: { secrets: { S1: 'cloud-secret' } },
+    });
+
+    await pushCommand({ yes: true });
+
+    expect(cloudModuleMock.submitEnvDocumentsPush).not.toHaveBeenCalled();
   });
 });

@@ -12,8 +12,11 @@ import type {
   ScreenDTO,
   ThemeDTO,
   TranslationDTO,
+  ConfigDTO,
+  SecretDTO,
 } from '../core/dto.js';
 import { EnsembleDocumentType } from '../core/dto.js';
+import { configDtoToEnvEntries, secretsDtoToEnvEntries } from '../core/envSync.js';
 import { getArtifactConfig, type ArtifactProp } from '../core/artifacts.js';
 import { processWithConcurrency } from '../core/concurrency.js';
 import { uploadProjectAssetsForPush } from '../core/pushAssets.js';
@@ -195,6 +198,8 @@ export type CloudApp = Pick<
   | 'theme'
   | 'translations'
   | 'assets'
+  | 'config'
+  | 'secrets'
 >;
 
 /** Metadata for a saved version (commit); snapshot stored in same doc. */
@@ -211,6 +216,8 @@ export interface VersionMetadata {
 export type VersionDoc = VersionMetadata;
 
 export interface CreateVersionParams {
+  /** Firestore version document id; must match the storage object name. */
+  id: string;
   message: string;
   createdAt: string;
   createdBy: { name: string; email?: string; id: string };
@@ -289,6 +296,7 @@ interface PushPayloadShape {
   actions?: YamlArtifactPushOperation[];
   translations?: YamlArtifactPushOperation[];
   theme?: YamlArtifactPushOperation;
+  assets?: YamlArtifactPushOperation[];
 }
 
 type CreateYamlOp = Extract<YamlArtifactPushOperation, { operation: 'create' }>;
@@ -314,6 +322,86 @@ function getFirestoreConcurrency(): number {
     return DEFAULT_FIRESTORE_CONCURRENCY;
   }
   return Math.floor(parsed);
+}
+
+async function applyAssetArchiveOperations(
+  appId: string,
+  idToken: string,
+  project: string,
+  ops: YamlArtifactPushOperation[] | undefined,
+  options?: FirestoreClientOptions
+): Promise<void> {
+  if (!ops || ops.length === 0) return;
+
+  const baseCollectionUrl = `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents/apps/${appId}/artifacts`;
+  const concurrency = getFirestoreConcurrency();
+
+  await processWithConcurrency(
+    ops,
+    async (op) => {
+      if (op.operation !== 'update') return;
+
+      const docId = op.id;
+      const docUrl = `${baseCollectionUrl}/${encodeURIComponent(docId)}`;
+      const historyFields = encodeHistoryFields(op.history);
+      const historyUrl = `${docUrl}/history`;
+
+      logDebug(options, {
+        kind: 'push_operation',
+        appId,
+        operation: 'update',
+        artifactKind: 'screens',
+        documentId: docId,
+      });
+      logDebug(options, {
+        kind: 'request',
+        method: 'POST',
+        url: historyUrl,
+        context: 'submitCliPush/writeAssetHistory',
+      });
+      const historyRes = await fetch(historyUrl, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${idToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ fields: historyFields }),
+      });
+      if (!historyRes.ok) {
+        throw await toFirestoreError(
+          `write history for asset "${op.history.name}"`,
+          historyRes,
+          options
+        );
+      }
+
+      const { fields: updateFields, fieldPaths } = encodeUpdateFields('screens', op.updates);
+      if (fieldPaths.length === 0) return;
+
+      const params = fieldPaths
+        .map((path) => `updateMask.fieldPaths=${encodeURIComponent(path)}`)
+        .join('&');
+      const patchUrl = `${docUrl}?${params}`;
+      logDebug(options, {
+        kind: 'request',
+        method: 'PATCH',
+        url: patchUrl,
+        context: 'submitCliPush/patchAsset',
+      });
+      const patchRes = await fetch(patchUrl, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${idToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ fields: updateFields }),
+      });
+      if (!patchRes.ok) {
+        throw await toFirestoreError(`archive asset "${op.history.name}"`, patchRes, options);
+      }
+    },
+    concurrency
+  );
 }
 
 async function applyYamlOperationsForKind(
@@ -473,6 +561,7 @@ export async function submitCliPush(
   if (p.theme) {
     await applyYamlOperationsForKind('theme', appId, idToken, project, [p.theme], options);
   }
+  await applyAssetArchiveOperations(appId, idToken, project, p.assets, options);
 
   const names = extras?.assetFileNames?.filter((n) => n.trim() !== '') ?? [];
   if (names.length === 0 || !extras?.projectRoot) {
@@ -773,6 +862,198 @@ function toAssetDTO(doc: FirestoreDocument): AssetDTO {
   };
 }
 
+function parseFirestoreMapField(
+  field: { mapValue?: { fields?: Record<string, FirestoreValue> } } | undefined
+): Record<string, unknown> | undefined {
+  const mapFields = field?.mapValue?.fields;
+  if (!mapFields || typeof mapFields !== 'object') return undefined;
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(mapFields)) {
+    if (typeof (value as { stringValue?: string }).stringValue === 'string') {
+      result[key] = (value as { stringValue: string }).stringValue;
+      continue;
+    }
+    if (typeof (value as { booleanValue?: boolean }).booleanValue === 'boolean') {
+      result[key] = (value as { booleanValue: boolean }).booleanValue;
+      continue;
+    }
+    if ((value as { integerValue?: string }).integerValue !== undefined) {
+      result[key] = Number((value as { integerValue: string }).integerValue);
+    }
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function encodeFirestoreStringMap(values: Record<string, string>): {
+  mapValue: { fields: Record<string, { stringValue: string }> };
+} {
+  const fields: Record<string, { stringValue: string }> = {};
+  for (const [key, value] of Object.entries(values)) {
+    fields[key] = { stringValue: value };
+  }
+  return { mapValue: { fields } };
+}
+
+function dtoToStringMap(entries: Array<{ key: string; value: string }>): Record<string, string> {
+  return Object.fromEntries(entries.map((entry) => [entry.key, entry.value]));
+}
+
+function parseJsonObjectField<T extends object>(content: string | undefined): T | undefined {
+  if (!content) return undefined;
+  try {
+    const parsed = JSON.parse(content) as T;
+    return parsed && typeof parsed === 'object' ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function toConfigDTO(doc: FirestoreDocument): ConfigDTO | undefined {
+  const fields = (doc.fields ?? {}) as FirestoreFields;
+  const fromContent = parseJsonObjectField<ConfigDTO>(
+    parseFirestoreString(fields.content as { stringValue?: string })
+  );
+  const envVariablesFromMap = parseFirestoreMapField(
+    fields.envVariables as { mapValue?: { fields?: Record<string, FirestoreValue> } }
+  );
+  const baseUrl = parseFirestoreString(fields.baseUrl as { stringValue?: string });
+  const useBrowserUrl = parseFirestoreBoolean(fields.useBrowserUrl as { booleanValue?: boolean });
+  const envVariables =
+    envVariablesFromMap ?? (fromContent?.envVariables as Record<string, unknown> | undefined);
+  if (!envVariables && baseUrl === undefined && useBrowserUrl === undefined) {
+    return undefined;
+  }
+  return {
+    ...(envVariables && { envVariables }),
+    ...(baseUrl !== undefined && { baseUrl }),
+    ...(useBrowserUrl !== undefined && { useBrowserUrl }),
+  };
+}
+
+function toSecretDTO(doc: FirestoreDocument): SecretDTO | undefined {
+  const fields = (doc.fields ?? {}) as FirestoreFields;
+  const fromContent = parseJsonObjectField<SecretDTO>(
+    parseFirestoreString(fields.content as { stringValue?: string })
+  );
+  const secretsFromMap = parseFirestoreMapField(
+    fields.secrets as { mapValue?: { fields?: Record<string, FirestoreValue> } }
+  );
+  if (secretsFromMap) {
+    return { secrets: secretsFromMap as Record<string, string> };
+  }
+  if (fromContent) return fromContent;
+
+  const flat = parseFirestoreMapField(
+    fields as { mapValue?: { fields?: Record<string, FirestoreValue> } }
+  );
+  return flat ? (flat as SecretDTO) : undefined;
+}
+
+async function upsertEnvArtifactDocument(
+  appId: string,
+  idToken: string,
+  project: string,
+  documentId: string,
+  typeValue: string,
+  contentJson: string,
+  mapFieldName: 'envVariables' | 'secrets',
+  mapValues: Record<string, string>,
+  options?: FirestoreClientOptions
+): Promise<void> {
+  const collectionUrl = `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents/apps/${appId}/artifacts`;
+  const docUrl = `${collectionUrl}/${encodeURIComponent(documentId)}`;
+  const updatedAt = new Date().toISOString();
+  const patchFields: FirestoreWriteFields = {
+    content: { stringValue: contentJson },
+    [mapFieldName]: encodeFirestoreStringMap(mapValues),
+    updatedAt: { timestampValue: updatedAt },
+  };
+  const fieldPaths = ['content', mapFieldName, 'updatedAt'];
+
+  logDebug(options, {
+    kind: 'request',
+    method: 'PATCH',
+    url: `${docUrl}?${fieldPaths.map((p) => `updateMask.fieldPaths=${encodeURIComponent(p)}`).join('&')}`,
+    context: 'submitEnvDocumentsPush/patch',
+  });
+  const patchRes = await fetch(
+    `${docUrl}?${fieldPaths.map((p) => `updateMask.fieldPaths=${encodeURIComponent(p)}`).join('&')}`,
+    {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${idToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ fields: patchFields }),
+    }
+  );
+
+  if (patchRes.ok) return;
+
+  if (patchRes.status !== 404) {
+    throw await toFirestoreError(`update ${documentId}`, patchRes, options);
+  }
+
+  const createUrl = `${collectionUrl}?documentId=${encodeURIComponent(documentId)}`;
+  const createFields: FirestoreWriteFields = {
+    name: { stringValue: documentId },
+    type: { stringValue: typeValue },
+    ...patchFields,
+  };
+  logDebug(options, {
+    kind: 'request',
+    method: 'POST',
+    url: createUrl,
+    context: 'submitEnvDocumentsPush/create',
+  });
+  const createRes = await fetch(createUrl, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${idToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ fields: createFields }),
+  });
+  if (!createRes.ok) {
+    throw await toFirestoreError(`create ${documentId}`, createRes, options);
+  }
+}
+
+export async function submitEnvDocumentsPush(
+  appId: string,
+  idToken: string,
+  payload: { config?: ConfigDTO; secrets?: SecretDTO },
+  options?: FirestoreClientOptions
+): Promise<void> {
+  const project = getEnsembleFirebaseProject();
+  if (payload.config) {
+    await upsertEnvArtifactDocument(
+      appId,
+      idToken,
+      project,
+      'appConfig',
+      EnsembleDocumentType.Environment,
+      JSON.stringify(payload.config),
+      'envVariables',
+      dtoToStringMap(configDtoToEnvEntries(payload.config)),
+      options
+    );
+  }
+  if (payload.secrets) {
+    await upsertEnvArtifactDocument(
+      appId,
+      idToken,
+      project,
+      'secrets',
+      EnsembleDocumentType.Secrets,
+      JSON.stringify(payload.secrets),
+      'secrets',
+      dtoToStringMap(secretsDtoToEnvEntries(payload.secrets)),
+      options
+    );
+  }
+}
+
 function getCollaboratorRole(
   collaboratorsField:
     | { mapValue?: { fields?: Record<string, { stringValue?: string }> } }
@@ -1028,6 +1309,8 @@ export async function fetchCloudApp(
   const translations: TranslationDTO[] = [];
   const assets: AssetDTO[] = [];
   let theme: ThemeDTO | undefined;
+  let config: ConfigDTO | undefined;
+  let secrets: SecretDTO | undefined;
   const i18nDocs: FirestoreDocument[] = [];
   for (const doc of artifacts) {
     const docId = getDocId(doc.name);
@@ -1035,6 +1318,8 @@ export async function fetchCloudApp(
     if (type === 'screen') screens.push(toScreenDTO(doc));
     else if (type === 'i18n') i18nDocs.push(doc);
     else if (type === 'asset') assets.push(toAssetDTO(doc));
+    else if (type === 'config' || docId === 'appConfig') config = toConfigDTO(doc) ?? config;
+    else if (type === 'secrets' || docId === 'secrets') secrets = toSecretDTO(doc) ?? secrets;
     else if (type === 'theme') {
       if (!theme || docId === 'theme') {
         theme = toThemeDTO(doc);
@@ -1065,6 +1350,8 @@ export async function fetchCloudApp(
     ...(theme && { theme }),
     ...(translations.length > 0 && { translations }),
     ...(assets.length > 0 && { assets }),
+    ...(config && { config }),
+    ...(secrets && { secrets }),
   };
 }
 
@@ -1133,11 +1420,6 @@ export async function fetchRootScreenName(
   return parseFirestoreString(doc.fields.name as { stringValue?: string });
 }
 
-/** Generate a URL-safe ID for version documents. */
-function generateVersionId(): string {
-  return crypto.randomUUID().replace(/-/g, '');
-}
-
 /**
  * Create a version (snapshot) document under apps/{appId}/versions.
  * expiresAt must be stored as Firestore Timestamp for TTL policy to work.
@@ -1149,7 +1431,7 @@ export async function createVersion(
   options?: FirestoreClientOptions
 ): Promise<{ id: string }> {
   const project = getEnsembleFirebaseProject();
-  const versionId = generateVersionId();
+  const versionId = params.id;
   const parent = `projects/${project}/databases/(default)/documents/apps/${appId}`;
   const url = `https://firestore.googleapis.com/v1/${parent}/versions?documentId=${encodeURIComponent(versionId)}`;
 

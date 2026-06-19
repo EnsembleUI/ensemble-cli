@@ -119,6 +119,18 @@ ensemble update
 3. Run `ensemble push` to sync your local app (screens, widgets, scripts, etc.) with the cloud
 4. Optionally run `ensemble pull` to refresh local artifacts from the cloud when other collaborators change them
 
+### Environment files
+
+Config and secrets sync on `push`, `pull`, and `release use`:
+
+- **Base**: `.env.config`, `.env.secrets` (shared defaults)
+- **Per-alias** (non-default alias, or when both scoped files exist): `.env.config.<alias>`, `.env.secrets.<alias>`
+- Default alias with only base files uses the base pair; other aliases never overwrite base on pull
+- **Missing** local file → that side skipped on push (no cloud wipe)
+- **Empty** local file → wipe cloud keys on that side (with confirmation)
+
+Details: [docs/Env-config-aliases.md](docs/Env-config-aliases.md).
+
 ### Versions / releases (snapshots)
 
 You can save and use snapshots of your app state in the cloud:

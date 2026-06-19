@@ -4,6 +4,7 @@ import {
   fetchCloudApp,
   fetchRootScreenName,
   submitCliPush,
+  submitEnvDocumentsPush,
   listVersions,
   createVersion,
   getVersion,
@@ -313,6 +314,117 @@ describe('fetchCloudApp', () => {
     const result = await fetchCloudApp('app-1', 'token');
     expect(result.theme).toBeDefined();
     expect(result.theme?.content).toBe('random theme');
+  });
+
+  it('fetches appConfig and secrets into config and secrets', async () => {
+    const appDoc = { name: 'projects/p/databases/(default)/documents/apps/app-1' };
+    const fetchForArtifacts = (artifacts: unknown[]) => async (input: RequestInfo | URL) => {
+      const urlStr =
+        typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      if (urlStr.includes('/documents/apps/app-1') && !urlStr.includes('/artifacts')) {
+        return new Response(JSON.stringify(appDoc), { status: 200 });
+      }
+      if (urlStr.includes('/artifacts')) {
+        return new Response(JSON.stringify({ documents: artifacts }), { status: 200 });
+      }
+      if (urlStr.includes('internal_artifacts')) {
+        return new Response(JSON.stringify({ documents: [] }), { status: 200 });
+      }
+      return new Response('Not found', { status: 404 });
+    };
+
+    globalThis.fetch = fetchForArtifacts([
+      {
+        name: 'projects/p/databases/(default)/documents/apps/app-1/artifacts/appConfig',
+        fields: {
+          type: { stringValue: 'config' },
+          name: { stringValue: 'appConfig' },
+          content: {
+            stringValue: JSON.stringify({ envVariables: { API_URL: 'https://api.example.com' } }),
+          },
+        },
+      },
+      {
+        name: 'projects/p/databases/(default)/documents/apps/app-1/artifacts/secrets',
+        fields: {
+          type: { stringValue: 'secrets' },
+          name: { stringValue: 'secrets' },
+          content: { stringValue: JSON.stringify({ secrets: { S1: 'secret-value' } }) },
+        },
+      },
+    ]);
+    const withContent = await fetchCloudApp('app-1', 'token');
+    expect(withContent.config?.envVariables?.API_URL).toBe('https://api.example.com');
+    expect(withContent.secrets?.secrets).toEqual({ S1: 'secret-value' });
+
+    globalThis.fetch = fetchForArtifacts([
+      {
+        name: 'projects/p/databases/(default)/documents/apps/app-1/artifacts/appConfig',
+        fields: {
+          type: { stringValue: 'config' },
+          name: { stringValue: 'appConfig' },
+          content: {
+            stringValue: JSON.stringify({ envVariables: { E1: 'from-content' } }),
+          },
+          envVariables: {
+            mapValue: { fields: { E1: { stringValue: 'from-map' } } },
+          },
+        },
+      },
+    ]);
+    const withMap = await fetchCloudApp('app-1', 'token');
+    expect(withMap.config?.envVariables?.E1).toBe('from-map');
+  });
+});
+
+describe('submitEnvDocumentsPush', () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    vi.restoreAllMocks();
+  });
+
+  it('patches content, map fields, and updatedAt for env documents', async () => {
+    const patches: Array<{ url: string; body: string }> = [];
+
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const urlStr =
+        typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      if (urlStr.includes('/artifacts/') && init?.method === 'PATCH') {
+        patches.push({ url: urlStr, body: (init.body as string) ?? '' });
+        return new Response('{}', { status: 200 });
+      }
+      return new Response('Not found', { status: 404 });
+    };
+
+    await submitEnvDocumentsPush('app-1', 'token', {
+      config: { envVariables: { E1: 'EV11', assets: 'https://cdn.example.com/' } },
+      secrets: { secrets: { S1: 'SK1', S2: 'SK22' } },
+    });
+
+    const configPatch = patches.find((patch) => patch.url.includes('/artifacts/appConfig'));
+    const secretsPatch = patches.find((patch) => patch.url.includes('/artifacts/secrets'));
+    expect(configPatch?.url).toContain('updateMask.fieldPaths=envVariables');
+    expect(secretsPatch?.url).toContain('updateMask.fieldPaths=secrets');
+
+    const configBody = JSON.parse(configPatch!.body) as {
+      fields: {
+        content?: { stringValue?: string };
+        envVariables?: { mapValue?: { fields?: Record<string, { stringValue?: string }> } };
+      };
+    };
+    expect(JSON.parse(configBody.fields.content?.stringValue ?? '{}')).toEqual({
+      envVariables: { E1: 'EV11', assets: 'https://cdn.example.com/' },
+    });
+    expect(configBody.fields.envVariables?.mapValue?.fields?.E1?.stringValue).toBe('EV11');
+
+    const secretsBody = JSON.parse(secretsPatch!.body) as {
+      fields: {
+        secrets?: { mapValue?: { fields?: Record<string, { stringValue?: string }> } };
+      };
+    };
+    expect(secretsBody.fields.secrets?.mapValue?.fields?.S2?.stringValue).toBe('SK22');
   });
 });
 
@@ -710,7 +822,7 @@ describe('createVersion', () => {
     globalThis.fetch = originalFetch;
   });
 
-  it('POSTs to app versions collection and returns id', async () => {
+  it('POSTs to app versions collection with provided id', async () => {
     let capturedUrl: string | null = null;
     globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const urlStr =
@@ -727,17 +839,16 @@ describe('createVersion', () => {
     };
 
     const result = await createVersion('app1', 'token', {
+      id: 'abc123',
       message: 'Release 1',
       createdAt: '2025-01-15T12:00:00Z',
       expiresAt: '2025-02-15T12:00:00Z',
       createdBy: { name: 'User', id: 'uid1' },
-      snapshotPath: 'releases/app1/ver-123.json',
+      snapshotPath: 'releases/app1/abc123.json',
     });
 
-    expect(typeof result.id).toBe('string');
-    expect(result.id.length).toBeGreaterThan(0);
-    expect(capturedUrl).toContain('/documents/apps/app1/versions');
-    expect(capturedUrl).toContain('documentId=');
+    expect(result.id).toBe('abc123');
+    expect(capturedUrl).toContain('documentId=abc123');
   });
 
   it('throws FirestoreClientError on 403', async () => {
@@ -756,6 +867,7 @@ describe('createVersion', () => {
 
     await expect(
       createVersion('app1', 'token', {
+        id: 'ver-123',
         message: 'v1',
         createdAt: '2025-01-15T12:00:00Z',
         expiresAt: '2025-02-15T12:00:00Z',

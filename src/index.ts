@@ -14,7 +14,12 @@ import { initCommand } from './commands/init.js';
 import { pushCommand } from './commands/push.js';
 import { addCommand } from './commands/add.js';
 import { pullCommand } from './commands/pull.js';
-import { releaseCreateCommand, releaseListCommand, releaseUseCommand } from './commands/release.js';
+import {
+  releaseCreateCommand,
+  releaseListCommand,
+  releaseUseCommand,
+  resolveReleaseAppKey,
+} from './commands/release.js';
 import { updateCommand } from './commands/update.js';
 import { printCliError, resolveDebugFlag } from './core/cliError.js';
 import { ui } from './core/ui.js';
@@ -93,17 +98,19 @@ program
 const releaseCmd = program
   .command('release')
   .description('Manage releases (snapshots) of your app.')
-  .option('--app <alias>', 'App alias to use (defaults to "default")');
+  .option(
+    '--app <alias>',
+    'App alias (defaults to ensemble.config.json default; place before or after subcommand)'
+  );
 
 releaseCmd
   .command('create')
   .description('Create a release (snapshot) from the current cloud state (no push required).')
-  .option('--app <alias>', 'App alias to use (defaults to "default")')
   .option('-m, --message <msg>', 'Release message (skips prompt)')
   .option('-y, --yes', 'Skip message prompt (use empty message)')
-  .action(async (options: { app?: string; message?: string; yes?: boolean }) => {
+  .action(async (options: { message?: string; yes?: boolean }, command) => {
     await releaseCreateCommand({
-      appKey: options.app,
+      appKey: resolveReleaseAppKey(command),
       message: options.message,
       yes: options.yes,
     });
@@ -112,12 +119,11 @@ releaseCmd
 releaseCmd
   .command('list')
   .description('List releases for an app.')
-  .option('--app <alias>', 'App alias to use (defaults to "default")')
   .option('--limit <n>', 'Maximum number of releases to show (default: 20)', (v) => Number(v), 20)
   .option('--json', 'Print releases as JSON (for scripts)', false)
-  .action(async (options: { app?: string; limit?: number; json?: boolean }) => {
+  .action(async (options: { limit?: number; json?: boolean }, command) => {
     await releaseListCommand({
-      appKey: options.app,
+      appKey: resolveReleaseAppKey(command),
       limit: options.limit,
       json: options.json,
     });
@@ -128,10 +134,9 @@ releaseCmd
   .description(
     'Use a release (snapshot) to update local files (run "ensemble push" to sync cloud).'
   )
-  .option('--app <alias>', 'App alias to use (defaults to "default")')
   .option('--hash <hash>', 'Release hash to use (non-interactive).')
-  .action(async (options: { app?: string; hash?: string }) => {
-    await releaseUseCommand({ appKey: options.app, hash: options.hash });
+  .action(async (options: { hash?: string }, command) => {
+    await releaseUseCommand({ appKey: resolveReleaseAppKey(command), hash: options.hash });
   });
 
 // If user runs just `ensemble release`, offer an interactive menu.

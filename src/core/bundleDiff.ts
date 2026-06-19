@@ -129,9 +129,10 @@ function diffAssets(
   localAssets: AssetDTO[] | undefined,
   cloudAssets: AssetDTO[] | undefined
 ): { changed: ArtifactWithContent[]; new: ArtifactWithContent[] } {
-  const cloudActiveByFile = new Set(
-    (cloudAssets ?? []).filter((a) => a.isArchived !== true).map((a) => a.fileName)
-  );
+  const localByFile = new Set((localAssets ?? []).map((asset) => asset.fileName));
+  const cloudActive = (cloudAssets ?? []).filter((asset) => asset.isArchived !== true);
+  const cloudActiveByFile = new Map(cloudActive.map((asset) => [asset.fileName, asset]));
+
   const newItems: ArtifactWithContent[] = [];
   for (const local of localAssets ?? []) {
     if (!cloudActiveByFile.has(local.fileName)) {
@@ -143,7 +144,21 @@ function diffAssets(
       } as ArtifactWithContent);
     }
   }
-  return { changed: [], new: newItems };
+
+  const changedItems: ArtifactWithContent[] = [];
+  for (const cloud of cloudActive) {
+    if (!localByFile.has(cloud.fileName)) {
+      changedItems.push({
+        id: cloud.id,
+        name: cloud.name,
+        content: cloud.content ?? '',
+        fileName: cloud.fileName,
+        isArchived: true,
+      } as ArtifactWithContent);
+    }
+  }
+
+  return { changed: changedItems, new: newItems };
 }
 
 type ArtifactDisplay = ArtifactWithContent & { fileName?: string };
@@ -258,7 +273,7 @@ export function computeBundleDiff(
   );
 
   const assets = diffAssets(
-    localAppForAssets?.assets ?? bundle.assets,
+    localAppForAssets?.assets ?? [],
     cloudApp.assets as AssetDTO[] | undefined
   );
 
@@ -366,6 +381,39 @@ function buildYamlPushItems(
       },
     });
   }
+  return items;
+}
+
+function buildAssetPushItems(
+  diff: { changed: ArtifactWithContent[] },
+  cloudAssets: AssetDTO[] | undefined,
+  now: string,
+  updatedBy: { name: string; email?: string; id: string }
+): YamlArtifactPushItem[] {
+  const cloudById = new Map((cloudAssets ?? []).map((asset) => [asset.id, asset]));
+  const items: YamlArtifactPushItem[] = [];
+
+  for (const bundle of diff.changed) {
+    if (!bundle.isArchived) continue;
+    const cloud = cloudById.get(bundle.id);
+    if (!cloud) continue;
+    const cloudWithMeta = cloud as ArtifactWithContent & {
+      type?: string;
+      updatedAt?: string;
+      updatedBy?: object;
+    };
+    items.push({
+      operation: 'update',
+      id: cloud.id,
+      history: buildHistoryEntry(cloudWithMeta),
+      updates: {
+        isArchived: true,
+        updatedAt: now,
+        updatedBy,
+      },
+    });
+  }
+
   return items;
 }
 
@@ -575,6 +623,13 @@ export function buildPushPayload(
     }
   }
 
+  const assets = buildAssetPushItems(
+    diff.assets,
+    cloudApp.assets as AssetDTO[] | undefined,
+    now,
+    updatedBy
+  );
+
   return {
     id: bundle.id,
     name: bundle.name,
@@ -585,5 +640,6 @@ export function buildPushPayload(
     ...(actions.length > 0 && { actions }),
     ...(translations.length > 0 && { translations }),
     ...(theme && { theme }),
+    ...(assets.length > 0 && { assets }),
   };
 }
