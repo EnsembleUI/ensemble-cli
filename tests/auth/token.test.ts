@@ -146,10 +146,17 @@ describe('isTokenExpired', () => {
     expect(isTokenExpired(token, undefined, 0)).toBe(false);
   });
 
-  it('uses expiresAt when provided', () => {
+  it('uses expiresAt when jwt has no exp claim', () => {
     vi.setSystemTime(new Date('2025-01-01T12:00:00Z'));
     const token = makeJwt({ userId: 'u1' });
     const futureMs = new Date('2025-06-01').getTime();
     expect(isTokenExpired(token, futureMs)).toBe(false);
+  });
+
+  it('prefers jwt exp over stale config expiresAt', () => {
+    vi.setSystemTime(new Date('2025-01-01T12:00:00Z'));
+    const token = makeJwt({ userId: 'u1', exp: 1735736400 });
+    const stalePastMs = new Date('2024-01-01').getTime();
+    expect(isTokenExpired(token, stalePastMs)).toBe(false);
   });
 });
