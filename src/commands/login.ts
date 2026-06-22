@@ -9,12 +9,7 @@ import {
   writeGlobalConfig,
   type EnsembleUserConfig,
 } from '../config/globalConfig.js';
-import {
-  decodeIdTokenClaims,
-  getIdTokenExpiryMs,
-  isTokenExpired,
-  normalizeExpiresAt,
-} from '../auth/token.js';
+import { decodeIdTokenClaims, isTokenExpired } from '../auth/token.js';
 import { resolveVerboseFlag } from '../core/cliError.js';
 import { getEnsembleAuthBaseUrl } from '../config/env.js';
 import { ui } from '../core/ui.js';
@@ -61,20 +56,19 @@ export async function loginCommand(options: LoginOptions = {}): Promise<void> {
   const idToken = existing?.user?.idToken;
   if (idToken && !isTokenExpired(idToken)) {
     const claims = decodeIdTokenClaims(idToken);
-    const normalizedExpiresAt = existing.user?.expiresAt ?? getIdTokenExpiryMs(idToken);
     const mergedUser = {
-      ...(existing.user ?? { uid: claims.uid ?? 'cli-user', idToken }),
       uid: existing.user?.uid ?? claims.uid ?? 'cli-user',
       name: existing.user?.name ?? claims.name ?? undefined,
       email: existing.user?.email ?? claims.email ?? undefined,
       idToken,
-      expiresAt: normalizedExpiresAt,
+      refreshToken: existing.user?.refreshToken,
     };
 
     if (
+      existing.user?.uid !== mergedUser.uid ||
       existing.user?.name !== mergedUser.name ||
       existing.user?.email !== mergedUser.email ||
-      existing.user?.expiresAt !== mergedUser.expiresAt
+      existing.user?.refreshToken !== mergedUser.refreshToken
     ) {
       await writeGlobalConfig({
         ...existing,
@@ -101,7 +95,6 @@ export async function loginCommand(options: LoginOptions = {}): Promise<void> {
   const tokenPromise = new Promise<{
     token: string;
     refreshToken?: string;
-    expiresAt?: number;
   }>((resolve, reject) => {
     const timeout = setTimeout(() => {
       server.close();
@@ -129,7 +122,6 @@ export async function loginCommand(options: LoginOptions = {}): Promise<void> {
             const data = JSON.parse(body) as {
               token?: string;
               refreshToken?: string;
-              expiresAt?: number | string;
               state?: string;
             };
             // Some auth providers may not echo back our `cliState` in the callback payload.
@@ -145,7 +137,6 @@ export async function loginCommand(options: LoginOptions = {}): Promise<void> {
               resolve({
                 token: data.token,
                 refreshToken: typeof data.refreshToken === 'string' ? data.refreshToken : undefined,
-                expiresAt: normalizeExpiresAt(data.expiresAt),
               });
             } else {
               res.writeHead(400, {
@@ -191,7 +182,6 @@ export async function loginCommand(options: LoginOptions = {}): Promise<void> {
   let callbackData: {
     token: string;
     refreshToken?: string;
-    expiresAt?: number;
   };
   try {
     callbackData = await tokenPromise;
@@ -203,7 +193,6 @@ export async function loginCommand(options: LoginOptions = {}): Promise<void> {
 
   const token = callbackData.token;
   const { uid, name, email } = decodeIdTokenClaims(token);
-  const expiresAt = callbackData.expiresAt ?? getIdTokenExpiryMs(token);
 
   const newConfig: EnsembleUserConfig = {
     ...existing,
@@ -213,7 +202,6 @@ export async function loginCommand(options: LoginOptions = {}): Promise<void> {
       email: email ?? undefined,
       idToken: token,
       refreshToken: callbackData.refreshToken,
-      expiresAt,
     },
   };
 
