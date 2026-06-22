@@ -37,8 +37,10 @@
   "type": "commonjs",
   "dependencies": {
     "commander": "^12.1.0",
+    "jiti": "^2.4.2",
     "picocolors": "^1.1.0",
-    "prompts": "^2.4.2"
+    "prompts": "^2.4.2",
+    "tar": "^7.4.3"
   },
   "devDependencies": {
     "@types/node": "^22.10.1",
