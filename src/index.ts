@@ -22,6 +22,7 @@ import {
 } from './commands/release.js';
 import { updateCommand } from './commands/update.js';
 import { enableCommand } from './commands/enable.js';
+import { isUpdateCommand } from './core/cliArgs.js';
 import { printCliError, resolveDebugFlag } from './core/cliError.js';
 import { ui } from './core/ui.js';
 
@@ -242,6 +243,11 @@ function checkForUpdates(): void {
   const ci = process.env.CI;
   const noCheck = process.env.ENSEMBLE_NO_UPDATE_CHECK;
   if (ci || (noCheck && noCheck.trim() !== '' && noCheck.toLowerCase() !== '0')) {
+    return;
+  }
+
+  // user is already updating; don't suggest running `ensemble update` again.
+  if (isUpdateCommand()) {
     return;
   }
 
