@@ -3,7 +3,7 @@ import {
   writeGlobalConfig,
   type EnsembleUserConfig,
 } from '../config/globalConfig.js';
-import { decodeIdTokenClaims, getIdTokenExpiryMs, isTokenExpired } from './token.js';
+import { decodeIdTokenClaims, isTokenExpired } from './token.js';
 import { getEnsembleFirebaseApiKey } from '../config/env.js';
 
 const DEFAULT_REFRESH_API_BASE = 'https://securetoken.googleapis.com/v1/token';
@@ -37,7 +37,6 @@ async function refreshIdToken(refreshToken: string): Promise<{
   idToken: string;
   refreshToken: string;
   userId?: string;
-  expiresAt?: number;
 }> {
   const apiKey = getEnsembleFirebaseApiKey();
   if (!apiKey) {
@@ -62,17 +61,10 @@ async function refreshIdToken(refreshToken: string): Promise<{
     throw new Error(`Token refresh failed: ${reason}`);
   }
 
-  const expiresInSec = Number(data.expires_in);
-  const expiresAt =
-    Number.isFinite(expiresInSec) && expiresInSec > 0
-      ? Date.now() + expiresInSec * 1000
-      : getIdTokenExpiryMs(data.id_token);
-
   return {
     idToken: data.id_token,
     refreshToken: data.refresh_token ?? refreshToken,
     userId: data.user_id,
-    expiresAt,
   };
 }
 
@@ -124,7 +116,7 @@ export async function getValidAuthSession(): Promise<AuthSessionResult> {
     };
   }
 
-  if (!isTokenExpired(user.idToken, user.expiresAt)) {
+  if (!isTokenExpired(user.idToken)) {
     return {
       ok: true,
       idToken: user.idToken,
@@ -152,7 +144,6 @@ export async function getValidAuthSession(): Promise<AuthSessionResult> {
       email: claims.email ?? user.email,
       idToken: refreshed.idToken,
       refreshToken: refreshed.refreshToken,
-      expiresAt: refreshed.expiresAt,
     };
     const updatedConfig: EnsembleUserConfig = {
       ...config,

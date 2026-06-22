@@ -9,7 +9,6 @@ export interface EnsembleUserConfig {
     email?: string;
     idToken: string;
     refreshToken?: string;
-    expiresAt?: number;
   };
   [key: string]: unknown;
 }

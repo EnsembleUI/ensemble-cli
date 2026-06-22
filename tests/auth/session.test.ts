@@ -182,7 +182,7 @@ describe('getValidAuthSession', () => {
     }
   });
 
-  it('returns ok without refresh when jwt is valid but config expiresAt is stale', async () => {
+  it('returns ok without refresh when jwt is valid even if legacy config has stale expiresAt', async () => {
     const token = makeJwt({
       userId: 'u1',
       email: 'a@b.com',
@@ -196,7 +196,7 @@ describe('getValidAuthSession', () => {
         refreshToken: 'refresh-123',
         expiresAt: Date.now() - 3600_000,
       },
-    });
+    } as EnsembleUserConfig);
 
     const fetchMock = vi.fn();
     const originalFetch = globalThis.fetch;
