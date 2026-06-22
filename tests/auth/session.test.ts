@@ -182,6 +182,38 @@ describe('getValidAuthSession', () => {
     }
   });
 
+  it('returns ok without refresh when jwt is valid even if legacy config has stale expiresAt', async () => {
+    const token = makeJwt({
+      userId: 'u1',
+      email: 'a@b.com',
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    });
+    vi.mocked(globalConfig.readGlobalConfig).mockResolvedValue({
+      user: {
+        uid: 'u1',
+        email: 'a@b.com',
+        idToken: token,
+        refreshToken: 'refresh-123',
+        expiresAt: Date.now() - 3600_000,
+      },
+    } as EnsembleUserConfig);
+
+    const fetchMock = vi.fn();
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock;
+
+    const result = await getValidAuthSession();
+
+    globalThis.fetch = originalFetch;
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.idToken).toBe(token);
+      expect(result.refreshed).toBe(false);
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('refreshes token when expired and refresh token exists', async () => {
     const oldToken = makeJwt({
       userId: 'u1',

@@ -1,10 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import {
-  decodeIdTokenClaims,
-  getIdTokenExpiryMs,
-  normalizeExpiresAt,
-  isTokenExpired,
-} from '../../src/auth/token.js';
+import { decodeIdTokenClaims, getIdTokenExpiryMs, isTokenExpired } from '../../src/auth/token.js';
 
 function base64urlEncode(str: string): string {
   return Buffer.from(str, 'utf8')
@@ -86,35 +81,6 @@ describe('getIdTokenExpiryMs', () => {
   });
 });
 
-describe('normalizeExpiresAt', () => {
-  it('accepts epoch milliseconds as-is', () => {
-    const ms = 1735689600000;
-    expect(normalizeExpiresAt(ms)).toBe(ms);
-  });
-
-  it('converts epoch seconds to milliseconds', () => {
-    expect(normalizeExpiresAt(1735689600)).toBe(1735689600000);
-  });
-
-  it('accepts numeric string (seconds)', () => {
-    expect(normalizeExpiresAt('1735689600')).toBe(1735689600000);
-  });
-
-  it('accepts numeric string (milliseconds)', () => {
-    expect(normalizeExpiresAt('1735689600000')).toBe(1735689600000);
-  });
-
-  it('returns undefined for empty string', () => {
-    expect(normalizeExpiresAt('')).toBeUndefined();
-    expect(normalizeExpiresAt('   ')).toBeUndefined();
-  });
-
-  it('returns undefined for invalid input', () => {
-    expect(normalizeExpiresAt(null)).toBeUndefined();
-    expect(normalizeExpiresAt(undefined)).toBeUndefined();
-  });
-});
-
 describe('isTokenExpired', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -142,14 +108,13 @@ describe('isTokenExpired', () => {
     vi.setSystemTime(new Date('2025-01-01T12:00:30Z'));
     // exp = 2025-01-01 13:00 UTC; with 60s buffer, token still valid at 12:00:30
     const token = makeJwt({ userId: 'u1', exp: 1735736400 });
-    expect(isTokenExpired(token, undefined, 60)).toBe(false);
-    expect(isTokenExpired(token, undefined, 0)).toBe(false);
+    expect(isTokenExpired(token, 60)).toBe(false);
+    expect(isTokenExpired(token, 0)).toBe(false);
   });
 
-  it('uses expiresAt when provided', () => {
+  it('returns true when jwt has no exp claim', () => {
     vi.setSystemTime(new Date('2025-01-01T12:00:00Z'));
     const token = makeJwt({ userId: 'u1' });
-    const futureMs = new Date('2025-06-01').getTime();
-    expect(isTokenExpired(token, futureMs)).toBe(false);
+    expect(isTokenExpired(token)).toBe(true);
   });
 });
