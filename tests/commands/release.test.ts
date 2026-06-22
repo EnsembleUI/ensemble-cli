@@ -365,6 +365,20 @@ describe('release commands', () => {
     );
   });
 
+  it('release use interactive picker omits hash from release labels', async () => {
+    Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+    promptsMock.mockResolvedValueOnce({ selected: 0 });
+
+    await releaseUseCommand({});
+
+    const promptArgs = promptsMock.mock.calls[0]?.[0] as {
+      choices: { title: string; value: number | string }[];
+    };
+    expect(promptArgs.choices[0]?.title).toContain('First release');
+    expect(promptArgs.choices[0]?.title).not.toContain('[hash:');
+  });
+
   it('release use --hash uses non-interactive path', async () => {
     // Make non-interactive by clearing TTY flags; hash should still work.
     Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });

@@ -58,10 +58,11 @@ export interface ReleaseUseOptions {
   hash?: string;
 }
 
-function formatReleaseLine(index: number, v: VersionDoc): string {
+function formatReleaseLine(index: number, v: VersionDoc, showHash = true): string {
   const date = v.createdAt ? new Date(v.createdAt).toLocaleString() : 'Unknown date';
   const msg = v.message?.trim() ? v.message : '(no message)';
-  return `${index + 1}. ${date} — ${msg} [hash: ${v.id}]`;
+  const hashSuffix = showHash ? ` [hash: ${v.id}]` : '';
+  return `${index + 1}. ${date} — ${msg}${hashSuffix}`;
 }
 
 function releaseUseHint(appKey: string, defaultAppKey: string): string {
@@ -352,7 +353,7 @@ export async function releaseUseCommand(options: ReleaseUseOptions = {}): Promis
       let nextStartAfter: string | undefined = initialNext;
       for (;;) {
         const choices: { title: string; value: number | string }[] = allVersions.map((v, i) => ({
-          title: formatReleaseLine(i, v),
+          title: formatReleaseLine(i, v, false),
           value: i,
         }));
         if (nextStartAfter !== undefined) {
