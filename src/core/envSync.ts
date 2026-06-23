@@ -480,16 +480,22 @@ export async function prepareEnvPushState(params: {
   };
 }
 
-export async function applyReleaseConfigToFs(
+export async function applyReleaseEnvToFs(
   projectRoot: string,
   config: ConfigDTO | undefined,
+  secrets: SecretDTO | undefined,
   appKey: string,
   defaultAppKey: string
 ): Promise<void> {
+  const layout = await readProjectEnvFiles(projectRoot, appKey, defaultAppKey);
   const configEntries = configDtoToEnvEntries(config);
-  if (configEntries.length === 0) return;
-  const { configWriteFile } = await readProjectEnvFiles(projectRoot, appKey, defaultAppKey);
-  await writeEnvFile(projectRoot, configWriteFile, configEntries);
+  if (configEntries.length > 0) {
+    await writeEnvFile(projectRoot, layout.configWriteFile, configEntries);
+  }
+  const secretEntries = secretsDtoToEnvEntries(secrets);
+  if (secretEntries.length > 0) {
+    await writeEnvFile(projectRoot, layout.secretsWriteFile, secretEntries);
+  }
 }
 
 export async function applyCloudEnvToFs(

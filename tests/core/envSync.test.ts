@@ -7,7 +7,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { writeEnvFile, type EnvEntry } from '../../src/core/envConfig.js';
 import {
   applyCloudEnvToFs,
-  applyReleaseConfigToFs,
+  applyReleaseEnvToFs,
   buildEnvPushDiff,
   buildPushConfigDto,
   computeEnvPullChanges,
@@ -480,8 +480,8 @@ describe('envSync', () => {
     expect(envConfig).not.toContain('del_png=');
   });
 
-  it('applyReleaseConfigToFs restores full snapshot config', async () => {
-    await applyReleaseConfigToFs(
+  it('applyReleaseEnvToFs restores full snapshot config', async () => {
+    await applyReleaseEnvToFs(
       tmpDir,
       {
         envVariables: {
@@ -490,6 +490,7 @@ describe('envSync', () => {
           E1: 'EV1',
         },
       },
+      undefined,
       'default',
       'default'
     );

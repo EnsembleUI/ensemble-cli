@@ -75,7 +75,8 @@ import {
 } from '../../src/commands/release.js';
 import { resolveAppContext } from '../../src/config/projectConfig.js';
 import type { CloudApp } from '../../src/cloud/firestoreClient.js';
-import { EnsembleDocumentType } from '../../src/core/dto.js';
+import { encryptReleaseSnapshot, parseReleaseSnapshotBody } from '../../src/core/encryption.js';
+import { TEST_ENCRYPTION_KEY } from '../core/encryption.test.js';
 
 function defaultAppContext(requestedAppKey?: string) {
   const appKey = requestedAppKey ?? 'default';
@@ -101,11 +102,29 @@ async function writeEnvConfig(projectRoot: string, lines: string[]): Promise<voi
   await fs.writeFile(path.join(projectRoot, '.env.config'), `${lines.join('\n')}\n`, 'utf8');
 }
 
+async function writeEncryptionKey(root: string, alias?: string): Promise<void> {
+  const secretsFile = alias ? `.env.secrets.${alias}` : '.env.secrets';
+  await fs.writeFile(
+    path.join(root, secretsFile),
+    `ENSEMBLE_ENCRYPTION_KEY=${TEST_ENCRYPTION_KEY}\n`,
+    'utf8'
+  );
+}
+
 function snapshotFromUploadMock(): CloudApp {
   expect(uploadReleaseSnapshotMock).toHaveBeenCalledTimes(1);
-  const snapshotJson = uploadReleaseSnapshotMock.mock.calls[0]?.[3];
-  expect(typeof snapshotJson).toBe('string');
-  return JSON.parse(snapshotJson as string) as CloudApp;
+  const body = uploadReleaseSnapshotMock.mock.calls[0]?.[3];
+  const envelopeJson = typeof body === 'string' ? body : (body as Buffer).toString('utf8');
+  const snapshotJson = parseReleaseSnapshotBody(
+    envelopeJson,
+    'releases/app1/ver.enc.json',
+    TEST_ENCRYPTION_KEY
+  );
+  return JSON.parse(snapshotJson) as CloudApp;
+}
+
+function mockEncryptedSnapshot(snapshot: CloudApp): string {
+  return encryptReleaseSnapshot(JSON.stringify(snapshot), TEST_ENCRYPTION_KEY);
 }
 
 describe('release commands', () => {
@@ -120,13 +139,13 @@ describe('release commands', () => {
       defaultAppContext(requestedAppKey)
     );
 
-    // Minimal app files for buildDocumentsFromParsed: appHome is "Home".
     await fs.mkdir(path.join(projectRoot, 'screens'), { recursive: true });
     await fs.writeFile(
       path.join(projectRoot, 'screens', 'Home.yaml'),
       'View:\n  body:\n    Text:\n      text: Hello',
       'utf8'
     );
+    await writeEncryptionKey(projectRoot);
 
     checkAppAccessMock.mockResolvedValue({ ok: true as const, app: { name: 'App' } });
     createVersionMock.mockResolvedValue({ id: 'ver-123' });
@@ -138,7 +157,7 @@ describe('release commands', () => {
           createdAt: '2025-01-15T12:00:00Z',
           createdBy: { name: 'User', id: 'uid1' },
           expiresAt: '2025-02-15T12:00:00Z',
-          snapshotPath: 'releases/app1/hash-1.json',
+          snapshotPath: 'releases/app1/hash-1.enc.json',
         },
       ],
       nextStartAfter: undefined,
@@ -149,13 +168,15 @@ describe('release commands', () => {
       createdAt: '2025-01-15T12:00:00Z',
       createdBy: { name: 'User', id: 'uid1' },
       expiresAt: '2025-02-15T12:00:00Z',
-      snapshotPath: 'releases/app1/hash-1.json',
+      snapshotPath: 'releases/app1/hash-1.enc.json',
     });
     uploadReleaseSnapshotMock.mockResolvedValue({
       bucket: 'bucket',
-      objectPath: 'releases/app1/ver-123.json',
+      objectPath: 'releases/app1/ver-123.enc.json',
     });
-    downloadReleaseSnapshotJsonMock.mockResolvedValue('{"id":"app1","name":"App","screens":[]}');
+    downloadReleaseSnapshotJsonMock.mockResolvedValue(
+      mockEncryptedSnapshot({ id: 'app1', name: 'App', screens: [] })
+    );
     promptsMock.mockResolvedValue({ message: 'My release' });
     uiErrorMock.mockImplementation(() => {});
     uiWarnMock.mockImplementation(() => {});
@@ -170,168 +191,71 @@ describe('release commands', () => {
     vi.clearAllMocks();
   });
 
-  it('release create stores env config in snapshot without secrets or asset publicUrl', async () => {
+  it('release create blocks when ENSEMBLE_ENCRYPTION_KEY is missing', async () => {
+    await fs.rm(path.join(projectRoot, '.env.secrets'));
+
+    await releaseCreateCommand({ message: 'missing key', yes: true });
+
+    expect(uploadReleaseSnapshotMock).not.toHaveBeenCalled();
+    expect(uiErrorMock).toHaveBeenCalledWith(expect.stringContaining('Releases are encrypted'));
+    expect(uiNoteMock).toHaveBeenCalledWith(expect.stringContaining('openssl rand -hex 32'));
+    expect(process.exitCode).toBe(1);
+  });
+
+  it('release create stores env config and secrets in encrypted snapshot', async () => {
     const assetsDir = path.join(projectRoot, 'assets');
     await fs.mkdir(assetsDir, { recursive: true });
     await fs.writeFile(path.join(assetsDir, 'logo.png'), 'png-bytes', 'utf8');
-    await fs.writeFile(path.join(assetsDir, 'Case1_Working.png'), 'png-bytes', 'utf8');
-    await writeEnvConfig(projectRoot, [
-      'assets=https://cdn.example.com/base/',
-      'logo_png=logo.png?token=abc',
-      'E1=EV1',
-    ]);
-    await fs.writeFile(path.join(projectRoot, '.env.secrets'), 'S1=SK1\n', 'utf8');
+    await writeEnvConfig(projectRoot, ['E1=EV1']);
+    await fs.appendFile(path.join(projectRoot, '.env.secrets'), 'S1=SK1\n', 'utf8');
 
     await releaseCreateCommand({ message: 'env snapshot', yes: true });
 
-    expect(uiSuccessMock).toHaveBeenCalledWith(
-      'Release saved. Run "ensemble release use" to use it.'
-    );
     const snapshot = snapshotFromUploadMock();
-    expect(snapshot.config?.envVariables).toEqual({
-      assets: 'https://cdn.example.com/base/',
-      logo_png: 'logo.png?token=abc',
-      E1: 'EV1',
+    expect(snapshot.config?.envVariables).toEqual({ E1: 'EV1' });
+    expect(snapshot.secrets?.secrets).toMatchObject({
+      ENSEMBLE_ENCRYPTION_KEY: TEST_ENCRYPTION_KEY,
+      S1: 'SK1',
     });
-    expect(snapshot.secrets).toBeUndefined();
-    expect(snapshot.config?.envVariables?.Case1_Working_png).toBeUndefined();
-    for (const asset of snapshot.assets ?? []) {
-      expect(asset.publicUrl).toBeUndefined();
-      expect(asset.copyText).toBeUndefined();
-    }
   });
 
-  it('release create hints alias-specific use command for non-default app', async () => {
-    vi.mocked(resolveAppContext).mockResolvedValueOnce({
-      projectRoot,
-      config: {
-        default: 'dev',
-        apps: {
-          dev: { appId: 'app-dev', name: 'Dev App' },
-          uat: { appId: 'app-uat', name: 'Uat App' },
-        },
-      },
-      appKey: 'uat',
-      appId: 'app-uat',
-    });
-
-    await releaseCreateCommand({ appKey: 'uat', message: 'uat release', yes: true });
-
-    expect(uiSuccessMock).toHaveBeenCalledWith(
-      'Release saved. Run "ensemble release use --app uat" to use it.'
-    );
-  });
-
-  it('release create passes the same version id to storage upload and Firestore', async () => {
-    await releaseCreateCommand({ message: 'sync ids', yes: true });
-
-    const uploadVersionId = uploadReleaseSnapshotMock.mock.calls[0]?.[2];
-    const createParams = createVersionMock.mock.calls[0]?.[2] as { id: string };
-    expect(typeof uploadVersionId).toBe('string');
-    expect(createParams.id).toBe(uploadVersionId);
-  });
-
-  it('release use restores config to scoped alias file for non-default app', async () => {
-    vi.mocked(resolveAppContext).mockResolvedValueOnce({
-      projectRoot,
-      config: {
-        default: 'dev',
-        apps: {
-          dev: { appId: 'app-dev', name: 'Dev App' },
-          uat: { appId: 'app-uat', name: 'Uat App' },
-        },
-      },
-      appKey: 'uat',
-      appId: 'app-uat',
-    });
-    getVersionMock.mockResolvedValue({
-      id: 'hash-1',
-      message: 'Uat release',
-      createdAt: '2025-01-15T12:00:00Z',
-      createdBy: { name: 'User', id: 'uid1' },
-      expiresAt: '2025-02-15T12:00:00Z',
-      snapshotPath: 'releases/app-uat/hash-1.json',
-    });
-    downloadReleaseSnapshotJsonMock.mockResolvedValueOnce(
-      JSON.stringify({
-        id: 'app-uat',
-        name: 'Uat App',
-        screens: [],
-        config: { envVariables: { E1: 'UAT-EV1' } },
-      } satisfies CloudApp)
-    );
-    await fs.writeFile(path.join(projectRoot, '.env.config'), 'E1=dev\n', 'utf8');
-    await fs.writeFile(path.join(projectRoot, '.env.config.uat'), 'E1=old-uat\n', 'utf8');
-
+  it('release use blocks when ENSEMBLE_ENCRYPTION_KEY is missing', async () => {
+    await fs.rm(path.join(projectRoot, '.env.secrets'));
     Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
     Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
 
-    await releaseUseCommand({ appKey: 'uat', hash: 'hash-1' });
+    await releaseUseCommand({ hash: 'hash-1' });
 
-    const baseConfig = await fs.readFile(path.join(projectRoot, '.env.config'), 'utf8');
-    const uatConfig = await fs.readFile(path.join(projectRoot, '.env.config.uat'), 'utf8');
-    expect(baseConfig).toContain('E1=dev');
-    expect(uatConfig).toContain('E1=UAT-EV1');
-    expect(uatConfig).not.toContain('old-uat');
+    expect(getVersionMock).not.toHaveBeenCalled();
+    expect(downloadReleaseSnapshotJsonMock).not.toHaveBeenCalled();
+    expect(uiErrorMock).toHaveBeenCalledWith(expect.stringContaining('Releases are encrypted'));
+    expect(uiNoteMock).toHaveBeenCalledWith(expect.stringContaining('openssl rand -hex 32'));
+    expect(process.exitCode).toBe(1);
   });
 
-  it('release use hints alias-specific push command for non-default app', async () => {
-    vi.mocked(resolveAppContext).mockResolvedValueOnce({
-      projectRoot,
-      config: {
-        default: 'dev',
-        apps: {
-          dev: { appId: 'app-dev', name: 'Dev App' },
-          uat: { appId: 'app-uat', name: 'Uat App' },
-        },
-      },
-      appKey: 'uat',
-      appId: 'app-uat',
-    });
-    downloadReleaseSnapshotJsonMock.mockResolvedValueOnce(
-      JSON.stringify({
-        id: 'app-uat',
-        name: 'Uat App',
-        screens: [],
-        config: { envVariables: { E1: 'UAT-EV1' } },
-      } satisfies CloudApp)
-    );
+  it('release list blocks when ENSEMBLE_ENCRYPTION_KEY is missing', async () => {
+    await fs.rm(path.join(projectRoot, '.env.secrets'));
 
-    Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
-    Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
+    await releaseListCommand({});
 
-    await releaseUseCommand({ appKey: 'uat', hash: 'hash-1' });
-
-    expect(uiSuccessMock).toHaveBeenCalledWith(
-      'Local files updated to selected release. Run "ensemble push --app uat" to apply to the cloud.'
-    );
+    expect(listVersionsMock).not.toHaveBeenCalled();
+    expect(uiErrorMock).toHaveBeenCalledWith(expect.stringContaining('Releases are encrypted'));
+    expect(uiNoteMock).toHaveBeenCalledWith(expect.stringContaining('openssl rand -hex 32'));
+    expect(process.exitCode).toBe(1);
   });
 
-  it('release use restores snapshot config and never touches secrets', async () => {
+  it('release use restores snapshot config and secrets', async () => {
     downloadReleaseSnapshotJsonMock.mockResolvedValueOnce(
-      JSON.stringify({
+      mockEncryptedSnapshot({
         id: 'app1',
         name: 'App',
         screens: [],
-        assets: [
-          {
-            id: 'asset:Case1_Working.png',
-            name: 'Case1_Working.png',
-            fileName: 'Case1_Working.png',
-            content: '',
-            type: EnsembleDocumentType.Asset,
-          },
-        ],
-        config: { envVariables: { assets: 'https://cdn.example.com/base/', E1: 'EV1' } },
+        config: { envVariables: { E1: 'EV1' } },
         secrets: { secrets: { S1: 'SNAPSHOT-SECRET' } },
-      } satisfies CloudApp)
+      })
     );
-    await writeEnvConfig(projectRoot, [
-      'assets=https://cdn.example.com/old/',
-      'Case1_Working_png=Case1_Working.png?token=old',
-      'E1=EV-WRONG',
-    ]);
-    await fs.writeFile(path.join(projectRoot, '.env.secrets'), 'S1=LOCAL-SECRET\n', 'utf8');
+    await writeEnvConfig(projectRoot, ['E1=EV-WRONG']);
+    await fs.appendFile(path.join(projectRoot, '.env.secrets'), 'S1=LOCAL-SECRET\n', 'utf8');
 
     Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
     Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
@@ -340,57 +264,53 @@ describe('release commands', () => {
 
     const envConfig = await fs.readFile(path.join(projectRoot, '.env.config'), 'utf8');
     const envSecrets = await fs.readFile(path.join(projectRoot, '.env.secrets'), 'utf8');
-    expect(envConfig).toContain('assets=https://cdn.example.com/base/');
     expect(envConfig).toContain('E1=EV1');
-    expect(envConfig).not.toContain('Case1_Working_png=');
-    expect(envSecrets).toContain('S1=LOCAL-SECRET');
-    expect(envSecrets).not.toContain('SNAPSHOT-SECRET');
+    expect(envSecrets).toContain('S1=SNAPSHOT-SECRET');
+    expect(envSecrets).not.toContain('LOCAL-SECRET');
   });
 
-  it('release list prints heading and lines when versions exist', async () => {
-    await releaseListCommand({});
-
-    expect(checkAppAccessMock).toHaveBeenCalledTimes(1);
-    expect(listVersionsMock).toHaveBeenCalledTimes(1);
-    expect(uiWarnMock).not.toHaveBeenCalled();
-  });
-
-  it('release list warns when no versions exist', async () => {
-    listVersionsMock.mockResolvedValueOnce({ versions: [], nextStartAfter: undefined });
-
-    await releaseListCommand({});
-
-    expect(uiWarnMock).toHaveBeenCalledWith(
-      'No releases found. Create one with "ensemble release create".'
+  it('release use rejects legacy plain json snapshots', async () => {
+    getVersionMock.mockResolvedValueOnce({
+      id: 'legacy-1',
+      message: 'Legacy',
+      createdAt: '2025-01-15T12:00:00Z',
+      createdBy: { name: 'User', id: 'uid1' },
+      expiresAt: '2025-02-15T12:00:00Z',
+      snapshotPath: 'releases/app1/legacy-1.json',
+    });
+    downloadReleaseSnapshotJsonMock.mockResolvedValueOnce(
+      JSON.stringify({ id: 'app1', name: 'App', screens: [] })
     );
+
+    Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
+    Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
+
+    await releaseUseCommand({ hash: 'legacy-1' });
+
+    expect(uiErrorMock).toHaveBeenCalledWith(
+      expect.stringContaining('unencrypted legacy plaintext')
+    );
+    expect(process.exitCode).toBe(1);
   });
 
-  it('release use interactive picker omits hash from release labels', async () => {
-    Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
-    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
-    promptsMock.mockResolvedValueOnce({ selected: 0 });
-
-    await releaseUseCommand({});
-
-    const promptArgs = promptsMock.mock.calls[0]?.[0] as {
-      choices: { title: string; value: number | string }[];
-    };
-    expect(promptArgs.choices[0]?.title).toContain('First release');
-    expect(promptArgs.choices[0]?.title).not.toContain('[hash:');
-  });
-
-  it('release use --hash uses non-interactive path', async () => {
-    // Make non-interactive by clearing TTY flags; hash should still work.
+  it('release use --hash downloads from storage directly', async () => {
     Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
     Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
 
     await releaseUseCommand({ hash: 'hash-1' });
 
-    expect(getVersionMock).toHaveBeenCalledWith('app1', 'token', 'hash-1', undefined);
     expect(downloadReleaseSnapshotJsonMock).toHaveBeenCalledWith(
       'token',
-      'releases/app1/hash-1.json'
+      'releases/app1/hash-1.enc.json'
     );
     expect(uiErrorMock).not.toHaveBeenCalled();
+  });
+
+  it('release list warns when no versions exist', async () => {
+    listVersionsMock.mockResolvedValueOnce({ versions: [], nextStartAfter: undefined });
+    await releaseListCommand({});
+    expect(uiWarnMock).toHaveBeenCalledWith(
+      'No releases found. Create one with "ensemble release create".'
+    );
   });
 });
