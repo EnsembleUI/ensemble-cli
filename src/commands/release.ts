@@ -32,6 +32,11 @@ import {
   requireReleaseEncryptionKey,
 } from '../core/encryption.js';
 import { buildDocumentsFromParsed } from '../core/buildDocuments.js';
+import {
+  orderByManifestNames,
+  readProjectManifest,
+  writeManifestFromSnapshot,
+} from '../core/manifest.js';
 import { ArtifactProps, type ArtifactProp } from '../core/artifacts.js';
 import { collectAppFiles } from '../core/appCollector.js';
 import { resolveAppContext } from '../config/projectConfig.js';
@@ -169,21 +174,47 @@ export async function releaseCreateCommand(options: ReleaseCreateOptions = {}): 
   const appName = (appConfig.name as string | undefined) ?? 'App';
   const appHome = appConfig.appHome as string | undefined;
   const localFiles = await collectAppFiles(root);
+  const manifest = await readProjectManifest(root);
+  const defaultLanguage =
+    typeof manifest.defaultLanguage === 'string' && manifest.defaultLanguage.trim() !== ''
+      ? manifest.defaultLanguage.trim()
+      : undefined;
   const { key: encryptionKey, localEnv } = keyCtx;
   const localConfig = buildConfigDtoFromEnvEntries(localEnv.envConfig);
   const localSecrets = buildSecretsDtoFromEnvSecretsFile(localEnv.envSecrets);
-  const localApp = buildDocumentsFromParsed(localFiles, appId, appName, appHome, undefined);
+  const localApp = buildDocumentsFromParsed(localFiles, appId, appName, appHome, defaultLanguage);
+  const orderedWidgets = localApp.widgets?.length
+    ? orderByManifestNames(
+        localApp.widgets,
+        manifest.widgets?.map((w) => w.name)
+      )
+    : localApp.widgets;
+  const orderedScripts = localApp.scripts?.length
+    ? orderByManifestNames(
+        localApp.scripts,
+        manifest.scripts?.map((s) => s.name)
+      )
+    : localApp.scripts;
+  const orderedActions = localApp.actions?.length
+    ? orderByManifestNames(
+        localApp.actions,
+        manifest.actions?.map((a) => a.name)
+      )
+    : localApp.actions;
+  const orderedTranslations = localApp.translations?.length
+    ? orderByManifestNames(localApp.translations, manifest.languages)
+    : localApp.translations;
   const snapshot: CloudApp = {
     id: localApp.id,
     name: localApp.name,
     createdAt: localApp.createdAt,
     updatedAt: localApp.updatedAt,
     ...(localApp.screens && localApp.screens.length > 0 && { screens: localApp.screens }),
-    ...(localApp.widgets && localApp.widgets.length > 0 && { widgets: localApp.widgets }),
-    ...(localApp.scripts && localApp.scripts.length > 0 && { scripts: localApp.scripts }),
-    ...(localApp.actions && localApp.actions.length > 0 && { actions: localApp.actions }),
-    ...(localApp.translations &&
-      localApp.translations.length > 0 && { translations: localApp.translations }),
+    ...(orderedWidgets && orderedWidgets.length > 0 && { widgets: orderedWidgets }),
+    ...(orderedScripts && orderedScripts.length > 0 && { scripts: orderedScripts }),
+    ...(orderedActions && orderedActions.length > 0 && { actions: orderedActions }),
+    ...(orderedTranslations &&
+      orderedTranslations.length > 0 && { translations: orderedTranslations }),
     ...(localApp.theme && { theme: localApp.theme }),
     ...(localApp.assets && localApp.assets.length > 0 && { assets: localApp.assets }),
     ...(localConfig && { config: localConfig }),
@@ -462,17 +493,17 @@ export async function releaseUseCommand(options: ReleaseUseOptions = {}): Promis
     const snapshot = JSON.parse(snapshotJson) as CloudApp;
 
     const localFiles = await collectAppFiles(projectRoot);
-    await withSpinner('Writing local files...', () =>
-      applyCloudStateToFs(projectRoot, snapshot, localFiles, enabledByProp, {
-        manifestOptions: {},
+    await withSpinner('Writing local files...', async () => {
+      await applyCloudStateToFs(projectRoot, snapshot, localFiles, enabledByProp, {
         onProgress: (completed, total) => {
           if (total > 0 && completed % 25 === 0) {
             // eslint-disable-next-line no-console
             console.log(`Writing files... (${completed}/${total})`);
           }
         },
-      })
-    );
+      });
+      await writeManifestFromSnapshot(projectRoot, snapshot);
+    });
     await applyReleaseEnvToFs(
       projectRoot,
       snapshot.config,

@@ -75,6 +75,7 @@ import {
 } from '../../src/commands/release.js';
 import { resolveAppContext } from '../../src/config/projectConfig.js';
 import type { CloudApp } from '../../src/cloud/firestoreClient.js';
+import { EnsembleDocumentType } from '../../src/core/dto.js';
 import { encryptReleaseSnapshot, parseReleaseSnapshotBody } from '../../src/core/encryption.js';
 import { TEST_ENCRYPTION_KEY } from '../core/encryption.test.js';
 
@@ -219,6 +220,135 @@ describe('release commands', () => {
     });
   });
 
+  it('release create stores manifest list order in snapshot', async () => {
+    await fs.mkdir(path.join(projectRoot, 'widgets'), { recursive: true });
+    await fs.mkdir(path.join(projectRoot, 'translations'), { recursive: true });
+    await fs.writeFile(path.join(projectRoot, 'widgets', 'Wid2.yaml'), 'View:\n', 'utf8');
+    await fs.writeFile(path.join(projectRoot, 'widgets', 'Wid1.yaml'), 'View:\n', 'utf8');
+    await fs.writeFile(path.join(projectRoot, 'translations', 'en.yaml'), 'k: v\n', 'utf8');
+    await fs.writeFile(path.join(projectRoot, 'translations', 'ar.yaml'), 'k: v\n', 'utf8');
+    await fs.writeFile(
+      path.join(projectRoot, '.manifest.json'),
+      `${JSON.stringify(
+        {
+          widgets: [{ name: 'Wid1' }, { name: 'Wid2' }],
+          languages: ['ar', 'en'],
+          defaultLanguage: 'ar',
+        },
+        null,
+        2
+      )}\n`,
+      'utf8'
+    );
+
+    await releaseCreateCommand({ message: 'manifest order', yes: true });
+
+    const snapshot = snapshotFromUploadMock();
+    expect(snapshot.widgets?.map((widget) => widget.name)).toEqual(['Wid1', 'Wid2']);
+    expect(snapshot.translations?.map((t) => t.name)).toEqual(['ar', 'en']);
+    expect(snapshot.translations?.find((t) => t.defaultLocale)?.name).toBe('ar');
+  });
+
+  it('release create then use leaves manifest unchanged', async () => {
+    await fs.mkdir(path.join(projectRoot, 'widgets'), { recursive: true });
+    await fs.writeFile(path.join(projectRoot, 'widgets', 'Wid2.yaml'), 'View:\n', 'utf8');
+    await fs.writeFile(path.join(projectRoot, 'widgets', 'Wid1.yaml'), 'View:\n', 'utf8');
+    const manifestBefore = { widgets: [{ name: 'Wid1' }, { name: 'Wid2' }] };
+    const manifestRaw = `${JSON.stringify(manifestBefore, null, 2)}\n`;
+    await fs.writeFile(path.join(projectRoot, '.manifest.json'), manifestRaw, 'utf8');
+
+    await releaseCreateCommand({ message: 'roundtrip', yes: true });
+    const snapshot = snapshotFromUploadMock();
+
+    downloadReleaseSnapshotJsonMock.mockResolvedValueOnce(
+      encryptReleaseSnapshot(JSON.stringify(snapshot), TEST_ENCRYPTION_KEY)
+    );
+
+    Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
+    Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
+
+    await releaseUseCommand({ hash: 'hash-1' });
+
+    const manifestAfter = await fs.readFile(path.join(projectRoot, '.manifest.json'), 'utf8');
+    expect(manifestAfter).toBe(manifestRaw);
+  });
+
+  it('release use restores latest manifest after visiting older release', async () => {
+    const olderSnapshot = mockEncryptedSnapshot({
+      id: 'app1',
+      name: 'App',
+      screens: [],
+      translations: [
+        {
+          id: 't-en',
+          name: 'en',
+          content: 'hello: hello',
+          type: EnsembleDocumentType.I18n,
+          defaultLocale: true,
+        },
+        {
+          id: 't-ar',
+          name: 'ar',
+          content: 'hello: marhaba',
+          type: EnsembleDocumentType.I18n,
+        },
+      ],
+    });
+    const latestSnapshot = mockEncryptedSnapshot({
+      id: 'app1',
+      name: 'App',
+      screens: [],
+      translations: [
+        {
+          id: 't-en',
+          name: 'en',
+          content: 'hello: hello',
+          type: EnsembleDocumentType.I18n,
+        },
+        {
+          id: 't-de',
+          name: 'de',
+          content: 'hello: hallo',
+          type: EnsembleDocumentType.I18n,
+        },
+        {
+          id: 't-ar',
+          name: 'ar',
+          content: 'hello: marhaba',
+          type: EnsembleDocumentType.I18n,
+          defaultLocale: true,
+        },
+      ],
+    });
+
+    await fs.mkdir(path.join(projectRoot, 'translations'), { recursive: true });
+    await fs.writeFile(path.join(projectRoot, 'translations', 'en.yaml'), 'hello: hello\n', 'utf8');
+    await fs.writeFile(
+      path.join(projectRoot, 'translations', 'ar.yaml'),
+      'hello: marhaba\n',
+      'utf8'
+    );
+    await fs.writeFile(path.join(projectRoot, 'translations', 'de.yaml'), 'hello: hallo\n', 'utf8');
+
+    Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
+    Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
+
+    downloadReleaseSnapshotJsonMock.mockResolvedValueOnce(olderSnapshot);
+    await releaseUseCommand({ hash: 'hash-old' });
+
+    downloadReleaseSnapshotJsonMock.mockResolvedValueOnce(latestSnapshot);
+    await releaseUseCommand({ hash: 'hash-latest' });
+
+    const manifestAfter = JSON.parse(
+      await fs.readFile(path.join(projectRoot, '.manifest.json'), 'utf8')
+    ) as { languages: string[]; defaultLanguage: string };
+    expect(manifestAfter.languages).toEqual(['en', 'de', 'ar']);
+    expect(manifestAfter.defaultLanguage).toBe('ar');
+    await expect(
+      fs.access(path.join(projectRoot, 'translations', 'de.yaml'))
+    ).resolves.toBeUndefined();
+  });
+
   it('release use blocks when ENSEMBLE_ENCRYPTION_KEY is missing', async () => {
     await fs.rm(path.join(projectRoot, '.env.secrets'));
     Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
@@ -267,6 +397,41 @@ describe('release commands', () => {
     expect(envConfig).toContain('E1=EV1');
     expect(envSecrets).toContain('S1=SNAPSHOT-SECRET');
     expect(envSecrets).not.toContain('LOCAL-SECRET');
+  });
+
+  it('release use preserves .env.config key order', async () => {
+    await fs.writeFile(
+      path.join(projectRoot, '.env.config'),
+      'assets=https://old/\nkwnd_png=old.png\nE1=old\n',
+      'utf8'
+    );
+
+    downloadReleaseSnapshotJsonMock.mockResolvedValueOnce(
+      mockEncryptedSnapshot({
+        id: 'app1',
+        name: 'App',
+        screens: [],
+        config: {
+          envVariables: {
+            E1: 'EV1',
+            assets: 'https://new/',
+            kwnd_png: 'new.png',
+          },
+        },
+      })
+    );
+
+    Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
+    Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
+
+    await releaseUseCommand({ hash: 'hash-1' });
+
+    const lines = (await fs.readFile(path.join(projectRoot, '.env.config'), 'utf8'))
+      .trim()
+      .split('\n');
+    expect(lines[0]).toMatch(/^assets=https:\/\/new\//);
+    expect(lines[1]).toMatch(/^kwnd_png=new\.png$/);
+    expect(lines[2]).toMatch(/^E1=EV1$/);
   });
 
   it('release use rejects legacy plain json snapshots', async () => {

@@ -501,6 +501,33 @@ describe('envSync', () => {
     expect(envConfig).toContain('E1=EV1');
   });
 
+  it('applyReleaseEnvToFs preserves env file key order', async () => {
+    await fs.writeFile(
+      path.join(tmpDir, '.env.config'),
+      'assets=https://old/\nkwnd_png=old.png\nE1=old\n',
+      'utf8'
+    );
+
+    await applyReleaseEnvToFs(
+      tmpDir,
+      {
+        envVariables: {
+          E1: 'EV1',
+          assets: 'https://new/',
+          kwnd_png: 'new.png',
+        },
+      },
+      undefined,
+      'default',
+      'default'
+    );
+
+    const lines = (await fs.readFile(path.join(tmpDir, '.env.config'), 'utf8')).trim().split('\n');
+    expect(lines[0]).toMatch(/^assets=https:\/\/new\//);
+    expect(lines[1]).toMatch(/^kwnd_png=new\.png$/);
+    expect(lines[2]).toMatch(/^E1=EV1$/);
+  });
+
   it('readProjectEnvFiles uses scoped pair when both alias files exist', async () => {
     await fs.writeFile(path.join(tmpDir, '.env.config'), 'E1=base\nE2=shared\n', 'utf8');
     await fs.writeFile(path.join(tmpDir, '.env.secrets'), 'S1=base\n', 'utf8');

@@ -490,11 +490,11 @@ export async function applyReleaseEnvToFs(
   const layout = await readProjectEnvFiles(projectRoot, appKey, defaultAppKey);
   const configEntries = configDtoToEnvEntries(config);
   if (configEntries.length > 0) {
-    await writeEnvFile(projectRoot, layout.configWriteFile, configEntries);
+    await upsertEnvFile(projectRoot, layout.configWriteFile, configEntries);
   }
   const secretEntries = secretsDtoToEnvEntries(secrets);
   if (secretEntries.length > 0) {
-    await writeEnvFile(projectRoot, layout.secretsWriteFile, secretEntries);
+    await upsertEnvFile(projectRoot, layout.secretsWriteFile, secretEntries);
   }
 }
 

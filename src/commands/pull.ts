@@ -285,7 +285,7 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
 
   await withSpinner('Writing local files...', async () => {
     await applyCloudStateToFs(projectRoot, cloudApp, localFiles, enabledByProp, {
-      manifestOptions: {},
+      refreshManifest: true,
       onProgress: (completed, total) => {
         // eslint-disable-next-line no-console
         console.log(`Writing files... (${completed}/${total})`);
