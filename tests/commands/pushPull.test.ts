@@ -253,6 +253,76 @@ describe('push/pull integration (commands)', () => {
     expect(submitCliPush).not.toHaveBeenCalled();
   });
 
+  it('push respects options.assets false and does not plan cloud asset deletes', async () => {
+    appOptionsRef.value = { assets: false };
+    await fs.writeFile(path.join(projectRoot, 'screens', 'Home.yaml'), 'home: content', 'utf8');
+
+    (cloudModuleMock.fetchCloudApp as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: 'app1',
+      name: 'App',
+      screens: [
+        {
+          id: 'screen-id-1',
+          name: 'Home',
+          content: 'home: content',
+          type: 'screen',
+          isRoot: true,
+        },
+      ] as unknown[],
+      widgets: [] as unknown[],
+      scripts: [] as unknown[],
+      translations: [] as unknown[],
+      theme: undefined,
+      assets: [
+        {
+          id: 'a1',
+          name: 'wifi_scan.json',
+          fileName: 'wifi_scan.json',
+          content: '',
+          type: 'asset',
+        },
+      ] as unknown[],
+    });
+
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await pushCommand({ verbose: false, dryRun: true });
+
+    const { submitCliPush } = cloudModuleMock as {
+      submitCliPush: ReturnType<typeof vi.fn>;
+    };
+    expect(submitCliPush).not.toHaveBeenCalled();
+
+    const lines = logSpy.mock.calls.map(([msg]) => String(msg));
+    expect(lines.some((line) => line.includes('wifi_scan'))).toBe(false);
+    expect(
+      lines.some((line) =>
+        line.includes('Skipping assets (options.assets: false in ensemble.config.json)')
+      )
+    ).toBe(true);
+
+    logSpy.mockRestore();
+  });
+
+  it('add asset locally then push uploads to cloud', async () => {
+    const sourceFile = path.join(projectRoot, 'logo.png');
+    await fs.writeFile(sourceFile, Buffer.from([1, 2, 3]));
+    await fs.writeFile(path.join(projectRoot, 'screens', 'Home.yaml'), 'home: content', 'utf8');
+    await fs.mkdir(path.join(projectRoot, 'assets'), { recursive: true });
+    await fs.copyFile(sourceFile, path.join(projectRoot, 'assets', 'logo.png'));
+    await fs.writeFile(path.join(projectRoot, '.env.config'), 'logo_png=logo.png\n', 'utf8');
+
+    await pushCommand({ verbose: false, yes: true });
+
+    const uploadAssetMock = assetClientMock.uploadAssetToStudio as ReturnType<typeof vi.fn>;
+    expect(uploadAssetMock).toHaveBeenCalledTimes(1);
+    expect(uploadAssetMock.mock.calls[0]?.[1]).toBe('logo.png');
+
+    const envAfterPush = await fs.readFile(path.join(projectRoot, '.env.config'), 'utf8');
+    expect(envAfterPush).toContain('assets=https://cdn.example.com/assets/');
+    expect(envAfterPush).toContain('logo_png=logo.png?token=abc');
+  });
+
   it('push dry run shows diff but does not submit payload', async () => {
     // Arrange: create a minimal Home screen plus a simple local file and cloud app with no existing artifacts.
     await fs.writeFile(path.join(projectRoot, 'screens', 'Home.yaml'), 'home: content', 'utf8');
@@ -630,6 +700,52 @@ describe('push/pull integration (commands)', () => {
     const files = await collectAppFiles(projectRoot);
     // Since screens are disabled via options, pull should not have written any screens.
     expect(Object.keys(files.screens)).toEqual([]);
+  });
+
+  it('pull respects options.assets false and does not sync assets', async () => {
+    appOptionsRef.value = { assets: false };
+    await fs.mkdir(path.join(projectRoot, 'assets'), { recursive: true });
+    await fs.writeFile(path.join(projectRoot, 'assets', 'local-only.png'), Buffer.from([1]));
+
+    (cloudModuleMock.fetchCloudApp as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: 'app1',
+      name: 'App',
+      screens: [
+        {
+          id: 'screen-id-1',
+          name: 'Home',
+          content: 'home: content',
+          type: 'screen',
+          isRoot: true,
+        },
+      ] as unknown[],
+      widgets: [] as unknown[],
+      scripts: [] as unknown[],
+      translations: [] as unknown[],
+      theme: undefined,
+      assets: [
+        {
+          id: 'a1',
+          name: 'cloud-only.png',
+          fileName: 'cloud-only.png',
+          content: '',
+          type: 'asset',
+          publicUrl: 'https://cdn.example.com/cloud-only.png',
+        },
+      ] as unknown[],
+      config: {
+        envVariables: {
+          assets: 'https://cdn.example.com/',
+          cloud_only_png: 'cloud-only.png?token=abc',
+        },
+      },
+    });
+
+    await pullCommand({ verbose: false, yes: true });
+
+    const files = await collectAppFiles(projectRoot);
+    expect(files.assetFiles).toEqual(['local-only.png']);
+    await expect(fs.access(path.join(projectRoot, 'assets', 'cloud-only.png'))).rejects.toThrow();
   });
 
   it('pull dry run shows summary but does not modify files', async () => {

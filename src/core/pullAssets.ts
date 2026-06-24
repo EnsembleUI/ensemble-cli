@@ -4,6 +4,7 @@ import path from 'path';
 import type { AssetDTO } from './dto.js';
 import type { upsertEnvConfig } from './envConfig.js';
 import { isIgnoredAssetFileName } from './assetIgnore.js';
+import { deriveAssetEnvKey } from './assetEnv.js';
 
 export class AssetPullError extends Error {
   constructor(
@@ -70,10 +71,6 @@ function extractEnvKeyFromCopyText(copyText: string | undefined): string | undef
   const nonAssets = unique.filter((k) => k !== 'assets');
   // Prefer the single non-assets key if present; otherwise fall back to first key (if any).
   return nonAssets.length === 1 ? nonAssets[0] : (nonAssets[0] ?? unique[0]);
-}
-
-export function deriveAssetEnvKey(fileName: string): string {
-  return fileName.replace(/[^\w]+/g, '_');
 }
 
 export function resolveAssetEnvKey(asset: { fileName: string; copyText?: string }): string {

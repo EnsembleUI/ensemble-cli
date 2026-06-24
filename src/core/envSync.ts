@@ -1,7 +1,16 @@
-import path from 'node:path';
-
 import type { ConfigDTO, SecretDTO } from './dto.js';
-import { deriveAssetEnvKey, resolveAssetEnvKey } from './pullAssets.js';
+import { resolveAssetEnvKey } from './pullAssets.js';
+import { deriveAssetEnvKey } from './assetEnv.js';
+import {
+  assetFileNameFromEnvValue,
+  buildAssetKeyContext,
+  collectAssetEnvKeys,
+  getAssetEnvKeysToExclude,
+  mergeAssetFileNamesForEnvCompare,
+  planDisabledEnvSync,
+  stripAssetKeysFromEntries,
+  type CloudAssetEnvRef,
+} from './assetEnvSync.js';
 import {
   ENV_CONFIG_BASE,
   ENV_SECRETS_BASE,
@@ -38,52 +47,6 @@ export interface LocalEnvFiles {
   scopedSecretsPresent: boolean;
 }
 
-export type CloudAssetEnvRef = {
-  fileName?: string;
-  copyText?: string;
-  isArchived?: boolean;
-};
-
-type AssetKeyContext = {
-  localKeys: Set<string>;
-  excludedKeys: Set<string>;
-  staleKeys: Set<string>;
-  cloudByFile: Map<string, CloudAssetEnvRef>;
-};
-
-const activeCloudAssets = (cloudAssets?: CloudAssetEnvRef[]) =>
-  (cloudAssets ?? []).filter(
-    (a) => typeof a.fileName === 'string' && a.fileName !== '' && a.isArchived !== true
-  );
-
-function buildAssetKeyContext(
-  localAssetFileNames: string[],
-  cloudAssets?: CloudAssetEnvRef[]
-): AssetKeyContext {
-  const cloudByFile = new Map(activeCloudAssets(cloudAssets).map((a) => [a.fileName as string, a]));
-  const localFiles = new Set(localAssetFileNames);
-  const localKeys = new Set<string>(['assets']);
-  const staleKeys = new Set<string>();
-
-  for (const fileName of localAssetFileNames) {
-    const cloudAsset = cloudByFile.get(fileName);
-    localKeys.add(resolveAssetEnvKey({ fileName, copyText: cloudAsset?.copyText }));
-    localKeys.add(deriveAssetEnvKey(fileName));
-  }
-  for (const [fileName, asset] of cloudByFile) {
-    if (!localFiles.has(fileName)) {
-      staleKeys.add(resolveAssetEnvKey({ fileName, copyText: asset.copyText }));
-    }
-  }
-
-  return {
-    localKeys,
-    staleKeys,
-    excludedKeys: new Set([...localKeys, ...staleKeys]),
-    cloudByFile,
-  };
-}
-
 function entriesEqual(a: EnvEntry[], b: EnvEntry[]): boolean {
   const mapB = new Map(b.map((e) => [e.key, e.value]));
   return a.length === mapB.size && a.every((e) => mapB.get(e.key) === e.value);
@@ -112,24 +75,6 @@ function dtoFromEntries(entries: EnvEntry[], excludeKeys?: Set<string>): ConfigD
   return Object.keys(envVariables).length > 0 ? { envVariables } : undefined;
 }
 
-function omitAssetKeys(
-  entries: EnvEntry[],
-  assetFileNames: string[],
-  cloudAssets?: CloudAssetEnvRef[]
-): ConfigDTO | undefined {
-  const excludeKeys = cloudAssets
-    ? buildAssetKeyContext(assetFileNames, cloudAssets).excludedKeys
-    : collectAssetEnvKeys(assetFileNames);
-  return dtoFromEntries(entries, excludeKeys);
-}
-
-function assetFileNameFromEnvValue(rawValue: string): string | undefined {
-  const value = rawValue.trim();
-  if (!value) return undefined;
-  const base = path.basename(value.split('?')[0] ?? value);
-  return base.includes('.') ? base : undefined;
-}
-
 export function configDtoToEnvEntries(config: ConfigDTO | undefined): EnvEntry[] {
   return entriesFromRecord(config?.envVariables as Record<string, unknown> | undefined);
 }
@@ -143,24 +88,12 @@ export function secretsDtoToEnvEntries(secrets: SecretDTO | undefined): EnvEntry
   return entriesFromRecord(nested, (key) => key === 'secrets');
 }
 
-export function collectAssetEnvKeys(assetFileNames: string[] = []): Set<string> {
-  return new Set(['assets', ...assetFileNames.map(deriveAssetEnvKey)]);
-}
-
 export function stripAssetKeysFromConfigDto(
   config: ConfigDTO | undefined,
   assetFileNames: string[] = [],
   cloudAssets?: CloudAssetEnvRef[]
 ): ConfigDTO | undefined {
-  return omitAssetKeys(configDtoToEnvEntries(config), assetFileNames, cloudAssets);
-}
-
-export function buildConfigDtoFromEnvConfigFile(
-  entries: EnvEntry[],
-  assetFileNames: string[] = [],
-  cloudAssets?: CloudAssetEnvRef[]
-): ConfigDTO | undefined {
-  return omitAssetKeys(entries, assetFileNames, cloudAssets);
+  return stripAssetKeysFromEntries(configDtoToEnvEntries(config), assetFileNames, cloudAssets);
 }
 
 export const buildConfigDtoFromEnvEntries = dtoFromEntries;
@@ -178,7 +111,7 @@ function localNonAssetConfigEntries(
 ): EnvEntry[] {
   if (!localEnv.envConfigPresent) return [];
   return configDtoToEnvEntries(
-    buildConfigDtoFromEnvConfigFile(localEnv.envConfig, assetFileNames, cloudAssets)
+    stripAssetKeysFromEntries(localEnv.envConfig, assetFileNames, cloudAssets)
   );
 }
 
@@ -303,25 +236,21 @@ export async function readProjectEnvFiles(
   };
 }
 
-export function mergeAssetFileNamesForEnvCompare(
-  localAssetFileNames: string[] = [],
-  cloudAssets: Array<{ fileName?: string; isArchived?: boolean }> | undefined = []
-): string[] {
-  const fromCloud = (cloudAssets ?? [])
-    .filter((a) => a.isArchived !== true && typeof a.fileName === 'string' && a.fileName !== '')
-    .map((a) => a.fileName as string);
-  return [...new Set([...localAssetFileNames, ...fromCloud])];
-}
-
 export function envConfigEntriesMatchCloud(
   localEntries: EnvEntry[],
   cloudConfig: ConfigDTO | undefined,
   assetFileNames: string[] = [],
-  cloudAssets?: CloudAssetEnvRef[]
+  cloudAssets?: CloudAssetEnvRef[],
+  assetsSyncEnabled = true
 ): boolean {
+  if (!assetsSyncEnabled) {
+    const plan = planDisabledEnvSync(localEntries, cloudConfig, cloudAssets);
+    return configEntriesEqual(plan.compareLocal, plan.compareCloud);
+  }
+
   if (
     !configEntriesEqual(
-      buildConfigDtoFromEnvConfigFile(localEntries, assetFileNames, cloudAssets),
+      stripAssetKeysFromEntries(localEntries, assetFileNames, cloudAssets),
       stripAssetKeysFromConfigDto(cloudConfig, assetFileNames, cloudAssets)
     )
   ) {
@@ -358,19 +287,33 @@ export function buildEnvPushDiff(
   localEnv: LocalEnvFiles,
   cloudEnv: CloudEnvState,
   assetFileNames: string[] = [],
-  cloudAssets?: CloudAssetEnvRef[]
+  cloudAssets?: CloudAssetEnvRef[],
+  assetsSyncEnabled = true
 ): EnvPushDiff {
-  const pushConfig = buildPushConfigDto(localEnv, cloudEnv.config, assetFileNames, cloudAssets);
+  const effectiveAssetFileNames = assetsSyncEnabled ? assetFileNames : [];
+  const disabledPlan = assetsSyncEnabled
+    ? undefined
+    : planDisabledEnvSync(localEnv.envConfig, cloudEnv.config, cloudAssets);
+
+  const pushConfig = assetsSyncEnabled
+    ? buildPushConfigDto(localEnv, cloudEnv.config, effectiveAssetFileNames, cloudAssets)
+    : disabledPlan!.pushConfig;
+  const compareLocal = assetsSyncEnabled ? pushConfig : disabledPlan!.compareLocal;
+  const cloudConfigForCompare = assetsSyncEnabled ? cloudEnv.config : disabledPlan!.compareCloud;
+  const envSyncAssetFileNames = assetsSyncEnabled
+    ? effectiveAssetFileNames
+    : disabledPlan!.localAssetFileNames;
+
   const wouldClearConfig = wouldClearConfigOnPush(
     localEnv,
     cloudEnv.config,
-    assetFileNames,
+    envSyncAssetFileNames,
     cloudAssets
   );
   const wouldClearSecrets = wouldClearSecretsOnPush(localEnv, cloudEnv.secrets);
   const configChanged =
     wouldClearConfig ||
-    (localEnv.envConfigPresent && !configEntriesEqual(pushConfig, cloudEnv.config));
+    (localEnv.envConfigPresent && !configEntriesEqual(compareLocal, cloudConfigForCompare));
   const secretsChanged =
     wouldClearSecrets ||
     (localEnv.envSecretsPresent &&
@@ -408,14 +351,18 @@ export function computeEnvPullChanges(
   cloudConfig: ConfigDTO | undefined,
   cloudSecrets: SecretDTO | undefined,
   localAssetFileNames: string[] = [],
-  cloudAssets: Array<{ fileName?: string; isArchived?: boolean }> | undefined = []
+  cloudAssets: Array<{ fileName?: string; isArchived?: boolean }> | undefined = [],
+  assetsSyncEnabled = true
 ): EnvPullChanges {
-  const assetFileNames = mergeAssetFileNamesForEnvCompare(localAssetFileNames, cloudAssets);
+  const assetFileNames = assetsSyncEnabled
+    ? mergeAssetFileNamesForEnvCompare(localAssetFileNames, cloudAssets)
+    : [];
   const configMatch = envConfigEntriesMatchCloud(
     localEnv?.envConfig ?? [],
     cloudConfig,
     assetFileNames,
-    cloudAssets
+    cloudAssets,
+    assetsSyncEnabled
   );
   const secretsMatch = envSecretsEntriesMatchCloud(localEnv?.envSecrets ?? [], cloudSecrets);
   const filesToUpdate: string[] = [];
@@ -445,15 +392,23 @@ export async function prepareEnvPushState(params: {
   cloudEnv: CloudEnvState;
   assetFileNames: string[];
   cloudAssets?: CloudAssetEnvRef[];
+  assetsSyncEnabled?: boolean;
 }): Promise<EnvPushState> {
+  const assetsSyncEnabled = params.assetsSyncEnabled !== false;
+  const effectiveAssetFileNames = assetsSyncEnabled ? params.assetFileNames : [];
   const localEnvRaw = await readProjectEnvFiles(
     params.projectRoot,
     params.appKey,
     params.defaultAppKey
   );
-  const prunedConfigSource = localEnvRaw.envConfigPresent
-    ? pruneStaleAssetEnvEntries(localEnvRaw.envConfig, params.assetFileNames, params.cloudAssets)
-    : localEnvRaw.envConfig;
+  const prunedConfigSource =
+    assetsSyncEnabled && localEnvRaw.envConfigPresent
+      ? pruneStaleAssetEnvEntries(
+          localEnvRaw.envConfig,
+          effectiveAssetFileNames,
+          params.cloudAssets
+        )
+      : localEnvRaw.envConfig;
   const localEnv: LocalEnvFiles = {
     ...localEnvRaw,
     envConfig: prunedConfigSource,
@@ -464,8 +419,9 @@ export async function prepareEnvPushState(params: {
   const diff = buildEnvPushDiff(
     localEnv,
     params.cloudEnv,
-    params.assetFileNames,
-    params.cloudAssets
+    effectiveAssetFileNames,
+    params.cloudAssets,
+    assetsSyncEnabled
   );
 
   return {
@@ -497,25 +453,37 @@ export async function applyCloudEnvToFs(
   cloudEnv: CloudEnvState,
   assetFileNames: string[] = [],
   appKey = 'default',
-  defaultAppKey = appKey
+  defaultAppKey = appKey,
+  cloudAssets?: CloudAssetEnvRef[],
+  assetsSyncEnabled = true
 ): Promise<void> {
   const layout = await readProjectEnvFiles(projectRoot, appKey, defaultAppKey);
   const configWriteFile = layout.configWriteFile;
   const secretsWriteFile = layout.secretsWriteFile;
 
-  const assetKeys = collectAssetEnvKeys(assetFileNames);
+  const assetKeys = assetsSyncEnabled
+    ? collectAssetEnvKeys(assetFileNames)
+    : getAssetEnvKeysToExclude(
+        await readEnvFile(projectRoot, configWriteFile),
+        assetFileNames,
+        cloudAssets
+      );
   const cloudVars = cloudEnv.config?.envVariables ?? {};
-  const assetEntries = [...assetKeys]
-    .map((key) => ({ key, value: cloudVars[key] }))
-    .filter((entry): entry is EnvEntry => typeof entry.value === 'string');
-  if (assetEntries.length > 0) {
-    await upsertEnvFile(projectRoot, configWriteFile, assetEntries);
+
+  if (assetsSyncEnabled) {
+    const assetEntries = [...assetKeys]
+      .map((key) => ({ key, value: cloudVars[key] }))
+      .filter((entry): entry is EnvEntry => typeof entry.value === 'string');
+    if (assetEntries.length > 0) {
+      await upsertEnvFile(projectRoot, configWriteFile, assetEntries);
+    }
   }
 
   const existing = await readEnvFile(projectRoot, configWriteFile);
+
   const keptAssetEntries = existing.filter((entry) => assetKeys.has(entry.key));
   const nonAssetEntries = configDtoToEnvEntries(
-    stripAssetKeysFromConfigDto(cloudEnv.config, assetFileNames)
+    stripAssetKeysFromConfigDto(cloudEnv.config, assetFileNames, cloudAssets)
   );
   await writeEnvFile(projectRoot, configWriteFile, [...keptAssetEntries, ...nonAssetEntries]);
   await writeEnvFile(projectRoot, secretsWriteFile, secretsDtoToEnvEntries(cloudEnv.secrets));

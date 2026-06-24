@@ -264,6 +264,128 @@ describe('envSync', () => {
     }
   );
 
+  it('buildEnvPushDiff ignores cloud asset env keys when assets sync is disabled', () => {
+    const diff = buildEnvPushDiff(
+      localEnvFromParts([{ key: 'E1', value: 'EV1' }]),
+      {
+        config: {
+          envVariables: {
+            assets: 'https://cdn.example.com/',
+            wifi_scan_json: 'wifi_scan.json?token=abc',
+            E1: 'EV1',
+          },
+        },
+      },
+      [],
+      [{ fileName: 'wifi_scan.json' }],
+      false
+    );
+    expect(diff.configChanged).toBe(false);
+    expect(diff.local).toEqual({});
+  });
+
+  it('buildEnvPushDiff ignores local-only asset env stubs when assets sync is disabled', () => {
+    const diff = buildEnvPushDiff(
+      localEnvFromParts(
+        [{ key: 'E1', value: 'EK1' }],
+        [
+          {
+            key: 'MIH_4723_Unable_to_delete_phone_numbers_from_WebUI_pdf',
+            value: 'MIH-4723.Unable.to.delete.phone.numbers.from.WebUI.pdf',
+          },
+        ]
+      ),
+      {
+        config: {
+          envVariables: {
+            E1: 'EK1',
+          },
+        },
+      },
+      [],
+      [],
+      false
+    );
+    expect(diff.configChanged).toBe(false);
+    expect(diff.local).toEqual({});
+  });
+
+  it('buildEnvPushDiff ignores cloud and local asset env keys when assets sync is disabled', () => {
+    const diff = buildEnvPushDiff(
+      localEnvFromParts(
+        [
+          { key: 'E1', value: 'EK1' },
+          { key: 'E11', value: 'EK11' },
+        ],
+        [
+          { key: 'assets', value: 'https://cdn.example.com/' },
+          { key: 'kwnd_png', value: 'kwnd.png?alt=media&token=abc' },
+          {
+            key: 'MIH_4723_Unable_to_delete_phone_numbers_from_WebUI_pdf',
+            value: 'MIH-4723.Unable.to.delete.phone.numbers.from.WebUI.pdf?alt=media&token=abc',
+          },
+        ]
+      ),
+      {
+        config: {
+          envVariables: {
+            assets: 'https://cdn.example.com/',
+            kwnd_png: 'kwnd.png?alt=media&token=def',
+            E1: 'EK1',
+            E11: 'EK11',
+          },
+        },
+      },
+      [],
+      [
+        { fileName: 'kwnd.png' },
+        { fileName: 'MIH-4723.Unable.to.delete.phone.numbers.from.WebUI.pdf' },
+      ],
+      false
+    );
+    expect(diff.configChanged).toBe(false);
+    expect(diff.local).toEqual({});
+  });
+
+  it('buildEnvPushDiff preserves cloud asset env vars in push payload when assets sync is disabled', () => {
+    const diff = buildEnvPushDiff(
+      localEnvFromParts(
+        [
+          { key: 'E1', value: 'EK1' },
+          { key: 'E11', value: 'EK12' },
+        ],
+        [
+          { key: 'assets', value: 'https://local.example.com/' },
+          { key: 'kwnd_png', value: 'kwnd.png' },
+        ]
+      ),
+      {
+        config: {
+          envVariables: {
+            assets: 'https://cloud.example.com/',
+            kwnd_png: 'kwnd.png?alt=media&token=abc',
+            E1: 'EK1',
+            E11: 'EK11',
+          },
+          baseUrl: 'https://anserwaseem.com/',
+          useBrowserUrl: true,
+        },
+      },
+      [],
+      [{ fileName: 'kwnd.png' }],
+      false
+    );
+    expect(diff.configChanged).toBe(true);
+    expect(diff.local.config?.envVariables).toEqual({
+      assets: 'https://cloud.example.com/',
+      kwnd_png: 'kwnd.png?alt=media&token=abc',
+      E1: 'EK1',
+      E11: 'EK12',
+    });
+    expect(diff.local.config?.baseUrl).toBe('https://anserwaseem.com/');
+    expect(diff.local.config?.useBrowserUrl).toBe(true);
+  });
+
   it('buildPushConfigDto keeps local assets and drops deleted cloud asset keys', () => {
     expect(
       buildPushConfigDto(

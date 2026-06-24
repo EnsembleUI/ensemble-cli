@@ -53,6 +53,7 @@ export interface ComputePushPlanArgs {
   localApp: ApplicationDTO;
   cloudApp: CloudApp;
   enabledByProp: Record<ArtifactProp, boolean>;
+  assetsEnabled?: boolean;
   updatedBy: { name: string; email?: string; id: string };
 }
 
@@ -147,7 +148,16 @@ function computePushSummary(
 }
 
 export function computePushPlan(args: ComputePushPlanArgs): PushPlan {
-  const { appId, appName, environment, localApp, cloudApp, enabledByProp, updatedBy } = args;
+  const {
+    appId,
+    appName,
+    environment,
+    localApp,
+    cloudApp,
+    enabledByProp,
+    assetsEnabled = true,
+    updatedBy,
+  } = args;
 
   const bundle = buildMergedBundle(localApp, cloudApp, updatedBy);
   let diff = computeBundleDiff(bundle, cloudApp, localApp);
@@ -169,6 +179,10 @@ export function computePushPlan(args: ComputePushPlanArgs): PushPlan {
         new: [],
       },
     } as BundleDiff;
+  }
+
+  if (!assetsEnabled) {
+    diff = { ...diff, assets: { changed: [], new: [] } };
   }
 
   const summary = computePushSummary(appId, appName, environment, diff);
@@ -215,6 +229,7 @@ export interface ComputePullPlanArgs {
   localFiles: ParsedAppFiles;
   manifestExisting: RootManifest;
   enabledByProp: Record<ArtifactProp, boolean>;
+  assetsEnabled?: boolean;
   localEnv?: LocalEnvFiles;
 }
 
@@ -225,6 +240,7 @@ export function computePullPlan({
   localFiles,
   manifestExisting,
   enabledByProp,
+  assetsEnabled = true,
   localEnv,
 }: ComputePullPlanArgs): PullPlan {
   const matchesByProp: Partial<Record<ArtifactProp, boolean>> = {};
@@ -296,7 +312,7 @@ export function computePullPlan({
 
   // Asset files live under assets/ and are binary, so they are not part of ArtifactProps/ARTIFACT_FS_CONFIG.
   // Track their match separately so "Nothing to pull" is only true when assets also match.
-  {
+  if (assetsEnabled) {
     const cloudActiveAssets = ((cloudApp.assets ?? []) as AssetDTO[]).filter(
       (a) => a.isArchived !== true
     );
@@ -318,7 +334,8 @@ export function computePullPlan({
     cloudApp.config,
     cloudApp.secrets,
     localFiles.assetFiles ?? [],
-    cloudApp.assets
+    cloudApp.assets,
+    assetsEnabled
   );
   const envMatch = envPull.match;
 
@@ -426,30 +443,32 @@ export function computePullPlan({
 
   // Assets are binary files under assets/, so they are handled separately from ARTIFACT_FS_CONFIG.
   // We only plan create/delete based on file presence; we do not attempt to detect modifications.
-  const cloudActiveAssets = ((cloudApp.assets ?? []) as AssetDTO[]).filter(
-    (a) => a.isArchived !== true
-  );
-  const expected = new Set(cloudActiveAssets.map((a) => a.fileName).filter(Boolean));
-  const actual = new Set((localFiles.assetFiles ?? []).filter(Boolean));
+  if (assetsEnabled) {
+    const cloudActiveAssets = ((cloudApp.assets ?? []) as AssetDTO[]).filter(
+      (a) => a.isArchived !== true
+    );
+    const expected = new Set(cloudActiveAssets.map((a) => a.fileName).filter(Boolean));
+    const actual = new Set((localFiles.assetFiles ?? []).filter(Boolean));
 
-  for (const fileName of expected) {
-    if (!actual.has(fileName)) {
-      createdCount += 1;
-      changes.push({ kind: 'asset', file: `assets/${fileName}`, operation: 'create' });
+    for (const fileName of expected) {
+      if (!actual.has(fileName)) {
+        createdCount += 1;
+        changes.push({ kind: 'asset', file: `assets/${fileName}`, operation: 'create' });
+      }
     }
-  }
-  for (const fileName of actual) {
-    if (!expected.has(fileName)) {
-      deletedCount += 1;
-      changes.push({ kind: 'asset', file: `assets/${fileName}`, operation: 'delete' });
+    for (const fileName of actual) {
+      if (!expected.has(fileName)) {
+        deletedCount += 1;
+        changes.push({ kind: 'asset', file: `assets/${fileName}`, operation: 'delete' });
+      }
     }
-  }
 
-  // If the cloud has assets without publicUrl, we can't download them; count as skipped so the summary is honest.
-  const missingPublicUrl = cloudActiveAssets.filter(
-    (a) => !a.publicUrl || typeof a.publicUrl !== 'string' || a.publicUrl.trim() === ''
-  ).length;
-  skippedCount += missingPublicUrl;
+    // If the cloud has assets without publicUrl, we can't download them; count as skipped so the summary is honest.
+    const missingPublicUrl = cloudActiveAssets.filter(
+      (a) => !a.publicUrl || typeof a.publicUrl !== 'string' || a.publicUrl.trim() === ''
+    ).length;
+    skippedCount += missingPublicUrl;
+  }
 
   for (const envFile of envPull.filesToUpdate) {
     updatedCount += 1;
