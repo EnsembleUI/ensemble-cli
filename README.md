@@ -20,6 +20,7 @@ ensemble pull
 ensemble release
 ensemble add
 ensemble enable
+ensemble test
 ensemble update
 ```
 
@@ -36,6 +37,7 @@ ensemble update
 | `ensemble release` | Manage releases (snapshots) of your app (interactive menu or subcommands)     |
 | `ensemble add`     | Add a new screen, widget, script, action, translation, or asset               |
 | `ensemble enable`  | Enable starter modules (camera, location, google_maps, etc.) in a Flutter app |
+| `ensemble test`    | Run declarative YAML tests in a Flutter starter project                       |
 | `ensemble update`  | Update the CLI to the latest version                                          |
 
 ### Options
@@ -90,6 +92,10 @@ ensemble update
   - Checks GitHub for the latest release on each run; re-downloads only when the cached release tag differs (or cache is missing). Offline runs use the cached release.
   - After `pubspec.yaml` changes, run `flutter pub get`
   - Team architecture notes: [docs/ensemble-enable.md](docs/ensemble-enable.md)
+
+### `ensemble test`
+
+Run YAML tests in a Flutter starter project (starter root or `ensemble/apps/<app>`). Other flags pass through to the runner. See [docs/ensemble-test.md](docs/ensemble-test.md).
 
 ### `ensemble add`
 

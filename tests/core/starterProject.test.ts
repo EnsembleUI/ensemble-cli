@@ -4,7 +4,10 @@ import path from 'path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { resolveStarterProjectRoot } from '../../src/core/starterProject.js';
+import {
+  resolveStarterProjectRoot,
+  resolveStarterProjectRootWithWalkUp,
+} from '../../src/core/starterProject.js';
 
 describe('starterProject', () => {
   let tmpDir: string;
@@ -66,5 +69,26 @@ describe('starterProject', () => {
 
     const root = await resolveStarterProjectRoot(tmpDir);
     expect(await fs.realpath(root)).toBe(await fs.realpath(tmpDir));
+  });
+
+  it('resolves starter root from ensemble/apps/<app>', async () => {
+    await writeStarterLayout(tmpDir);
+    const appRoot = path.join(tmpDir, 'ensemble', 'apps', 'kpnApp');
+    await fs.mkdir(appRoot, { recursive: true });
+    process.chdir(appRoot);
+
+    const root = await resolveStarterProjectRootWithWalkUp();
+    expect(await fs.realpath(root)).toBe(await fs.realpath(tmpDir));
+  });
+
+  it('rejects nested paths inside an ensemble app', async () => {
+    await writeStarterLayout(tmpDir);
+    const nested = path.join(tmpDir, 'ensemble', 'apps', 'kpnApp', 'tests');
+    await fs.mkdir(nested, { recursive: true });
+    process.chdir(nested);
+
+    await expect(resolveStarterProjectRootWithWalkUp()).rejects.toThrow(
+      /starter root or an ensemble app directory/i
+    );
   });
 });
