@@ -2,7 +2,7 @@ import path from 'node:path';
 
 import type { ConfigDTO } from './dto.js';
 import type { EnvEntry } from './envConfig.js';
-import { deriveAssetEnvKey } from './assetEnv.js';
+import { convertNumbersInFilename } from './assetEnv.js';
 import { resolveAssetEnvKey } from './pullAssets.js';
 
 export type CloudAssetEnvRef = {
@@ -41,7 +41,7 @@ function inferAssetFileNamesFromEntries(entries: EnvEntry[]): string[] {
 }
 
 export function collectAssetEnvKeys(assetFileNames: string[] = []): Set<string> {
-  return new Set(['assets', ...assetFileNames.map(deriveAssetEnvKey)]);
+  return new Set(['assets', ...assetFileNames.map(convertNumbersInFilename)]);
 }
 
 export function buildAssetKeyContext(
@@ -58,7 +58,7 @@ export function buildAssetKeyContext(
   for (const fileName of localAssetFileNames) {
     const cloudAsset = cloudByFile.get(fileName);
     localKeys.add(resolveAssetEnvKey({ fileName, copyText: cloudAsset?.copyText }));
-    localKeys.add(deriveAssetEnvKey(fileName));
+    localKeys.add(convertNumbersInFilename(fileName));
   }
   for (const [fileName, asset] of cloudByFile) {
     if (!localFiles.has(fileName)) {
@@ -91,7 +91,7 @@ export function getAssetEnvKeysToExclude(
       continue;
     }
     const fileName = assetFileNameFromEnvValue(entry.value);
-    if (fileName && entry.key === deriveAssetEnvKey(fileName)) {
+    if (fileName && entry.key === convertNumbersInFilename(fileName)) {
       excludeKeys.add(entry.key);
     }
   }

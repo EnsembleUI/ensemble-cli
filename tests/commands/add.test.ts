@@ -93,6 +93,17 @@ describe('addCommand asset', () => {
     expect(envConfig).toContain('logo2_png=logo2.png');
   });
 
+  it('writes env key using studio convertNumbersInFilename rules', async () => {
+    const sourceFile = path.join(projectRoot, 't-3265 (1).png');
+    await fs.writeFile(sourceFile, Buffer.from([1, 2, 3]));
+
+    await addCommand('asset', sourceFile);
+
+    const envConfig = await fs.readFile(path.join(projectRoot, '.env.config'), 'utf8');
+    expect(envConfig).toContain('t_3265__1__png=t-3265 (1).png');
+    expect(envConfig).not.toContain('t_3265_1_png=');
+  });
+
   it('errors when asset already exists (non-interactive)', async () => {
     const sourceFile = path.join(projectRoot, 'logo.png');
     await fs.writeFile(sourceFile, Buffer.from([1, 2, 3, 4]));

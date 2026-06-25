@@ -88,15 +88,17 @@ const cloudModuleMock = vi.hoisted(() => {
 
 vi.mock('../../src/cloud/firestoreClient.js', () => cloudModuleMock);
 
+import { convertNumbersInFilename } from '../../src/core/assetEnv.js';
+
 const assetClientMock = vi.hoisted(() => ({
   uploadAssetToStudio: vi.fn(async (_appId: string, fileName: string) => ({
     success: true,
     assetBaseUrl: 'https://cdn.example.com/assets/',
     envVariable: {
-      key: fileName.replace(/[^\w]+/g, '_'),
+      key: convertNumbersInFilename(fileName),
       value: `${fileName}?token=abc`,
     },
-    usageKey: '${env.assets}${env.file}',
+    usageKey: `\${env.assets}\${env.${convertNumbersInFilename(fileName)}}`,
   })),
 }));
 
@@ -321,6 +323,16 @@ describe('push/pull integration (commands)', () => {
     const envAfterPush = await fs.readFile(path.join(projectRoot, '.env.config'), 'utf8');
     expect(envAfterPush).toContain('assets=https://cdn.example.com/assets/');
     expect(envAfterPush).toContain('logo_png=logo.png?token=abc');
+
+    const { submitEnvDocumentsPush } = cloudModuleMock;
+    const envPushCalls = (submitEnvDocumentsPush as ReturnType<typeof vi.fn>).mock.calls;
+    for (const call of envPushCalls) {
+      const config = (call[2] as { config?: { envVariables?: Record<string, string> } })?.config;
+      const logoValue = config?.envVariables?.logo_png;
+      if (logoValue !== undefined) {
+        expect(logoValue).toContain('token=');
+      }
+    }
   });
 
   it('push dry run shows diff but does not submit payload', async () => {

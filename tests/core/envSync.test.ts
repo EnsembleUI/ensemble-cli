@@ -191,6 +191,7 @@ describe('envSync', () => {
         },
       },
       assets: ['logo.png'],
+      cloudAssets: [{ fileName: 'logo.png' }],
       configChanged: true,
       secretsChanged: false,
       cloudConfig: {
@@ -406,7 +407,8 @@ describe('envSync', () => {
             E1: 'EV1',
           },
         },
-        ['logo.png']
+        ['logo.png'],
+        [{ fileName: 'logo.png' }]
       ).envVariables
     ).toEqual({
       assets: 'https://cdn.example.com/',
@@ -458,6 +460,25 @@ describe('envSync', () => {
         []
       ).envVariables
     ).toEqual({ E1: 'EV11' });
+  });
+
+  it('buildPushConfigDto omits local stubs for assets not yet in cloud', () => {
+    expect(
+      buildPushConfigDto(
+        localEnvFromParts(
+          [{ key: 'E1', value: 'EV1' }],
+          [
+            { key: 'assets', value: 'https://cdn.example.com/' },
+            { key: 't_3265__1__png', value: 't-3265 (1).png' },
+          ]
+        ),
+        { envVariables: { E1: 'EV1' } },
+        ['t-3265 (1).png']
+      ).envVariables
+    ).toEqual({
+      assets: 'https://cdn.example.com/',
+      E1: 'EV1',
+    });
   });
 
   it.each<{

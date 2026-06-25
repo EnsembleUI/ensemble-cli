@@ -4,7 +4,7 @@ import path from 'path';
 import type { AssetDTO } from './dto.js';
 import type { upsertEnvConfig } from './envConfig.js';
 import { isIgnoredAssetFileName } from './assetIgnore.js';
-import { deriveAssetEnvKey } from './assetEnv.js';
+import { convertNumbersInFilename } from './assetEnv.js';
 
 export class AssetPullError extends Error {
   constructor(
@@ -74,7 +74,7 @@ function extractEnvKeyFromCopyText(copyText: string | undefined): string | undef
 }
 
 export function resolveAssetEnvKey(asset: { fileName: string; copyText?: string }): string {
-  return extractEnvKeyFromCopyText(asset.copyText) ?? deriveAssetEnvKey(asset.fileName);
+  return extractEnvKeyFromCopyText(asset.copyText) ?? convertNumbersInFilename(asset.fileName);
 }
 
 function tryDeriveAssetBaseAndValue(

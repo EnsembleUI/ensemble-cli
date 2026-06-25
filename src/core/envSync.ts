@@ -1,6 +1,6 @@
 import type { ConfigDTO, SecretDTO } from './dto.js';
 import { resolveAssetEnvKey } from './pullAssets.js';
-import { deriveAssetEnvKey } from './assetEnv.js';
+import { convertNumbersInFilename } from './assetEnv.js';
 import {
   assetFileNameFromEnvValue,
   buildAssetKeyContext,
@@ -147,7 +147,11 @@ export function pruneStaleAssetEnvEntries(
     if (entry.key === 'assets') return assetFileNames.length > 0;
     if (staleKeys.has(entry.key)) return false;
     const fileName = assetFileNameFromEnvValue(entry.value);
-    return !(fileName && !localFiles.has(fileName) && entry.key === deriveAssetEnvKey(fileName));
+    return !(
+      fileName &&
+      !localFiles.has(fileName) &&
+      entry.key === convertNumbersInFilename(fileName)
+    );
   });
 }
 
@@ -179,11 +183,13 @@ export function buildPushConfigDto(
   if (assetsBase) envVariables.assets = assetsBase;
 
   for (const fileName of assetFileNames) {
+    // new assets get env key+token from studio-uploadAsset; don't push local stubs
+    if (!ctx.cloudByFile.has(fileName)) continue;
     const envKey = resolveAssetEnvKey({
       fileName,
       copyText: ctx.cloudByFile.get(fileName)?.copyText,
     });
-    const value = localAsset[envKey] ?? localAsset[deriveAssetEnvKey(fileName)];
+    const value = localAsset[envKey] ?? localAsset[convertNumbersInFilename(fileName)];
     if (typeof value === 'string') envVariables[envKey] = value;
   }
 
