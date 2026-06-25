@@ -22,6 +22,7 @@ import {
 } from './commands/release.js';
 import { updateCommand } from './commands/update.js';
 import { enableCommand } from './commands/enable.js';
+import { testCommand } from './commands/test.js';
 import { isUpdateCommand } from './core/cliArgs.js';
 import { printCliError, resolveDebugFlag } from './core/cliError.js';
 import { ui } from './core/ui.js';
@@ -236,6 +237,15 @@ program
       project: options.project,
       verbose: options.verbose,
     });
+  });
+
+program
+  .command('test')
+  .description('Run declarative YAML tests from the app tests directory.')
+  .option('--project <path>', 'Starter project root (default: starter root or ensemble/apps/<app>)')
+  .allowUnknownOption()
+  .action(async (options: { project?: string }) => {
+    await testCommand({ project: options.project });
   });
 
 function checkForUpdates(): void {
