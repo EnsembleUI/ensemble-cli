@@ -8,6 +8,7 @@ import { writeEnvFile, type EnvEntry } from '../../src/core/envConfig.js';
 import {
   applyCloudEnvToFs,
   applyReleaseEnvToFs,
+  buildCanonicalEnvConfigEntries,
   buildEnvPushDiff,
   buildPushConfigDto,
   computeEnvPullChanges,
@@ -480,6 +481,21 @@ describe('envSync', () => {
     expect(envConfig).not.toContain('del_png=');
   });
 
+  it('buildCanonicalEnvConfigEntries places asset keys before non-asset config keys', () => {
+    const entries = buildCanonicalEnvConfigEntries(
+      {
+        envVariables: {
+          E1: 'K1',
+          assets: 'https://cdn/',
+          logo_png: 'logo.png',
+        },
+      },
+      ['logo.png']
+    );
+
+    expect(entries.map((entry) => entry.key)).toEqual(['assets', 'logo_png', 'E1']);
+  });
+
   it('applyReleaseEnvToFs restores full snapshot config', async () => {
     await applyReleaseEnvToFs(
       tmpDir,
@@ -492,7 +508,8 @@ describe('envSync', () => {
       },
       undefined,
       'default',
-      'default'
+      'default',
+      ['logo.png']
     );
 
     const envConfig = await fs.readFile(path.join(tmpDir, '.env.config'), 'utf8');
@@ -501,7 +518,7 @@ describe('envSync', () => {
     expect(envConfig).toContain('E1=EV1');
   });
 
-  it('applyReleaseEnvToFs preserves env file key order', async () => {
+  it('applyReleaseEnvToFs writes canonical asset-then-config layout', async () => {
     await fs.writeFile(
       path.join(tmpDir, '.env.config'),
       'assets=https://old/\nkwnd_png=old.png\nE1=old\n',
@@ -519,13 +536,139 @@ describe('envSync', () => {
       },
       undefined,
       'default',
-      'default'
+      'default',
+      ['kwnd.png']
     );
 
     const lines = (await fs.readFile(path.join(tmpDir, '.env.config'), 'utf8')).trim().split('\n');
     expect(lines[0]).toMatch(/^assets=https:\/\/new\//);
     expect(lines[1]).toMatch(/^kwnd_png=new\.png$/);
     expect(lines[2]).toMatch(/^E1=EV1$/);
+  });
+
+  it('applyReleaseEnvToFs removes config keys not in snapshot', async () => {
+    await fs.writeFile(path.join(tmpDir, '.env.config'), 'A1=old\nE1=local-only\nB1=old\n', 'utf8');
+
+    await applyReleaseEnvToFs(
+      tmpDir,
+      { envVariables: { A1: 'a', B1: 'b' } },
+      undefined,
+      'default',
+      'default'
+    );
+
+    const lines = (await fs.readFile(path.join(tmpDir, '.env.config'), 'utf8')).trim().split('\n');
+    expect(lines).toEqual(['A1=a', 'B1=b']);
+  });
+
+  it('applyReleaseEnvToFs removes secret keys not in snapshot', async () => {
+    await fs.writeFile(path.join(tmpDir, '.env.secrets'), 'S1=old\nS2=extra\n', 'utf8');
+
+    await applyReleaseEnvToFs(tmpDir, undefined, { secrets: { S1: 'new' } }, 'default', 'default');
+
+    const lines = (await fs.readFile(path.join(tmpDir, '.env.secrets'), 'utf8')).trim().split('\n');
+    expect(lines).toEqual(['S1=new']);
+  });
+
+  it('applyReleaseEnvToFs clears env file when snapshot config is empty', async () => {
+    await fs.writeFile(path.join(tmpDir, '.env.config'), 'E1=local\n', 'utf8');
+
+    await applyReleaseEnvToFs(tmpDir, { envVariables: {} }, undefined, 'default', 'default');
+
+    const envConfig = await fs.readFile(path.join(tmpDir, '.env.config'), 'utf8');
+    expect(envConfig.trim()).toBe('');
+  });
+
+  it('applyReleaseEnvToFs does not rewrite env files when snapshot matches local', async () => {
+    const envPath = path.join(tmpDir, '.env.config');
+    const secretsPath = path.join(tmpDir, '.env.secrets');
+    const envRaw = 'assets=https://cdn/\nE1=EV1';
+    const secretsRaw = `ENSEMBLE_ENCRYPTION_KEY=${'a'.repeat(64)}\nS1=SK1`;
+    await fs.writeFile(envPath, envRaw, 'utf8');
+    await fs.writeFile(secretsPath, secretsRaw, 'utf8');
+
+    await applyReleaseEnvToFs(
+      tmpDir,
+      { envVariables: { assets: 'https://cdn/', E1: 'EV1' } },
+      {
+        secrets: {
+          ENSEMBLE_ENCRYPTION_KEY: 'a'.repeat(64),
+          S1: 'SK1',
+        },
+      },
+      'default',
+      'default',
+      []
+    );
+
+    expect(await fs.readFile(envPath, 'utf8')).toBe(envRaw);
+    expect(await fs.readFile(secretsPath, 'utf8')).toBe(secretsRaw);
+  });
+
+  it('applyReleaseEnvToFs normalizes env config to canonical layout', async () => {
+    const envPath = path.join(tmpDir, '.env.config');
+    const assetFiles = ['V12_Aansluiten.png', 't-3276-unenroll-mw-after.png'];
+    await fs.writeFile(
+      envPath,
+      'E1=K1\nV12_Aansluiten_png=token\nt_3276_unenroll_mw_after_png=token2',
+      'utf8'
+    );
+
+    await applyReleaseEnvToFs(
+      tmpDir,
+      {
+        envVariables: {
+          V12_Aansluiten_png: 'token',
+          t_3276_unenroll_mw_after_png: 'token2',
+          E1: 'K1',
+        },
+      },
+      undefined,
+      'default',
+      'default',
+      assetFiles
+    );
+
+    expect(await fs.readFile(envPath, 'utf8')).toBe(
+      't_3276_unenroll_mw_after_png=token2\nV12_Aansluiten_png=token\nE1=K1'
+    );
+  });
+
+  it('applyReleaseEnvToFs skips env files when snapshot omits config and secrets', async () => {
+    await fs.writeFile(path.join(tmpDir, '.env.config'), 'E1=local\n', 'utf8');
+    await fs.writeFile(path.join(tmpDir, '.env.secrets'), 'S1=local\n', 'utf8');
+
+    await applyReleaseEnvToFs(tmpDir, undefined, undefined, 'default', 'default');
+
+    const envConfig = await fs.readFile(path.join(tmpDir, '.env.config'), 'utf8');
+    const envSecrets = await fs.readFile(path.join(tmpDir, '.env.secrets'), 'utf8');
+    expect(envConfig).toContain('E1=local');
+    expect(envSecrets).toContain('S1=local');
+  });
+
+  it('applyReleaseEnvToFs removes local-only keys in canonical layout', async () => {
+    const envPath = path.join(tmpDir, '.env.config');
+    const assetFiles = ['V12_Aansluiten.png', 't-3276-unenroll-mw-after.png'];
+    const envRaw = 'V12_Aansluiten_png=token\nt_3276_unenroll_mw_after_png=token2\nE1=K1';
+    await fs.writeFile(envPath, envRaw, 'utf8');
+
+    await applyReleaseEnvToFs(
+      tmpDir,
+      {
+        envVariables: {
+          V12_Aansluiten_png: 'token',
+          t_3276_unenroll_mw_after_png: 'token2',
+        },
+      },
+      undefined,
+      'default',
+      'default',
+      assetFiles
+    );
+
+    expect(await fs.readFile(envPath, 'utf8')).toBe(
+      't_3276_unenroll_mw_after_png=token2\nV12_Aansluiten_png=token'
+    );
   });
 
   it('readProjectEnvFiles uses scoped pair when both alias files exist', async () => {

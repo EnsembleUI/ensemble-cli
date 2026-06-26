@@ -39,6 +39,7 @@ import {
 } from '../core/manifest.js';
 import { ArtifactProps, type ArtifactProp } from '../core/artifacts.js';
 import { collectAppFiles } from '../core/appCollector.js';
+import { readEnvFilePreservingOrder } from '../core/envConfig.js';
 import { resolveAppContext } from '../config/projectConfig.js';
 import { getValidAuthSession } from '../auth/session.js';
 import { withSpinner } from '../lib/spinner.js';
@@ -180,8 +181,14 @@ export async function releaseCreateCommand(options: ReleaseCreateOptions = {}): 
       ? manifest.defaultLanguage.trim()
       : undefined;
   const { key: encryptionKey, localEnv } = keyCtx;
-  const localConfig = buildConfigDtoFromEnvEntries(localEnv.envConfig);
-  const localSecrets = buildSecretsDtoFromEnvSecretsFile(localEnv.envSecrets);
+  const orderedConfig = localEnv.envConfigPresent
+    ? await readEnvFilePreservingOrder(root, localEnv.configWriteFile)
+    : [];
+  const orderedSecrets = localEnv.envSecretsPresent
+    ? await readEnvFilePreservingOrder(root, localEnv.secretsWriteFile)
+    : [];
+  const localConfig = buildConfigDtoFromEnvEntries(orderedConfig);
+  const localSecrets = buildSecretsDtoFromEnvSecretsFile(orderedSecrets);
   const localApp = buildDocumentsFromParsed(localFiles, appId, appName, appHome, defaultLanguage);
   const orderedWidgets = localApp.widgets?.length
     ? orderByManifestNames(
@@ -509,7 +516,16 @@ export async function releaseUseCommand(options: ReleaseUseOptions = {}): Promis
       snapshot.config,
       snapshot.secrets,
       appKey,
-      config.default
+      config.default,
+      (snapshot.assets ?? [])
+        .filter(
+          (asset) =>
+            asset.isArchived !== true &&
+            typeof asset.fileName === 'string' &&
+            asset.fileName.length > 0
+        )
+        .map((asset) => asset.fileName as string),
+      snapshot.assets
     );
     ui.success(
       `Local files updated to selected release. Run "${releasePushHint(appKey, config.default)}" to apply to the cloud.`
