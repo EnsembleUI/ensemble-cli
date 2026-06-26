@@ -349,7 +349,8 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
           (fileName): fileName is string => typeof fileName === 'string' && fileName.length > 0
         ),
       appKey,
-      config.default
+      config.default,
+      cloudApp.assets
     );
   });
 

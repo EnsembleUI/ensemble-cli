@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildManifestObject,
-  manifestFromSnapshot,
+  mergeManifestFromSnapshot,
   orderByManifestNames,
   type RootManifest,
 } from '../../src/core/manifest.js';
@@ -20,7 +20,14 @@ describe('manifest', () => {
     expect(ordered.map((item) => item.name)).toEqual(['Wid1', 'Wid2']);
   });
 
-  it('manifestFromSnapshot uses snapshot list order and defaultLocale', () => {
+  it('mergeManifestFromSnapshot syncs lists from snapshot but keeps other manifest keys', () => {
+    const existing: RootManifest = {
+      screens: [{ name: 'Home' }],
+      studioVersion: 3,
+      widgets: [{ name: 'Wid1', customId: 'keep-me' } as unknown as { name: string }],
+      languages: ['ar', 'en'],
+      defaultLanguage: 'ar',
+    };
     const cloud: CloudApp = {
       id: 'app1',
       name: 'App',
@@ -36,28 +43,24 @@ describe('manifest', () => {
           name: 'en',
           content: '',
           type: EnsembleDocumentType.I18n,
-        },
-        {
-          id: 't-de',
-          name: 'de',
-          content: '',
-          type: EnsembleDocumentType.I18n,
+          defaultLocale: true,
         },
         {
           id: 't-ar',
           name: 'ar',
           content: '',
           type: EnsembleDocumentType.I18n,
-          defaultLocale: true,
         },
       ],
     };
 
-    const manifest = manifestFromSnapshot(cloud);
+    const merged = mergeManifestFromSnapshot(existing, cloud);
 
-    expect(manifest.widgets?.map((w) => w.name)).toEqual(['Wid2', 'Wid1']);
-    expect(manifest.languages).toEqual(['en', 'de', 'ar']);
-    expect(manifest.defaultLanguage).toBe('ar');
+    expect(merged.screens).toEqual([{ name: 'Home' }]);
+    expect(merged.studioVersion).toBe(3);
+    expect(merged.widgets).toEqual([{ name: 'Wid2' }, { name: 'Wid1', customId: 'keep-me' }]);
+    expect(merged.languages).toEqual(['en', 'ar']);
+    expect(merged.defaultLanguage).toBe('en');
   });
 
   it('buildManifestObject preserves existing list order on pull', () => {
@@ -99,5 +102,38 @@ describe('manifest', () => {
     expect(merged.scripts?.map((s) => s.name)).toEqual(['S1', 'S2', 'S3']);
     expect(merged.languages).toEqual(['ar', 'en']);
     expect(merged.defaultLanguage).toBe('en');
+  });
+
+  it('mergeManifestFromSnapshot keeps empty list keys that already exist', () => {
+    const existing: RootManifest = {
+      actions: [],
+      defaultLanguage: 'nl',
+      languages: ['nl', 'en'],
+    };
+    const cloud: CloudApp = {
+      id: 'app1',
+      name: 'App',
+      screens: [],
+      translations: [
+        {
+          id: 't-nl',
+          name: 'nl',
+          content: '',
+          type: EnsembleDocumentType.I18n,
+          defaultLocale: true,
+        },
+        {
+          id: 't-en',
+          name: 'en',
+          content: '',
+          type: EnsembleDocumentType.I18n,
+        },
+      ],
+    };
+
+    const merged = mergeManifestFromSnapshot(existing, cloud);
+
+    expect(merged.actions).toEqual([]);
+    expect(merged.defaultLanguage).toBe('nl');
   });
 });

@@ -175,6 +175,7 @@ describe('release commands', () => {
       bucket: 'bucket',
       objectPath: 'releases/app1/ver-123.enc.json',
     });
+    downloadReleaseSnapshotJsonMock.mockReset();
     downloadReleaseSnapshotJsonMock.mockResolvedValue(
       mockEncryptedSnapshot({ id: 'app1', name: 'App', screens: [] })
     );
@@ -253,7 +254,11 @@ describe('release commands', () => {
     await fs.mkdir(path.join(projectRoot, 'widgets'), { recursive: true });
     await fs.writeFile(path.join(projectRoot, 'widgets', 'Wid2.yaml'), 'View:\n', 'utf8');
     await fs.writeFile(path.join(projectRoot, 'widgets', 'Wid1.yaml'), 'View:\n', 'utf8');
-    const manifestBefore = { widgets: [{ name: 'Wid1' }, { name: 'Wid2' }] };
+    const manifestBefore = {
+      studioVersion: 2,
+      actions: [],
+      widgets: [{ name: 'Wid1', customId: 'local-id' }, { name: 'Wid2' }],
+    };
     const manifestRaw = `${JSON.stringify(manifestBefore, null, 2)}\n`;
     await fs.writeFile(path.join(projectRoot, '.manifest.json'), manifestRaw, 'utf8');
 
@@ -333,11 +338,15 @@ describe('release commands', () => {
     Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
     Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
 
-    downloadReleaseSnapshotJsonMock.mockResolvedValueOnce(olderSnapshot);
+    let downloadCall = 0;
+    downloadReleaseSnapshotJsonMock.mockImplementation(async () => {
+      downloadCall += 1;
+      return downloadCall === 1 ? olderSnapshot : latestSnapshot;
+    });
     await releaseUseCommand({ hash: 'hash-old' });
-
-    downloadReleaseSnapshotJsonMock.mockResolvedValueOnce(latestSnapshot);
     await releaseUseCommand({ hash: 'hash-latest' });
+
+    expect(downloadCall).toBe(2);
 
     const manifestAfter = JSON.parse(
       await fs.readFile(path.join(projectRoot, '.manifest.json'), 'utf8')
@@ -399,7 +408,29 @@ describe('release commands', () => {
     expect(envSecrets).not.toContain('LOCAL-SECRET');
   });
 
-  it('release use preserves .env.config key order', async () => {
+  it('release use removes env keys not in snapshot', async () => {
+    await writeEnvConfig(projectRoot, ['A1=a', 'E1=local-only', 'B1=b']);
+    downloadReleaseSnapshotJsonMock.mockResolvedValueOnce(
+      mockEncryptedSnapshot({
+        id: 'app1',
+        name: 'App',
+        screens: [],
+        config: { envVariables: { A1: 'a', B1: 'b' } },
+      })
+    );
+
+    Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
+    Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
+
+    await releaseUseCommand({ hash: 'hash-1' });
+
+    const lines = (await fs.readFile(path.join(projectRoot, '.env.config'), 'utf8'))
+      .trim()
+      .split('\n');
+    expect(lines).toEqual(['A1=a', 'B1=b']);
+  });
+
+  it('release use writes canonical asset-then-config layout', async () => {
     await fs.writeFile(
       path.join(projectRoot, '.env.config'),
       'assets=https://old/\nkwnd_png=old.png\nE1=old\n',
@@ -411,6 +442,15 @@ describe('release commands', () => {
         id: 'app1',
         name: 'App',
         screens: [],
+        assets: [
+          {
+            id: 'asset-kwnd',
+            name: 'kwnd.png',
+            fileName: 'kwnd.png',
+            content: '',
+            type: EnsembleDocumentType.Asset,
+          },
+        ],
         config: {
           envVariables: {
             E1: 'EV1',

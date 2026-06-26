@@ -38,38 +38,81 @@ function mergeLanguageNames(existing: string[] | undefined, cloudNames: string[]
   ).map((entry) => entry.name);
 }
 
-/** Build manifest literally from a release snapshot (pull/push merge rules do not apply). */
-export function manifestFromSnapshot(cloudApp: CloudApp): RootManifest {
-  const widgets = (cloudApp.widgets ?? [])
+function mergeSnapshotNameList<T extends { name: string }>(
+  existing: T[] | undefined,
+  snapshotNames: string[]
+): T[] {
+  const existingByName = new Map((existing ?? []).map((entry) => [entry.name, entry]));
+  return snapshotNames.map((name) => {
+    const kept = existingByName.get(name);
+    return kept ? { ...kept, name } : ({ name } as T);
+  });
+}
+
+/** Sync snapshot list fields into an existing manifest; preserve other keys and entry metadata. */
+export function mergeManifestFromSnapshot(
+  existing: RootManifest,
+  cloudApp: CloudApp
+): RootManifest {
+  const widgetNames = (cloudApp.widgets ?? [])
     .filter((w) => w.isArchived !== true)
-    .map((w) => ({ name: w.name }));
-  const scripts = (cloudApp.scripts ?? [])
+    .map((w) => w.name);
+  const scriptNames = (cloudApp.scripts ?? [])
     .filter((s) => s.isArchived !== true)
-    .map((s) => ({ name: s.name }));
-  const actions = (cloudApp.actions ?? [])
+    .map((s) => s.name);
+  const actionNames = (cloudApp.actions ?? [])
     .filter((a) => a.isArchived !== true)
-    .map((a) => ({ name: a.name }));
+    .map((a) => a.name);
 
   const translations = (cloudApp.translations ?? []).filter((t) => t.isArchived !== true);
   const languages = translations.map((t) => t.name);
   const defaultLanguage = translations.find((t) => t.defaultLocale === true)?.name ?? languages[0];
 
-  const manifest: RootManifest = {};
-  if (widgets.length > 0) manifest.widgets = widgets;
-  if (scripts.length > 0) manifest.scripts = scripts;
-  if (actions.length > 0) manifest.actions = actions;
-  if (languages.length > 0) {
-    manifest.languages = languages;
-    if (defaultLanguage) manifest.defaultLanguage = defaultLanguage;
+  const merged: RootManifest = { ...existing };
+
+  for (const [key, names] of [
+    ['widgets', widgetNames],
+    ['scripts', scriptNames],
+    ['actions', actionNames],
+  ] as const) {
+    if (names.length === 0) {
+      if (key in existing) {
+        merged[key] = [];
+      } else {
+        delete merged[key];
+      }
+    } else {
+      merged[key] = mergeSnapshotNameList(merged[key] as { name: string }[] | undefined, names);
+    }
   }
-  return manifest;
+
+  if (languages.length === 0) {
+    if ('languages' in existing) {
+      merged.languages = [];
+    } else {
+      delete merged.languages;
+    }
+    if (!('defaultLanguage' in existing) || languages.length > 0) {
+      delete merged.defaultLanguage;
+    }
+  } else {
+    merged.languages = languages;
+    if (defaultLanguage) {
+      merged.defaultLanguage = defaultLanguage;
+    } else {
+      delete merged.defaultLanguage;
+    }
+  }
+
+  return merged;
 }
 
 export async function writeManifestFromSnapshot(
   projectRoot: string,
   cloudApp: CloudApp
 ): Promise<void> {
-  const manifest = manifestFromSnapshot(cloudApp);
+  const existing = await readProjectManifest(projectRoot);
+  const manifest = mergeManifestFromSnapshot(existing, cloudApp);
   await fs.writeFile(
     path.join(projectRoot, '.manifest.json'),
     `${JSON.stringify(manifest, null, 2)}\n`,
