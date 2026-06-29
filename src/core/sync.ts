@@ -257,15 +257,13 @@ export function computePullPlan({
 
     const expected: Record<string, string> = {};
     const cloudItems = (cloudApp as Record<string, unknown>)[prop] as
-      | { name: string; content?: string; isArchived?: boolean }[]
-      | undefined;
+      { name: string; content?: string; isArchived?: boolean }[] | undefined;
     for (const item of cloudItems ?? []) {
       if (item.isArchived === true) continue;
       expected[`${item.name}${ext!}`] = item.content ?? '';
     }
     const actual = (localFiles as unknown as Record<string, unknown>)[prop] as
-      | Record<string, string>
-      | undefined;
+      Record<string, string> | undefined;
     const actualMap = actual ?? {};
 
     const expectedKeys = Object.keys(expected).sort();
@@ -377,15 +375,13 @@ export function computePullPlan({
     const kind = getArtifactConfig(prop as Exclude<ArtifactProp, 'theme'>).label;
     const expected: Record<string, string> = {};
     const cloudItems = (cloudApp as Record<string, unknown>)[prop] as
-      | { name: string; content?: string; isArchived?: boolean }[]
-      | undefined;
+      { name: string; content?: string; isArchived?: boolean }[] | undefined;
     for (const item of cloudItems ?? []) {
       if (item.isArchived === true) continue;
       expected[`${item.name}${ext!}`] = item.content ?? '';
     }
     const actual = (localFiles as unknown as Record<string, unknown>)[prop] as
-      | Record<string, string>
-      | undefined;
+      Record<string, string> | undefined;
     const actualMap = actual ?? {};
 
     const expectedKeys = new Set(Object.keys(expected));

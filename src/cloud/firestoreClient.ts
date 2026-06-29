@@ -1056,8 +1056,7 @@ export async function submitEnvDocumentsPush(
 
 function getCollaboratorRole(
   collaboratorsField:
-    | { mapValue?: { fields?: Record<string, { stringValue?: string }> } }
-    | undefined,
+    { mapValue?: { fields?: Record<string, { stringValue?: string }> } } | undefined,
   userKey: string
 ): string | undefined {
   const mapFields = collaboratorsField?.mapValue?.fields;

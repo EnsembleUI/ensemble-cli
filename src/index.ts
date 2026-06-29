@@ -188,13 +188,7 @@ program
   .option('--overwrite', 'Overwrite existing file when adding (assets)', false)
   .action(async (kind?: string, name?: string, options?: { overwrite?: boolean }) => {
     let normalizedKind:
-      | 'screen'
-      | 'widget'
-      | 'script'
-      | 'action'
-      | 'translation'
-      | 'asset'
-      | undefined;
+      'screen' | 'widget' | 'script' | 'action' | 'translation' | 'asset' | undefined;
     if (kind) {
       const k = kind.toLowerCase();
       if (
