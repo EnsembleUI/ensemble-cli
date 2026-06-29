@@ -540,7 +540,7 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
         // Only refresh manifest when artifact changes can affect its contents.
         try {
           await withSpinner('Refreshing local manifest...', async () => {
-            await buildAndWriteManifest(root, bundle as CloudApp, {});
+            await buildAndWriteManifest(root, bundle as CloudApp);
           });
         } catch (manifestErr) {
           if (verbose) {

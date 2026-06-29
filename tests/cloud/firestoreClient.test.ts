@@ -844,7 +844,7 @@ describe('createVersion', () => {
       createdAt: '2025-01-15T12:00:00Z',
       expiresAt: '2025-02-15T12:00:00Z',
       createdBy: { name: 'User', id: 'uid1' },
-      snapshotPath: 'releases/app1/abc123.json',
+      snapshotPath: 'releases/app1/abc123.enc.json',
     });
 
     expect(result.id).toBe('abc123');

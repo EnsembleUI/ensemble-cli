@@ -1,3 +1,4 @@
+import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import type { ConfigDTO, SecretDTO } from './dto.js';
@@ -8,8 +9,10 @@ import {
   envConfigScopedFile,
   envFileExists,
   envSecretsScopedFile,
+  entriesEqualOrdered,
+  formatEnvFileContentWithEol,
+  parseEnvEntriesPreservingOrder,
   readEnvFile,
-  upsertEnvFile,
   writeEnvFile,
   type EnvEntry,
 } from './envConfig.js';
@@ -132,6 +135,37 @@ function assetFileNameFromEnvValue(rawValue: string): string | undefined {
 
 export function configDtoToEnvEntries(config: ConfigDTO | undefined): EnvEntry[] {
   return entriesFromRecord(config?.envVariables as Record<string, unknown> | undefined);
+}
+
+/** Asset keys first (alpha), then non-asset config keys (alpha) — same layout as pull. */
+export function buildCanonicalEnvConfigEntries(
+  config: ConfigDTO | undefined,
+  assetFileNames: string[] = [],
+  cloudAssets?: CloudAssetEnvRef[],
+  existingEntries: EnvEntry[] = [],
+  retainLocalAssetValues = false
+): EnvEntry[] {
+  const assetKeys = collectAssetEnvKeys(assetFileNames);
+  const cloudVars = config?.envVariables ?? {};
+  const existingByKey = new Map(existingEntries.map((entry) => [entry.key, entry.value]));
+
+  const assetEntries = [...assetKeys]
+    .sort((a, b) => a.localeCompare(b))
+    .flatMap((key) => {
+      const cloudValue = cloudVars[key];
+      const value =
+        cloudValue !== undefined && cloudValue !== null
+          ? String(cloudValue)
+          : retainLocalAssetValues
+            ? existingByKey.get(key)
+            : undefined;
+      return value !== undefined ? [{ key, value }] : [];
+    });
+
+  const nonAssetEntries = configDtoToEnvEntries(
+    stripAssetKeysFromConfigDto(config, assetFileNames, cloudAssets)
+  );
+  return [...assetEntries, ...nonAssetEntries];
 }
 
 export function secretsDtoToEnvEntries(secrets: SecretDTO | undefined): EnvEntry[] {
@@ -480,16 +514,114 @@ export async function prepareEnvPushState(params: {
   };
 }
 
-export async function applyReleaseConfigToFs(
+async function writeCanonicalEnvFileIfChanged(
+  projectRoot: string,
+  fileName: string,
+  config: ConfigDTO | undefined,
+  assetFileNames: string[],
+  cloudAssets: CloudAssetEnvRef[] | undefined,
+  filePresent: boolean,
+  retainLocalAssetValues: boolean
+): Promise<void> {
+  const envPath = path.join(projectRoot, fileName);
+  let raw = '';
+  if (filePresent) {
+    try {
+      raw = await fs.readFile(envPath, 'utf8');
+    } catch {
+      raw = '';
+    }
+  }
+  const existing = parseEnvEntriesPreservingOrder(raw);
+  const canonicalEntries = buildCanonicalEnvConfigEntries(
+    config,
+    assetFileNames,
+    cloudAssets,
+    existing,
+    retainLocalAssetValues
+  );
+
+  if (!filePresent) {
+    if (canonicalEntries.length > 0) {
+      await writeEnvFile(projectRoot, fileName, canonicalEntries);
+    }
+    return;
+  }
+
+  if (entriesEqualOrdered(existing, canonicalEntries)) {
+    return;
+  }
+
+  const nextRaw = formatEnvFileContentWithEol(canonicalEntries, raw.endsWith('\n'));
+  if (nextRaw === raw) {
+    return;
+  }
+  await fs.writeFile(envPath, nextRaw, 'utf8');
+}
+
+async function writeCanonicalSecretsFileIfChanged(
+  projectRoot: string,
+  fileName: string,
+  secrets: SecretDTO | undefined,
+  filePresent: boolean
+): Promise<void> {
+  const canonicalEntries = secretsDtoToEnvEntries(secrets);
+  if (!filePresent) {
+    if (canonicalEntries.length > 0) {
+      await writeEnvFile(projectRoot, fileName, canonicalEntries);
+    }
+    return;
+  }
+
+  const envPath = path.join(projectRoot, fileName);
+  let raw = '';
+  try {
+    raw = await fs.readFile(envPath, 'utf8');
+  } catch {
+    raw = '';
+  }
+
+  const existing = parseEnvEntriesPreservingOrder(raw);
+  if (entriesEqualOrdered(existing, canonicalEntries)) {
+    return;
+  }
+
+  const nextRaw = formatEnvFileContentWithEol(canonicalEntries, raw.endsWith('\n'));
+  if (nextRaw === raw) {
+    return;
+  }
+  await fs.writeFile(envPath, nextRaw, 'utf8');
+}
+
+export async function applyReleaseEnvToFs(
   projectRoot: string,
   config: ConfigDTO | undefined,
+  secrets: SecretDTO | undefined,
   appKey: string,
-  defaultAppKey: string
+  defaultAppKey: string,
+  assetFileNames: string[] = [],
+  cloudAssets?: CloudAssetEnvRef[]
 ): Promise<void> {
-  const configEntries = configDtoToEnvEntries(config);
-  if (configEntries.length === 0) return;
-  const { configWriteFile } = await readProjectEnvFiles(projectRoot, appKey, defaultAppKey);
-  await writeEnvFile(projectRoot, configWriteFile, configEntries);
+  const layout = await readProjectEnvFiles(projectRoot, appKey, defaultAppKey);
+  if (config !== undefined) {
+    await writeCanonicalEnvFileIfChanged(
+      projectRoot,
+      layout.configWriteFile,
+      config,
+      assetFileNames,
+      cloudAssets,
+      layout.envConfigPresent,
+      false
+    );
+  }
+  if (secrets !== undefined) {
+    await writeCanonicalSecretsFileIfChanged(
+      projectRoot,
+      layout.secretsWriteFile,
+      secrets,
+      layout.envSecretsPresent
+    );
+  }
 }
 
 export async function applyCloudEnvToFs(
@@ -497,26 +629,23 @@ export async function applyCloudEnvToFs(
   cloudEnv: CloudEnvState,
   assetFileNames: string[] = [],
   appKey = 'default',
-  defaultAppKey = appKey
+  defaultAppKey = appKey,
+  cloudAssets?: CloudAssetEnvRef[]
 ): Promise<void> {
   const layout = await readProjectEnvFiles(projectRoot, appKey, defaultAppKey);
-  const configWriteFile = layout.configWriteFile;
-  const secretsWriteFile = layout.secretsWriteFile;
-
-  const assetKeys = collectAssetEnvKeys(assetFileNames);
-  const cloudVars = cloudEnv.config?.envVariables ?? {};
-  const assetEntries = [...assetKeys]
-    .map((key) => ({ key, value: cloudVars[key] }))
-    .filter((entry): entry is EnvEntry => typeof entry.value === 'string');
-  if (assetEntries.length > 0) {
-    await upsertEnvFile(projectRoot, configWriteFile, assetEntries);
-  }
-
-  const existing = await readEnvFile(projectRoot, configWriteFile);
-  const keptAssetEntries = existing.filter((entry) => assetKeys.has(entry.key));
-  const nonAssetEntries = configDtoToEnvEntries(
-    stripAssetKeysFromConfigDto(cloudEnv.config, assetFileNames)
+  await writeCanonicalEnvFileIfChanged(
+    projectRoot,
+    layout.configWriteFile,
+    cloudEnv.config,
+    assetFileNames,
+    cloudAssets,
+    layout.envConfigPresent,
+    true
   );
-  await writeEnvFile(projectRoot, configWriteFile, [...keptAssetEntries, ...nonAssetEntries]);
-  await writeEnvFile(projectRoot, secretsWriteFile, secretsDtoToEnvEntries(cloudEnv.secrets));
+  await writeCanonicalSecretsFileIfChanged(
+    projectRoot,
+    layout.secretsWriteFile,
+    cloudEnv.secrets,
+    layout.envSecretsPresent
+  );
 }

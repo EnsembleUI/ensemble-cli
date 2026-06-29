@@ -45,6 +45,56 @@ export async function envFileExists(projectRoot: string, fileName: string): Prom
 }
 
 export async function readEnvFile(projectRoot: string, fileName: string): Promise<EnvEntry[]> {
+  const entries = await readEnvFilePreservingOrder(projectRoot, fileName);
+  return [...entries].sort((a, b) => a.key.localeCompare(b.key));
+}
+
+export function parseEnvEntriesPreservingOrder(raw: string): EnvEntry[] {
+  const parsed = parseEnvFile(raw);
+  const entries: EnvEntry[] = [];
+  const seen = new Set<string>();
+  for (const line of parsed.lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq <= 0) continue;
+    const key = trimmed.slice(0, eq).trim();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    entries.push({ key, value: trimmed.slice(eq + 1) });
+  }
+  return entries;
+}
+
+export function entriesEqualOrdered(a: EnvEntry[], b: EnvEntry[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every((entry, index) => {
+      const other = b[index];
+      return other !== undefined && entry.key === other.key && entry.value === other.value;
+    })
+  );
+}
+
+export function envEntriesFromRecordInKeyOrder(
+  record: Record<string, unknown> | undefined,
+  skip?: (key: string) => boolean
+): EnvEntry[] {
+  if (!record) return [];
+  const entries: EnvEntry[] = [];
+  for (const key of Object.keys(record)) {
+    if (skip?.(key)) continue;
+    const value = record[key];
+    if (value === undefined || value === null) continue;
+    entries.push({ key, value: String(value) });
+  }
+  return entries;
+}
+
+export async function readEnvFilePreservingOrder(
+  projectRoot: string,
+  fileName: string
+): Promise<EnvEntry[]> {
   const envPath = path.join(projectRoot, fileName);
   let raw = '';
   try {
@@ -52,15 +102,7 @@ export async function readEnvFile(projectRoot: string, fileName: string): Promis
   } catch {
     return [];
   }
-  const parsed = parseEnvFile(raw);
-  const entries: EnvEntry[] = [];
-  for (const [key, lineIndex] of parsed.keyToLineIndex) {
-    const line = parsed.lines[lineIndex] ?? '';
-    const eq = line.indexOf('=');
-    if (eq <= 0) continue;
-    entries.push({ key, value: line.slice(eq + 1) });
-  }
-  return entries.sort((a, b) => a.key.localeCompare(b.key));
+  return parseEnvEntriesPreservingOrder(raw);
 }
 
 export async function upsertEnvFile(
@@ -93,17 +135,25 @@ export async function upsertEnvFile(
   await fs.writeFile(envPath, normalized, 'utf8');
 }
 
+export function formatEnvFileContent(entries: EnvEntry[]): string {
+  return formatEnvFileContentWithEol(entries, true);
+}
+
+export function formatEnvFileContentWithEol(entries: EnvEntry[], trailingNewline: boolean): string {
+  const body = entries.map((entry) => `${entry.key}=${entry.value}`).join('\n');
+  if (body === '') {
+    return trailingNewline ? '\n' : '';
+  }
+  return trailingNewline ? `${body}\n` : body;
+}
+
 export async function writeEnvFile(
   projectRoot: string,
   fileName: string,
   entries: EnvEntry[]
 ): Promise<void> {
   const envPath = path.join(projectRoot, fileName);
-  const normalized = entries
-    .map((entry) => `${entry.key}=${entry.value}`)
-    .join('\n')
-    .replace(/\n*$/, '\n');
-  await fs.writeFile(envPath, normalized, 'utf8');
+  await fs.writeFile(envPath, formatEnvFileContent(entries), 'utf8');
 }
 
 export async function upsertEnvConfig(projectRoot: string, entries: EnvEntry[]): Promise<void> {

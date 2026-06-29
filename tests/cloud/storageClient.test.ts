@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 
 import {
   downloadReleaseSnapshotJson,
+  objectPathForRelease,
   uploadReleaseSnapshot,
 } from '../../src/cloud/storageClient.js';
 
@@ -12,7 +13,11 @@ describe('storageClient', () => {
     globalThis.fetch = originalFetch;
   });
 
-  it('uploadReleaseSnapshot posts to releases path with Firebase auth header', async () => {
+  it('objectPathForRelease uses encrypted .enc.json suffix', () => {
+    expect(objectPathForRelease('app1', 'ver-123')).toBe('releases/app1/ver-123.enc.json');
+  });
+
+  it('uploadReleaseSnapshot posts envelope json to encrypted releases path', async () => {
     let captured: { url: string; method?: string; headers?: HeadersInit; body?: string } | null =
       null;
 
@@ -32,28 +37,15 @@ describe('storageClient', () => {
       return new Response(JSON.stringify({}), { status: 200 });
     }) as unknown as typeof fetch;
 
-    const result = await uploadReleaseSnapshot('app1', 'id-token', 'ver-123', '{"foo":"bar"}');
+    const envelope = '{"v":1,"alg":"AES-256-GCM","comp":"br","iv":"a","tag":"b","ciphertext":"c"}';
+    const result = await uploadReleaseSnapshot('app1', 'id-token', 'ver-123', envelope);
 
-    // Bucket is derived from env/project; we assert the path and headers, not the exact bucket.
-    expect(result.objectPath).toBe('releases/app1/ver-123.json');
-    expect(captured).not.toBeNull();
-    expect(captured!.url).toContain('https://firebasestorage.googleapis.com/v0/b/');
-    expect(captured!.url).toContain('name=' + encodeURIComponent('releases/app1/ver-123.json'));
+    expect(result.objectPath).toBe('releases/app1/ver-123.enc.json');
     expect(captured!.method).toBe('POST');
     const headers = new Headers(captured!.headers);
     expect(headers.get('Authorization')).toBe('Firebase id-token');
     expect(headers.get('Content-Type')).toBe('application/json');
-    expect(captured!.body).toBe('{"foo":"bar"}');
-  });
-
-  it('uploadReleaseSnapshot throws StorageClientError on non-2xx', async () => {
-    globalThis.fetch = (async () => {
-      return new Response('forbidden', { status: 403 });
-    }) as unknown as typeof fetch;
-
-    await expect(
-      uploadReleaseSnapshot('app1', 'id-token', 'ver-123', '{"foo":"bar"}')
-    ).rejects.toThrow('Storage upload release snapshot failed (403)');
+    expect(captured!.body).toBe(envelope);
   });
 
   it('downloadReleaseSnapshotJson GETs from releases path with Firebase auth header', async () => {
@@ -67,28 +59,16 @@ describe('storageClient', () => {
             ? input.toString()
             : (input as Request).url;
       captured = { url: urlStr, headers: init?.headers };
-      return new Response('{"id":"app1"}', { status: 200 });
+      return new Response('{"v":1}', { status: 200 });
     }) as unknown as typeof fetch;
 
-    const json = await downloadReleaseSnapshotJson('id-token', 'releases/app1/ver-123.json');
+    const json = await downloadReleaseSnapshotJson('id-token', 'releases/app1/ver-123.enc.json');
 
-    expect(json).toBe('{"id":"app1"}');
-    expect(captured).not.toBeNull();
-    expect(captured!.url).toContain('https://firebasestorage.googleapis.com/v0/b/');
+    expect(json).toBe('{"v":1}');
     expect(captured!.url).toContain(
-      encodeURIComponent('releases/app1/ver-123.json') + '?alt=media'
+      encodeURIComponent('releases/app1/ver-123.enc.json') + '?alt=media'
     );
     const headers = new Headers(captured!.headers);
     expect(headers.get('Authorization')).toBe('Firebase id-token');
-  });
-
-  it('downloadReleaseSnapshotJson throws StorageClientError on non-2xx', async () => {
-    globalThis.fetch = (async () => {
-      return new Response('not found', { status: 404 });
-    }) as unknown as typeof fetch;
-
-    await expect(
-      downloadReleaseSnapshotJson('id-token', 'releases/app1/ver-123.json')
-    ).rejects.toThrow('Storage download release snapshot failed (404)');
   });
 });

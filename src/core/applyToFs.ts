@@ -12,15 +12,15 @@ import { ARTIFACT_FS_CONFIG } from './artifacts.js';
 import type { ArtifactProp } from './artifacts.js';
 import { processWithConcurrency } from './concurrency.js';
 import { safeFileName } from './fileNames.js';
-import { buildAndWriteManifest, type BuildManifestOptions } from './manifest.js';
+import { buildAndWriteManifest } from './manifest.js';
 
 async function ensureDir(dir: string): Promise<void> {
   await fs.mkdir(dir, { recursive: true });
 }
 
 export interface ApplyCloudStateToFsOptions {
-  /** When set, manifest is built and written after applying files. */
-  manifestOptions?: BuildManifestOptions;
+  /** When true, merge cloud lists into existing .manifest.json (pull). */
+  refreshManifest?: boolean;
   /** Called every 25 completed tasks with (completed, total). */
   onProgress?: (completed: number, total: number) => void;
 }
@@ -39,7 +39,7 @@ export async function applyCloudStateToFs(
   enabledByProp: Record<ArtifactProp, boolean>,
   options: ApplyCloudStateToFsOptions = {}
 ): Promise<void> {
-  const { manifestOptions, onProgress } = options;
+  const { refreshManifest, onProgress } = options;
 
   const tasks: WriteTask[] = [];
 
@@ -111,7 +111,7 @@ export async function applyCloudStateToFs(
     }
   });
 
-  if (manifestOptions !== undefined) {
-    await buildAndWriteManifest(projectRoot, cloudApp, manifestOptions);
+  if (refreshManifest) {
+    await buildAndWriteManifest(projectRoot, cloudApp);
   }
 }

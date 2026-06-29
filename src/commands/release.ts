@@ -13,19 +13,33 @@ import {
   type VersionDoc,
 } from '../cloud/firestoreClient.js';
 import {
-  downloadReleaseSnapshotJson,
   StorageClientError,
+  downloadReleaseSnapshotJson,
   uploadReleaseSnapshot,
 } from '../cloud/storageClient.js';
 import { applyCloudStateToFs } from '../core/applyToFs.js';
 import {
-  applyReleaseConfigToFs,
+  applyReleaseEnvToFs,
   buildConfigDtoFromEnvEntries,
+  buildSecretsDtoFromEnvSecretsFile,
   readProjectEnvFiles,
+  type LocalEnvFiles,
 } from '../core/envSync.js';
+import {
+  encryptReleaseSnapshot,
+  EncryptionError,
+  parseReleaseSnapshotBody,
+  requireReleaseEncryptionKey,
+} from '../core/encryption.js';
 import { buildDocumentsFromParsed } from '../core/buildDocuments.js';
+import {
+  orderByManifestNames,
+  readProjectManifest,
+  writeManifestFromSnapshot,
+} from '../core/manifest.js';
 import { ArtifactProps, type ArtifactProp } from '../core/artifacts.js';
 import { collectAppFiles } from '../core/appCollector.js';
+import { readEnvFilePreservingOrder } from '../core/envConfig.js';
 import { resolveAppContext } from '../config/projectConfig.js';
 import { getValidAuthSession } from '../auth/session.js';
 import { withSpinner } from '../lib/spinner.js';
@@ -73,6 +87,37 @@ function releasePushHint(appKey: string, defaultAppKey: string): string {
   return appKey === defaultAppKey ? 'ensemble push' : `ensemble push --app ${appKey}`;
 }
 
+interface ReleaseKeyContext {
+  key: string;
+  secretsWriteFile: string;
+  localEnv: LocalEnvFiles;
+}
+
+function reportEncryptionError(err: unknown): void {
+  if (err instanceof EncryptionError) {
+    ui.error(err.message);
+    if (err.hint) ui.note(err.hint);
+    return;
+  }
+  ui.error(err instanceof Error ? err.message : String(err));
+}
+
+async function loadReleaseKeyOrFail(
+  projectRoot: string,
+  appKey: string,
+  defaultAppKey: string
+): Promise<ReleaseKeyContext | undefined> {
+  const localEnv = await readProjectEnvFiles(projectRoot, appKey, defaultAppKey);
+  try {
+    const key = requireReleaseEncryptionKey(localEnv.envSecrets, localEnv.secretsWriteFile);
+    return { key, secretsWriteFile: localEnv.secretsWriteFile, localEnv };
+  } catch (err) {
+    reportEncryptionError(err);
+    process.exitCode = 1;
+    return undefined;
+  }
+}
+
 /** Commander stores --app on the release parent when subcommands also declare it; read parent opts. */
 export function resolveReleaseAppKey(command: Command): string | undefined {
   return command.parent?.opts()?.app as string | undefined;
@@ -85,6 +130,11 @@ export async function releaseCreateCommand(options: ReleaseCreateOptions = {}): 
   if (!appConfig) {
     ui.error(`No app configured for key "${appKey}".`);
     process.exitCode = 1;
+    return;
+  }
+
+  const keyCtx = await loadReleaseKeyOrFail(root, appKey, config.default);
+  if (!keyCtx) {
     return;
   }
 
@@ -125,30 +175,65 @@ export async function releaseCreateCommand(options: ReleaseCreateOptions = {}): 
   const appName = (appConfig.name as string | undefined) ?? 'App';
   const appHome = appConfig.appHome as string | undefined;
   const localFiles = await collectAppFiles(root);
-  const localEnv = await readProjectEnvFiles(root, appKey, config.default);
-  const localConfig = buildConfigDtoFromEnvEntries(localEnv.envConfig);
-  const localApp = buildDocumentsFromParsed(localFiles, appId, appName, appHome, undefined);
+  const manifest = await readProjectManifest(root);
+  const defaultLanguage =
+    typeof manifest.defaultLanguage === 'string' && manifest.defaultLanguage.trim() !== ''
+      ? manifest.defaultLanguage.trim()
+      : undefined;
+  const { key: encryptionKey, localEnv } = keyCtx;
+  const orderedConfig = localEnv.envConfigPresent
+    ? await readEnvFilePreservingOrder(root, localEnv.configWriteFile)
+    : [];
+  const orderedSecrets = localEnv.envSecretsPresent
+    ? await readEnvFilePreservingOrder(root, localEnv.secretsWriteFile)
+    : [];
+  const localConfig = buildConfigDtoFromEnvEntries(orderedConfig);
+  const localSecrets = buildSecretsDtoFromEnvSecretsFile(orderedSecrets);
+  const localApp = buildDocumentsFromParsed(localFiles, appId, appName, appHome, defaultLanguage);
+  const orderedWidgets = localApp.widgets?.length
+    ? orderByManifestNames(
+        localApp.widgets,
+        manifest.widgets?.map((w) => w.name)
+      )
+    : localApp.widgets;
+  const orderedScripts = localApp.scripts?.length
+    ? orderByManifestNames(
+        localApp.scripts,
+        manifest.scripts?.map((s) => s.name)
+      )
+    : localApp.scripts;
+  const orderedActions = localApp.actions?.length
+    ? orderByManifestNames(
+        localApp.actions,
+        manifest.actions?.map((a) => a.name)
+      )
+    : localApp.actions;
+  const orderedTranslations = localApp.translations?.length
+    ? orderByManifestNames(localApp.translations, manifest.languages)
+    : localApp.translations;
   const snapshot: CloudApp = {
     id: localApp.id,
     name: localApp.name,
     createdAt: localApp.createdAt,
     updatedAt: localApp.updatedAt,
     ...(localApp.screens && localApp.screens.length > 0 && { screens: localApp.screens }),
-    ...(localApp.widgets && localApp.widgets.length > 0 && { widgets: localApp.widgets }),
-    ...(localApp.scripts && localApp.scripts.length > 0 && { scripts: localApp.scripts }),
-    ...(localApp.actions && localApp.actions.length > 0 && { actions: localApp.actions }),
-    ...(localApp.translations &&
-      localApp.translations.length > 0 && { translations: localApp.translations }),
+    ...(orderedWidgets && orderedWidgets.length > 0 && { widgets: orderedWidgets }),
+    ...(orderedScripts && orderedScripts.length > 0 && { scripts: orderedScripts }),
+    ...(orderedActions && orderedActions.length > 0 && { actions: orderedActions }),
+    ...(orderedTranslations &&
+      orderedTranslations.length > 0 && { translations: orderedTranslations }),
     ...(localApp.theme && { theme: localApp.theme }),
     ...(localApp.assets && localApp.assets.length > 0 && { assets: localApp.assets }),
     ...(localConfig && { config: localConfig }),
+    ...(localSecrets && { secrets: localSecrets }),
   };
 
   try {
     const snapshotJson = JSON.stringify(snapshot);
+    const envelopeJson = encryptReleaseSnapshot(snapshotJson, encryptionKey);
     const versionId = crypto.randomUUID().replace(/-/g, '');
     const upload = await withSpinner('Uploading snapshot to storage...', () =>
-      uploadReleaseSnapshot(appId, idToken, versionId, snapshotJson)
+      uploadReleaseSnapshot(appId, idToken, versionId, envelopeJson)
     );
 
     await createVersion(
@@ -182,6 +267,8 @@ export async function releaseCreateCommand(options: ReleaseCreateOptions = {}): 
         // eslint-disable-next-line no-console
         console.log(typeof err.cause === 'string' ? err.cause : String(err.cause));
       }
+    } else if (err instanceof EncryptionError) {
+      reportEncryptionError(err);
     } else {
       ui.error(err instanceof Error ? err.message : String(err));
     }
@@ -190,11 +277,15 @@ export async function releaseCreateCommand(options: ReleaseCreateOptions = {}): 
 }
 
 export async function releaseListCommand(options: ReleaseListOptions = {}): Promise<void> {
-  const { config, appKey, appId } = await resolveAppContext(options.appKey);
+  const { projectRoot, config, appKey, appId } = await resolveAppContext(options.appKey);
   const appConfig = config.apps[appKey];
   if (!appConfig) {
     ui.error(`No app configured for key "${appKey}".`);
     process.exitCode = 1;
+    return;
+  }
+
+  if (!(await loadReleaseKeyOrFail(projectRoot, appKey, config.default))) {
     return;
   }
 
@@ -281,6 +372,12 @@ export async function releaseUseCommand(options: ReleaseUseOptions = {}): Promis
     process.exitCode = 1;
     return;
   }
+
+  const keyCtx = await loadReleaseKeyOrFail(projectRoot, appKey, config.default);
+  if (!keyCtx) {
+    return;
+  }
+
   const appOptions = (appConfig.options ?? {}) as Record<string, unknown>;
   const enabledByProp = Object.fromEntries(
     ArtifactProps.map((prop) => [prop, appOptions[prop] !== false])
@@ -391,24 +488,45 @@ export async function releaseUseCommand(options: ReleaseUseOptions = {}): Promis
       }
     }
 
-    const snapshotJson = await withSpinner('Downloading snapshot...', () =>
+    const snapshotBody = await withSpinner('Downloading snapshot...', () =>
       downloadReleaseSnapshotJson(idToken, versionDoc.snapshotPath)
+    );
+    const snapshotJson = parseReleaseSnapshotBody(
+      snapshotBody,
+      versionDoc.snapshotPath,
+      keyCtx.key,
+      keyCtx.secretsWriteFile
     );
     const snapshot = JSON.parse(snapshotJson) as CloudApp;
 
     const localFiles = await collectAppFiles(projectRoot);
-    await withSpinner('Writing local files...', () =>
-      applyCloudStateToFs(projectRoot, snapshot, localFiles, enabledByProp, {
-        manifestOptions: {},
+    await withSpinner('Writing local files...', async () => {
+      await applyCloudStateToFs(projectRoot, snapshot, localFiles, enabledByProp, {
         onProgress: (completed, total) => {
           if (total > 0 && completed % 25 === 0) {
             // eslint-disable-next-line no-console
             console.log(`Writing files... (${completed}/${total})`);
           }
         },
-      })
+      });
+      await writeManifestFromSnapshot(projectRoot, snapshot);
+    });
+    await applyReleaseEnvToFs(
+      projectRoot,
+      snapshot.config,
+      snapshot.secrets,
+      appKey,
+      config.default,
+      (snapshot.assets ?? [])
+        .filter(
+          (asset) =>
+            asset.isArchived !== true &&
+            typeof asset.fileName === 'string' &&
+            asset.fileName.length > 0
+        )
+        .map((asset) => asset.fileName as string),
+      snapshot.assets
     );
-    await applyReleaseConfigToFs(projectRoot, snapshot.config, appKey, config.default);
     ui.success(
       `Local files updated to selected release. Run "${releasePushHint(appKey, config.default)}" to apply to the cloud.`
     );
@@ -416,6 +534,11 @@ export async function releaseUseCommand(options: ReleaseUseOptions = {}): Promis
     if (err instanceof FirestoreClientError) {
       ui.error(err.message);
       if (err.hint) ui.note(err.hint);
+    } else if (err instanceof StorageClientError) {
+      ui.error(err.message);
+      if (err.hint) ui.note(err.hint);
+    } else if (err instanceof EncryptionError) {
+      reportEncryptionError(err);
     } else {
       ui.error(err instanceof Error ? err.message : String(err));
     }
