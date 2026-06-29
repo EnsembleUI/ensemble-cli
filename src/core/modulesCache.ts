@@ -1,5 +1,4 @@
 import fs from 'fs/promises';
-import os from 'os';
 import path from 'path';
 import { createWriteStream } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
@@ -7,34 +6,26 @@ import { Readable } from 'node:stream';
 import { createGunzip } from 'node:zlib';
 import * as tar from 'tar';
 
+import {
+  ENSEMBLE_REPO,
+  fetchLatestStableEnsembleReleaseRef,
+  getModulesCacheRoot,
+  readCachedEnsembleReleaseRef,
+} from './ensembleRelease.js';
 import { fileExists } from './fs.js';
 
-export const ENSEMBLE_MODULES_REPO = 'EnsembleUI/ensemble';
+export { ENSEMBLE_REPO as ENSEMBLE_MODULES_REPO } from './ensembleRelease.js';
 
 const STARTER_PATHS = ['starter/src/', 'starter/scripts/'];
 const FETCH_TIMEOUT_MS = 15_000;
 const REGISTRY_REL = path.join('src', 'modules_scripts.ts');
-
-function getModulesCacheRoot(): string {
-  return path.join(os.homedir(), '.ensemble', 'cache', 'modules_dir');
-}
 
 function getModulesReleaseCacheDir(ref: string): string {
   return path.join(getModulesCacheRoot(), ref);
 }
 
 function getModulesToolingDownloadUrl(ref: string): string {
-  return `https://codeload.github.com/EnsembleUI/ensemble/tar.gz/${encodeURIComponent(ref)}`;
-}
-
-function getStableReleaseTag(release: {
-  tag_name: string;
-  prerelease: boolean;
-  draft: boolean;
-}): string | null {
-  if (release.prerelease || release.draft) return null;
-  const tag = release.tag_name.trim();
-  return tag || null;
+  return `https://codeload.github.com/${ENSEMBLE_REPO}/tar.gz/${encodeURIComponent(ref)}`;
 }
 
 export interface ModulesToolingResult {
@@ -53,15 +44,6 @@ function unavailableError(detail: string): Error {
   );
 }
 
-async function readCachedRef(): Promise<string | null> {
-  try {
-    const ref = (await fs.readFile(path.join(getModulesCacheRoot(), '.ref'), 'utf8')).trim();
-    return ref || null;
-  } catch {
-    return null;
-  }
-}
-
 async function hasRegistry(ref: string): Promise<boolean> {
   return fileExists(path.join(getModulesReleaseCacheDir(ref), REGISTRY_REL));
 }
@@ -72,21 +54,6 @@ async function cachedOrThrow(
 ): Promise<ModulesToolingResult> {
   if (cachedRef && (await hasRegistry(cachedRef))) return toolingResult(cachedRef, true);
   throw unavailableError(err instanceof Error ? err.message : String(err));
-}
-
-async function fetchLatestRef(): Promise<string> {
-  const response = await fetch('https://api.github.com/repos/EnsembleUI/ensemble/releases/latest', {
-    headers: { Accept: 'application/vnd.github+json' },
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-  });
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status} while fetching latest ensemble release`);
-  }
-  const tag = getStableReleaseTag(
-    (await response.json()) as Parameters<typeof getStableReleaseTag>[0]
-  );
-  if (!tag) throw new Error('Latest GitHub release is not a stable release');
-  return tag;
 }
 
 async function downloadRelease(ref: string): Promise<void> {
@@ -145,11 +112,11 @@ async function downloadRelease(ref: string): Promise<void> {
 }
 
 export async function ensureModulesTooling(): Promise<ModulesToolingResult> {
-  const cachedRef = await readCachedRef();
+  const cachedRef = await readCachedEnsembleReleaseRef();
 
   let latestRef: string;
   try {
-    latestRef = await fetchLatestRef();
+    latestRef = await fetchLatestStableEnsembleReleaseRef();
   } catch (err) {
     return cachedOrThrow(cachedRef, err);
   }

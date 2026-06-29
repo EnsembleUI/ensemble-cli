@@ -4,18 +4,20 @@ import path from 'path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import {
-  spliceTestRunnerDevDependency,
-  withTemporaryTestRunnerDep,
-} from '../../src/core/pubspecTestRunner.js';
+import { withTemporaryTestRunnerDep } from '../../src/core/pubspecTestRunner.js';
 
-const SAMPLE_PUBSPEC = `name: demo
+const BASE_PUBSPEC = `name: demo
+dependencies:
+  ensemble:
+    git:
+      url: https://github.com/EnsembleUI/ensemble.git
+      ref: ensemble-v1.2.47
 dev_dependencies:
   flutter_test:
     sdk: flutter
 `;
 
-describe('pubspecTestRunner', () => {
+describe('withTemporaryTestRunnerDep', () => {
   let tmpDir: string;
 
   beforeEach(async () => {
@@ -26,22 +28,35 @@ describe('pubspecTestRunner', () => {
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
-  it('splices test runner under dev_dependencies', () => {
-    const updated = spliceTestRunnerDevDependency(SAMPLE_PUBSPEC);
-    expect(updated).toContain('ensemble_test_runner:');
-    expect(updated).toContain('ref: support-test-cases');
+  async function writePubspec(content: string): Promise<void> {
+    await fs.writeFile(path.join(tmpDir, 'pubspec.yaml'), content, 'utf8');
+  }
+
+  it('splices test runner at the app ensemble ref and restores pubspec', async () => {
+    await writePubspec(BASE_PUBSPEC);
+
+    await withTemporaryTestRunnerDep(tmpDir, async () => {
+      const during = await fs.readFile(path.join(tmpDir, 'pubspec.yaml'), 'utf8');
+      expect(during).toContain('ensemble_test_runner:');
+      expect(during).toContain('ref: ensemble-v1.2.47');
+    });
+
+    expect(await fs.readFile(path.join(tmpDir, 'pubspec.yaml'), 'utf8')).toBe(BASE_PUBSPEC);
   });
 
-  it('restores pubspec after callback', async () => {
-    await fs.writeFile(path.join(tmpDir, 'pubspec.yaml'), SAMPLE_PUBSPEC, 'utf8');
+  it('rejects ensemble refs below v1.2.47', async () => {
+    await writePubspec(BASE_PUBSPEC.replace('ensemble-v1.2.47', 'ensemble-v1.2.46'));
 
-    await withTemporaryTestRunnerDep(tmpDir, async () => undefined);
-
-    expect(await fs.readFile(path.join(tmpDir, 'pubspec.yaml'), 'utf8')).toBe(SAMPLE_PUBSPEC);
+    await expect(withTemporaryTestRunnerDep(tmpDir, async () => undefined)).rejects.toThrow(
+      /needs ensemble-v1\.2\.47/i
+    );
+    await expect(withTemporaryTestRunnerDep(tmpDir, async () => undefined)).rejects.toThrow(
+      /pins ensemble to: ensemble-v1\.2\.46/
+    );
   });
 
   it('restores pubspec when callback throws', async () => {
-    await fs.writeFile(path.join(tmpDir, 'pubspec.yaml'), SAMPLE_PUBSPEC, 'utf8');
+    await writePubspec(BASE_PUBSPEC);
 
     await expect(
       withTemporaryTestRunnerDep(tmpDir, async () => {
@@ -49,17 +64,17 @@ describe('pubspecTestRunner', () => {
       })
     ).rejects.toThrow(/test failed/i);
 
-    expect(await fs.readFile(path.join(tmpDir, 'pubspec.yaml'), 'utf8')).toBe(SAMPLE_PUBSPEC);
+    expect(await fs.readFile(path.join(tmpDir, 'pubspec.yaml'), 'utf8')).toBe(BASE_PUBSPEC);
   });
 
-  it('skips splice when ensemble_test_runner is already in pubspec', async () => {
-    const pubspec = `${SAMPLE_PUBSPEC}  ensemble_test_runner:
+  it('skips splice when ensemble_test_runner is already present', async () => {
+    const pubspec = `${BASE_PUBSPEC}  ensemble_test_runner:
     git:
       url: https://github.com/EnsembleUI/ensemble.git
-      ref: support-test-cases
+      ref: ensemble-v1.2.47
       path: packages/ensemble_test_runner
 `;
-    await fs.writeFile(path.join(tmpDir, 'pubspec.yaml'), pubspec, 'utf8');
+    await writePubspec(pubspec);
 
     await withTemporaryTestRunnerDep(tmpDir, async () => undefined);
 

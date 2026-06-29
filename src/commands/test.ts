@@ -1,5 +1,7 @@
+import { spawn } from 'node:child_process';
+
 import { assertDartAvailable, resolveDartInvocation } from '../core/dartToolchain.js';
-import { runDartWithExitCode, withTemporaryTestRunnerDep } from '../core/pubspecTestRunner.js';
+import { withTemporaryTestRunnerDep } from '../core/pubspecTestRunner.js';
 import { resolveStarterProjectRootWithWalkUp } from '../core/starterProject.js';
 
 function collectPassthroughArgs(argv: readonly string[] = process.argv): string[] {
@@ -18,14 +20,27 @@ function collectPassthroughArgs(argv: readonly string[] = process.argv): string[
   return passthrough;
 }
 
+function runDart(
+  command: string,
+  prefixArgs: string[],
+  args: string[],
+  cwd: string
+): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, [...prefixArgs, ...args], { cwd, stdio: 'inherit' });
+    child.on('error', reject);
+    child.on('close', (code) => resolve(code ?? 1));
+  });
+}
+
 export async function testCommand(options: { project?: string } = {}): Promise<void> {
   const projectRoot = await resolveStarterProjectRootWithWalkUp(options.project);
   const dart = await resolveDartInvocation(projectRoot);
   await assertDartAvailable(dart);
 
-  const dartArgs = ['run', 'ensemble_test_runner:ensemble_test', ...collectPassthroughArgs()];
+  const args = ['run', 'ensemble_test_runner:ensemble_test', ...collectPassthroughArgs()];
 
   await withTemporaryTestRunnerDep(projectRoot, async () => {
-    process.exitCode = await runDartWithExitCode(dart, dartArgs, projectRoot);
+    process.exitCode = await runDart(dart.command, dart.prefixArgs, args, projectRoot);
   });
 }
