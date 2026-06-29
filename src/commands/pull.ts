@@ -145,6 +145,31 @@ function printPullSummary(summary: PullSummary): void {
   }
 }
 
+function cloudAssetFileNames(assets: CloudApp['assets'] | undefined): string[] {
+  return (assets ?? [])
+    .map((asset) => asset.fileName)
+    .filter((fileName): fileName is string => typeof fileName === 'string' && fileName.length > 0);
+}
+
+async function applyCloudEnvFromPull(
+  projectRoot: string,
+  cloudApp: CloudApp,
+  appKey: string,
+  defaultAppKey: string,
+  assetFileNames: string[],
+  assetsSyncEnabled: boolean
+): Promise<void> {
+  await applyCloudEnvToFs(
+    projectRoot,
+    { config: cloudApp.config, secrets: cloudApp.secrets },
+    assetFileNames,
+    appKey,
+    defaultAppKey,
+    cloudApp.assets,
+    assetsSyncEnabled
+  );
+}
+
 export async function pullCommand(options: PullOptions = {}): Promise<void> {
   const { projectRoot, config, appKey, appId } = await resolveAppContext(options.appKey);
   const verbose = resolveVerboseFlag(options.verbose);
@@ -155,6 +180,7 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
   const enabledByProp = Object.fromEntries(
     ArtifactProps.map((prop) => [prop, appOptions[prop] !== false])
   ) as Record<ArtifactProp, boolean>;
+  const assetsEnabled = appOptions.assets !== false;
 
   const session = await getValidAuthSession();
   if (!session.ok) {
@@ -229,6 +255,7 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
     localFiles,
     manifestExisting,
     enabledByProp,
+    assetsEnabled,
     localEnv: await readProjectEnvFiles(projectRoot, appKey, config.default),
   });
 
@@ -295,63 +322,70 @@ export async function pullCommand(options: PullOptions = {}): Promise<void> {
 
   // Sync assets/ after YAML files are written.
   // This pulls binary files via each asset's publicUrl and deletes local extras.
-  await withSpinner('Syncing assets...', async () => {
-    const result = await applyCloudAssetsToFs({
-      projectRoot,
-      cloudAssets: cloudApp.assets,
-    });
-    // Fold any asset changes into the already-computed pullSummary so the final output reflects what we did.
-    if (result.created || result.deleted || result.skipped) {
-      (
-        pullSummary.changes as PullSummary['changes'] as unknown as Array<{
-          kind: string;
-          file: string;
-          operation: string;
-        }>
-      ).push(...result.changes);
-      (pullSummary as unknown as { created: number }).created += result.created;
-      (pullSummary as unknown as { deleted: number }).deleted += result.deleted;
-      (pullSummary as unknown as { skipped: number }).skipped += result.skipped;
-    }
-
-    if (result.failures.length > 0) {
-      ui.warn(`Some assets failed to download (${result.failures.length}).`);
-      const maxLines = 8;
-      for (const f of result.failures.slice(0, maxLines)) {
-        ui.warn(f.message);
+  if (assetsEnabled) {
+    await withSpinner('Syncing assets...', async () => {
+      const result = await applyCloudAssetsToFs({
+        projectRoot,
+        cloudAssets: cloudApp.assets,
+      });
+      // Fold any asset changes into the already-computed pullSummary so the final output reflects what we did.
+      if (result.created || result.deleted || result.skipped) {
+        (
+          pullSummary.changes as PullSummary['changes'] as unknown as Array<{
+            kind: string;
+            file: string;
+            operation: string;
+          }>
+        ).push(...result.changes);
+        (pullSummary as unknown as { created: number }).created += result.created;
+        (pullSummary as unknown as { deleted: number }).deleted += result.deleted;
+        (pullSummary as unknown as { skipped: number }).skipped += result.skipped;
       }
-      if (result.failures.length > maxLines) {
-        ui.note(`(and ${result.failures.length - maxLines} more asset download issues...)`);
-      }
-    }
 
-    // Always (best-effort) update env config for assets so ${env.assets}${env.<key>} references work after pull.
-    const envLayout = await readProjectEnvFiles(projectRoot, appKey, config.default);
-    const envResult = buildEnvConfigForCloudAssets(cloudApp.assets);
-    if (envResult.entries.length > 0) {
-      await upsertEnvFile(projectRoot, envLayout.configWriteFile, envResult.entries);
-    }
-    if (envResult.failures.length > 0) {
-      ui.warn(
-        `Some assets had invalid metadata and may be missing from ${envLayout.configWriteFile} (${envResult.failures.length}).`
+      if (result.failures.length > 0) {
+        ui.warn(`Some assets failed to download (${result.failures.length}).`);
+        const maxLines = 8;
+        for (const f of result.failures.slice(0, maxLines)) {
+          ui.warn(f.message);
+        }
+        if (result.failures.length > maxLines) {
+          ui.note(`(and ${result.failures.length - maxLines} more asset download issues...)`);
+        }
+      }
+
+      // Always (best-effort) update env config for assets so ${env.assets}${env.<key>} references work after pull.
+      const envLayout = await readProjectEnvFiles(projectRoot, appKey, config.default);
+      const envResult = buildEnvConfigForCloudAssets(cloudApp.assets);
+      if (envResult.entries.length > 0) {
+        await upsertEnvFile(projectRoot, envLayout.configWriteFile, envResult.entries);
+      }
+      if (envResult.failures.length > 0) {
+        ui.warn(
+          `Some assets had invalid metadata and may be missing from ${envLayout.configWriteFile} (${envResult.failures.length}).`
+        );
+      }
+
+      await applyCloudEnvFromPull(
+        projectRoot,
+        cloudApp,
+        appKey,
+        config.default,
+        cloudAssetFileNames(cloudApp.assets),
+        true
       );
-    }
-
-    await applyCloudEnvToFs(
-      projectRoot,
-      {
-        config: cloudApp.config,
-        secrets: cloudApp.secrets,
-      },
-      (cloudApp.assets ?? [])
-        .map((asset) => asset.fileName)
-        .filter(
-          (fileName): fileName is string => typeof fileName === 'string' && fileName.length > 0
-        ),
-      appKey,
-      config.default
-    );
-  });
+    });
+  } else if (pullSummary.changes.some((change) => change.kind === 'env')) {
+    await withSpinner('Syncing env files...', async () => {
+      await applyCloudEnvFromPull(
+        projectRoot,
+        cloudApp,
+        appKey,
+        config.default,
+        localFiles.assetFiles ?? [],
+        false
+      );
+    });
+  }
 
   printPullSummary(pullSummary);
 }

@@ -463,6 +463,76 @@ describe('computePullPlan + computePushPlan consistency', () => {
       pullPlan.summary.changes.some((c) => c.kind === 'asset' && c.operation === 'create')
     ).toBe(true);
   });
+
+  it('computePushPlan clears asset diff when assetsEnabled is false', () => {
+    const cloudApp: CloudApp = {
+      id: 'app1',
+      name: 'App',
+      screens: [],
+      widgets: [],
+      scripts: [],
+      translations: [],
+      assets: [asset('a1', 'wifi_scan.json')],
+    };
+    const localFiles: ParsedAppFiles = {
+      screens: {},
+      widgets: {},
+      scripts: {},
+      actions: {},
+      translations: {},
+      assetFiles: [],
+    };
+    const localApp = buildDocumentsFromParsed(localFiles, 'app1', 'App');
+    const pushPlan = computePushPlan({
+      appId: 'app1',
+      appName: 'App',
+      environment: 'dev',
+      localApp,
+      cloudApp,
+      enabledByProp,
+      assetsEnabled: false,
+      updatedBy: { name: 'Test', id: 'u1' },
+    });
+
+    expect(pushPlan.diff.assets.changed).toHaveLength(0);
+    expect(pushPlan.diff.assets.new).toHaveLength(0);
+    expect(pushPlan.summary.byKind.assets.deleted).toBe(0);
+  });
+
+  it('computePullPlan ignores asset drift when assetsEnabled is false', () => {
+    const cloudApp: CloudApp = {
+      id: 'app1',
+      name: 'App',
+      screens: [],
+      widgets: [],
+      scripts: [],
+      translations: [],
+      assets: [
+        asset('a1', 'cloud-only.png', { publicUrl: 'https://cdn.example.com/cloud-only.png' }),
+      ],
+    };
+    const localFiles: ParsedAppFiles = {
+      screens: {},
+      widgets: {},
+      scripts: {},
+      actions: {},
+      translations: {},
+      assetFiles: ['local-only.png'],
+    };
+
+    const pullPlan = computePullPlan({
+      appName: 'App',
+      environment: 'dev',
+      cloudApp,
+      localFiles,
+      manifestExisting: emptyManifest,
+      enabledByProp,
+      assetsEnabled: false,
+    });
+
+    expect(pullPlan.summary.changes.some((c) => c.kind === 'asset')).toBe(false);
+    expect(pullPlan.allArtifactsMatch).toBe(true);
+  });
 });
 
 describe('ARTIFACT_FS_CONFIG', () => {

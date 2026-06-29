@@ -203,6 +203,7 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
   const enabledByProp = Object.fromEntries(
     ArtifactProps.map((prop) => [prop, appOptions[prop] !== false])
   ) as Record<ArtifactProp, boolean>;
+  const assetsEnabled = appOptions.assets !== false;
 
   const session = await getValidAuthSession();
   if (!session.ok) {
@@ -295,9 +296,26 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
       localApp,
       cloudApp,
       enabledByProp,
+      assetsEnabled,
       updatedBy,
     });
     bundle = plan.bundle;
+
+    if (!assetsEnabled) {
+      const cloudActiveAssets = (cloudApp.assets ?? []).filter((a) => a.isArchived !== true);
+      const localAssetFiles = new Set((data.assetFiles ?? []).filter(Boolean));
+      const cloudAssetFiles = new Set(
+        cloudActiveAssets
+          .map((a) => a.fileName)
+          .filter((fileName): fileName is string => typeof fileName === 'string' && fileName !== '')
+      );
+      const assetsDiffer =
+        cloudAssetFiles.size !== localAssetFiles.size ||
+        [...cloudAssetFiles].some((fileName) => !localAssetFiles.has(fileName));
+      if (assetsDiffer) {
+        ui.note('Skipping assets (options.assets: false in ensemble.config.json).');
+      }
+    }
 
     const assetFileNames = data.assetFiles ?? [];
     const envPush = await prepareEnvPushState({
@@ -307,6 +325,7 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
       cloudEnv: { config: cloudApp.config, secrets: cloudApp.secrets },
       assetFileNames,
       cloudAssets: cloudApp.assets,
+      assetsSyncEnabled: assetsEnabled,
     });
     const {
       diff: envPushDiff,
