@@ -110,7 +110,17 @@ Commands use the resolved pair for the selected `--app` alias (see resolution ru
 
 ### Release use
 
-- `ensemble release use` restores snapshot config into the same write target as pull (scoped or base).
+- `ensemble release use` restores snapshot config and secrets into the same write targets as pull (scoped or base).
+- `release create` and `release use` require `ENSEMBLE_ENCRYPTION_KEY` in the alias secrets file (`.env.secrets` or `.env.secrets.<alias>`). Generate with `openssl rand -hex 32`.
+- Snapshots are stored encrypted as `.enc.json` in Firebase Storage. Download uses normal Firebase Storage auth; access is enforced by Storage rules (app collaborators).
+
+### Release encryption (CDN vs CLI)
+
+| Key                       | CDN publish                              | CLI releases                                     |
+| ------------------------- | ---------------------------------------- | ------------------------------------------------ |
+| `ENSEMBLE_ENCRYPTION_KEY` | Encrypts `encrypted-manifest.json` on R2 | Encrypts release `.enc.json` on Firebase Storage |
+
+CDN may also use `ENSEMBLE_MANIFEST_KEY` for Cloudflare WAF. CLI releases do not use a manifest key.
 
 ---
 

@@ -171,11 +171,21 @@ Details: [docs/Env-config-aliases.md](docs/Env-config-aliases.md).
 
 ### Versions / releases (snapshots)
 
-You can save and use snapshots of your app state in the cloud:
+You can save and use snapshots of your app state in the cloud. Releases are **always encrypted** and require `ENSEMBLE_ENCRYPTION_KEY` in your alias secrets file:
 
-- **Create a release from local state:** After you have local changes you want to “tag”, run **`ensemble release create`** to save a snapshot (release) of the **current local app state** with an optional message.
-- **List releases:** Run **`ensemble release list`** to see recent releases.
-- **Use a release locally:** Run **`ensemble release use`** to choose a release and update **local files only** to that snapshot. Then run **`ensemble push`** to apply that state to the cloud.
+```bash
+openssl rand -hex 32   # add to .env.secrets or .env.secrets.<alias>
+```
+
+`release create` and `release use` read the same alias-scoped secrets file as `push` / `pull`.
+
+- **Create:** `ensemble release create` — encrypts snapshot (AES-256-GCM) to `.enc.json` in Storage.
+- **List:** `ensemble release list`
+- **Use:** `ensemble release use` — downloads from Storage (Firebase auth), decrypts locally, restores files + secrets.
+
+Legacy plain `.json` releases are not supported. Re-create after adding the encryption key.
+
+**Firebase Storage rules (prod):** Restrict `releases/{appId}/*` to app collaborators via Firestore `get()` (see team lead / ops). Encryption protects snapshot contents; rules control who can download ciphertext.
 
 When you run `ensemble release` **without a subcommand** in an interactive terminal, the CLI opens an interactive menu that lets you choose between **create**, **list**, and **use**. In non-interactive environments (e.g. CI), you must call an explicit subcommand such as `ensemble release list` or `ensemble release use --hash <hash>`.
 

@@ -42,4 +42,20 @@ describe('withSpinner', () => {
     const calls = writeSpy.mock.calls.map((c) => c[0]);
     expect(calls.some((s) => typeof s === 'string' && s.includes('✗'))).toBe(true);
   });
+
+  it('skips spinner output when ENSEMBLE_NO_SPINNER is set', async () => {
+    const original = process.env.ENSEMBLE_NO_SPINNER;
+    process.env.ENSEMBLE_NO_SPINNER = '1';
+    writeSpy.mockClear();
+
+    const result = await withSpinner('Quiet', async () => 'ok');
+
+    expect(result).toBe('ok');
+    expect(writeSpy).not.toHaveBeenCalled();
+    if (original === undefined) {
+      delete process.env.ENSEMBLE_NO_SPINNER;
+    } else {
+      process.env.ENSEMBLE_NO_SPINNER = original;
+    }
+  });
 });

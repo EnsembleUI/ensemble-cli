@@ -162,7 +162,7 @@ describe('applyCloudStateToFs', () => {
     await expect(fs.access(path.join(projectRoot, 'screens', 'Home.yaml'))).rejects.toThrow();
   });
 
-  it('writes .manifest.json when manifestOptions provided', async () => {
+  it('writes .manifest.json when refreshManifest is true', async () => {
     const cloudApp: CloudApp = {
       id: 'app1',
       name: 'App',
@@ -182,7 +182,7 @@ describe('applyCloudStateToFs', () => {
     };
 
     await applyCloudStateToFs(projectRoot, cloudApp, localFiles, allEnabled, {
-      manifestOptions: {},
+      refreshManifest: true,
     });
 
     const manifestPath = path.join(projectRoot, '.manifest.json');

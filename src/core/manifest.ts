@@ -11,8 +11,6 @@ export type RootManifest = Record<string, unknown> & {
   languages?: string[];
 };
 
-export type BuildManifestOptions = Record<string, never>;
-
 /** Preserve existing manifest entries by name and order; only add minimal { name } for new ones. */
 function mergeByName<T extends { name: string }>(
   existing: T[] | undefined,
@@ -33,51 +31,154 @@ function mergeByName<T extends { name: string }>(
   return [...keptExisting, ...appended];
 }
 
-export function buildManifestObject(
-  existing: RootManifest,
-  cloudApp: CloudApp,
-  options: BuildManifestOptions = {}
-): RootManifest {
-  void options;
+function mergeLanguageNames(existing: string[] | undefined, cloudNames: string[]): string[] {
+  return mergeByName(
+    (existing ?? []).map((name) => ({ name })),
+    cloudNames
+  ).map((entry) => entry.name);
+}
 
-  const cloudWidgetNames = (cloudApp.widgets ?? [])
+function mergeSnapshotNameList<T extends { name: string }>(
+  existing: T[] | undefined,
+  snapshotNames: string[]
+): T[] {
+  const existingByName = new Map((existing ?? []).map((entry) => [entry.name, entry]));
+  return snapshotNames.map((name) => {
+    const kept = existingByName.get(name);
+    return kept ? { ...kept, name } : ({ name } as T);
+  });
+}
+
+/** Sync snapshot list fields into an existing manifest; preserve other keys and entry metadata. */
+export function mergeManifestFromSnapshot(
+  existing: RootManifest,
+  cloudApp: CloudApp
+): RootManifest {
+  const widgetNames = (cloudApp.widgets ?? [])
     .filter((w) => w.isArchived !== true)
     .map((w) => w.name);
-  const widgets = mergeByName(existing.widgets, cloudWidgetNames);
-
-  const cloudScriptNames = (cloudApp.scripts ?? [])
+  const scriptNames = (cloudApp.scripts ?? [])
     .filter((s) => s.isArchived !== true)
     .map((s) => s.name);
-  const scripts = mergeByName(existing.scripts, cloudScriptNames);
-
-  const cloudActionNames = (cloudApp.actions ?? [])
+  const actionNames = (cloudApp.actions ?? [])
     .filter((a) => a.isArchived !== true)
     .map((a) => a.name);
-  const actions = mergeByName(existing.actions, cloudActionNames);
 
   const translations = (cloudApp.translations ?? []).filter((t) => t.isArchived !== true);
   const languages = translations.map((t) => t.name);
-  const defaultLanguage =
-    translations.find((t) => t.defaultLocale === true)?.name ??
-    (typeof existing.defaultLanguage === 'string' ? existing.defaultLanguage : undefined) ??
-    languages[0];
+  const defaultLanguage = translations.find((t) => t.defaultLocale === true)?.name ?? languages[0];
+
+  const merged: RootManifest = { ...existing };
+
+  for (const [key, names] of [
+    ['widgets', widgetNames],
+    ['scripts', scriptNames],
+    ['actions', actionNames],
+  ] as const) {
+    if (names.length === 0) {
+      if (key in existing) {
+        merged[key] = [];
+      } else {
+        delete merged[key];
+      }
+    } else {
+      merged[key] = mergeSnapshotNameList(merged[key] as { name: string }[] | undefined, names);
+    }
+  }
+
+  if (languages.length === 0) {
+    if ('languages' in existing) {
+      merged.languages = [];
+    } else {
+      delete merged.languages;
+    }
+    if (!('defaultLanguage' in existing) || languages.length > 0) {
+      delete merged.defaultLanguage;
+    }
+  } else {
+    merged.languages = languages;
+    if (defaultLanguage) {
+      merged.defaultLanguage = defaultLanguage;
+    } else {
+      delete merged.defaultLanguage;
+    }
+  }
+
+  return merged;
+}
+
+export async function writeManifestFromSnapshot(
+  projectRoot: string,
+  cloudApp: CloudApp
+): Promise<void> {
+  const existing = await readProjectManifest(projectRoot);
+  const manifest = mergeManifestFromSnapshot(existing, cloudApp);
+  await fs.writeFile(
+    path.join(projectRoot, '.manifest.json'),
+    `${JSON.stringify(manifest, null, 2)}\n`,
+    'utf8'
+  );
+}
+
+/** Merge cloud lists into an existing manifest (pull/push). */
+export function buildManifestObject(existing: RootManifest, cloudApp: CloudApp): RootManifest {
+  const cloudWidgetNames = (cloudApp.widgets ?? [])
+    .filter((w) => w.isArchived !== true)
+    .map((w) => w.name);
+  const cloudScriptNames = (cloudApp.scripts ?? [])
+    .filter((s) => s.isArchived !== true)
+    .map((s) => s.name);
+  const cloudActionNames = (cloudApp.actions ?? [])
+    .filter((a) => a.isArchived !== true)
+    .map((a) => a.name);
+
+  const translations = (cloudApp.translations ?? []).filter((t) => t.isArchived !== true);
+  const languages = translations.map((t) => t.name);
+  const cloudDefault = translations.find((t) => t.defaultLocale === true)?.name;
+
+  const widgets = mergeByName(existing.widgets, cloudWidgetNames);
+  const scripts = mergeByName(existing.scripts, cloudScriptNames);
+  const actions = mergeByName(existing.actions, cloudActionNames);
+  const mergedLanguages = mergeLanguageNames(existing.languages, languages);
+
+  const existingDefault =
+    typeof existing.defaultLanguage === 'string' ? existing.defaultLanguage : undefined;
+  const mergedDefaultLanguage =
+    cloudDefault ??
+    (existingDefault && mergedLanguages.includes(existingDefault) ? existingDefault : undefined) ??
+    mergedLanguages[0];
 
   const merged: RootManifest = {
     ...existing,
-    widgets,
-    scripts,
-    actions,
-    ...(languages.length > 0 ? { languages } : {}),
-    ...(defaultLanguage ? { defaultLanguage } : {}),
+    languages: mergedLanguages,
   };
+
+  for (const [key, value] of [
+    ['widgets', widgets],
+    ['scripts', scripts],
+    ['actions', actions],
+  ] as const) {
+    if (value.length > 0) {
+      merged[key] = value;
+    } else if (key in existing) {
+      merged[key] = value;
+    } else {
+      delete merged[key];
+    }
+  }
+
+  if (mergedLanguages.length > 0 && mergedDefaultLanguage) {
+    merged.defaultLanguage = mergedDefaultLanguage;
+  } else {
+    delete merged.defaultLanguage;
+  }
 
   return merged;
 }
 
 export async function buildAndWriteManifest(
   projectRoot: string,
-  cloudApp: CloudApp,
-  options: BuildManifestOptions = {}
+  cloudApp: CloudApp
 ): Promise<void> {
   const manifestPath = path.join(projectRoot, '.manifest.json');
   let existing: RootManifest = {};
@@ -88,8 +189,27 @@ export async function buildAndWriteManifest(
     existing = {};
   }
 
-  const merged = buildManifestObject(existing, cloudApp, options);
-  await fs.writeFile(manifestPath, JSON.stringify(merged, null, 2) + '\n', 'utf8');
+  const merged = buildManifestObject(existing, cloudApp);
+  await fs.writeFile(manifestPath, `${JSON.stringify(merged, null, 2)}\n`, 'utf8');
+}
+
+export async function readProjectManifest(projectRoot: string): Promise<RootManifest> {
+  return readRootManifest(path.join(projectRoot, '.manifest.json'));
+}
+
+export function orderByManifestNames<T extends { name: string }>(
+  items: T[],
+  manifestNames: string[] | undefined
+): T[] {
+  if (!manifestNames?.length) {
+    return items;
+  }
+  const order = new Map(manifestNames.map((name, index) => [name, index]));
+  return [...items].sort((a, b) => {
+    const ai = order.get(a.name) ?? Number.MAX_SAFE_INTEGER;
+    const bi = order.get(b.name) ?? Number.MAX_SAFE_INTEGER;
+    return ai - bi || a.name.localeCompare(b.name);
+  });
 }
 
 async function readRootManifest(manifestPath: string): Promise<RootManifest> {
@@ -102,7 +222,7 @@ async function readRootManifest(manifestPath: string): Promise<RootManifest> {
 }
 
 async function writeRootManifest(manifestPath: string, manifest: RootManifest): Promise<void> {
-  await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
+  await fs.writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
 }
 
 export async function upsertManifestEntry(
