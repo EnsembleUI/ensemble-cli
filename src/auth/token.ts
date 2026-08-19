@@ -45,3 +45,10 @@ export function isTokenExpired(idToken: string, bufferSeconds = 60): boolean {
   if (expiry === undefined) return true;
   return expiry <= Date.now() + bufferSeconds * 1000;
 }
+
+/** True only when JWT exp is present and already past (no proactive buffer). Missing exp => false. */
+export function isTokenPastExpiry(idToken: string): boolean {
+  const expiry = getIdTokenExpiryMs(idToken);
+  if (expiry === undefined) return false;
+  return expiry <= Date.now();
+}
