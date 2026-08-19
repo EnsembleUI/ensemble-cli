@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { decodeIdTokenClaims, getIdTokenExpiryMs, isTokenExpired } from '../../src/auth/token.js';
+import {
+  decodeIdTokenClaims,
+  getIdTokenExpiryMs,
+  isTokenExpired,
+  isTokenPastExpiry,
+} from '../../src/auth/token.js';
 
 function base64urlEncode(str: string): string {
   return Buffer.from(str, 'utf8')
@@ -116,5 +121,40 @@ describe('isTokenExpired', () => {
     vi.setSystemTime(new Date('2025-01-01T12:00:00Z'));
     const token = makeJwt({ userId: 'u1' });
     expect(isTokenExpired(token)).toBe(true);
+  });
+});
+
+describe('isTokenPastExpiry', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('returns false when token is not past expiry', () => {
+    vi.setSystemTime(new Date('2025-01-01T12:00:00Z'));
+    const token = makeJwt({ userId: 'u1', exp: 1735736400 });
+    expect(isTokenPastExpiry(token)).toBe(false);
+  });
+
+  it('returns true when token exp is in the past', () => {
+    vi.setSystemTime(new Date('2025-01-01T13:00:00Z'));
+    const token = makeJwt({ userId: 'u1', exp: 1735732800 });
+    expect(isTokenPastExpiry(token)).toBe(true);
+  });
+
+  it('returns false when jwt has no exp claim', () => {
+    vi.setSystemTime(new Date('2025-01-01T12:00:00Z'));
+    const token = makeJwt({ userId: 'u1' });
+    expect(isTokenPastExpiry(token)).toBe(false);
+  });
+
+  it('returns false when token is within proactive buffer but not past exp', () => {
+    vi.setSystemTime(new Date('2025-01-01T12:59:30Z'));
+    const token = makeJwt({ userId: 'u1', exp: 1735736400 });
+    expect(isTokenExpired(token, 60)).toBe(true);
+    expect(isTokenPastExpiry(token)).toBe(false);
   });
 });

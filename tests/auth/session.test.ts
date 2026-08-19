@@ -20,17 +20,33 @@ function makeJwt(payload: Record<string, unknown>): string {
   return `${header}.${payloadB64}.${base64url('sig')}`;
 }
 
+function mockRefreshFetchResponse(params: {
+  ok: boolean;
+  status?: number;
+  body?: unknown;
+  text?: string;
+}) {
+  const bodyText = params.text ?? JSON.stringify(params.body ?? {});
+  return {
+    ok: params.ok,
+    status: params.status ?? (params.ok ? 200 : 400),
+    text: async () => bodyText,
+  };
+}
+
 describe('getValidAuthSession', () => {
   const originalEnv = process.env.ENSEMBLE_FIREBASE_API_KEY;
   const originalToken = process.env.ENSEMBLE_TOKEN;
 
   beforeEach(() => {
     vi.mocked(globalConfig.readGlobalConfig).mockReset();
+    vi.mocked(globalConfig.writeGlobalConfig).mockReset();
     process.env.ENSEMBLE_FIREBASE_API_KEY = 'test-api-key';
     delete process.env.ENSEMBLE_TOKEN;
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     process.env.ENSEMBLE_FIREBASE_API_KEY = originalEnv;
     if (originalToken !== undefined) process.env.ENSEMBLE_TOKEN = originalToken;
     else delete process.env.ENSEMBLE_TOKEN;
@@ -44,14 +60,16 @@ describe('getValidAuthSession', () => {
       exp: Math.floor(Date.now() / 1000) + 3600,
     });
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        id_token: newToken,
-        refresh_token: 'env-refresh-token',
-        expires_in: '3600',
-      }),
-    });
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      mockRefreshFetchResponse({
+        ok: true,
+        body: {
+          id_token: newToken,
+          refresh_token: 'env-refresh-token',
+          expires_in: '3600',
+        },
+      })
+    );
 
     const result = await getValidAuthSession();
 
@@ -69,11 +87,14 @@ describe('getValidAuthSession', () => {
   it('returns expired when ENSEMBLE_TOKEN is set but refresh fails', async () => {
     process.env.ENSEMBLE_TOKEN = 'bad-refresh-token';
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 400,
-      json: async () => ({ error: { message: 'INVALID_GRANT' } }),
-    });
+    const fetchMock = vi.fn().mockResolvedValue(
+      mockRefreshFetchResponse({
+        ok: false,
+        status: 400,
+        body: { error: { message: 'INVALID_GRANT' } },
+      })
+    );
+    globalThis.fetch = fetchMock;
 
     const result = await getValidAuthSession();
 
@@ -81,10 +102,12 @@ describe('getValidAuthSession', () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.reason).toBe('expired');
+      expect(result.message).toContain('INVALID_GRANT');
       expect(result.message).toContain('ENSEMBLE_TOKEN');
       expect(result.message).toContain('ensemble token');
     }
     expect(globalConfig.readGlobalConfig).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('returns not_logged_in when no config', async () => {
@@ -171,13 +194,23 @@ describe('getValidAuthSession', () => {
         refreshToken: 'refresh-token',
       },
     });
-    delete process.env.ENSEMBLE_FIREBASE_API_KEY;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      mockRefreshFetchResponse({
+        ok: false,
+        status: 400,
+        body: { error: { message: 'INVALID_GRANT' } },
+      })
+    );
 
     const result = await getValidAuthSession();
+
+    globalThis.fetch = originalFetch;
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.reason).toBe('expired');
+      expect(result.message).toContain('INVALID_GRANT');
       expect(result.message).toContain('Run `ensemble login` again.');
     }
   });
@@ -224,31 +257,25 @@ describe('getValidAuthSession', () => {
       email: 'a@b.com',
       exp: Math.floor(Date.now() / 1000) + 3600,
     });
-    vi.mocked(globalConfig.readGlobalConfig)
-      .mockResolvedValueOnce({
-        user: {
-          uid: 'u1',
-          idToken: oldToken,
-          refreshToken: 'refresh-123',
-        },
-      })
-      .mockResolvedValue({
-        user: {
-          uid: 'u1',
-          idToken: newToken,
-          refreshToken: 'refresh-123',
-        },
-      });
+    vi.mocked(globalConfig.readGlobalConfig).mockResolvedValue({
+      user: {
+        uid: 'u1',
+        idToken: oldToken,
+        refreshToken: 'refresh-123',
+      },
+    });
 
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        id_token: newToken,
-        refresh_token: 'refresh-456',
-        expires_in: '3600',
-      }),
-    });
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      mockRefreshFetchResponse({
+        ok: true,
+        body: {
+          id_token: newToken,
+          refresh_token: 'refresh-456',
+          expires_in: '3600',
+        },
+      })
+    );
 
     const result = await getValidAuthSession();
 
@@ -260,5 +287,230 @@ describe('getValidAuthSession', () => {
       expect(result.refreshed).toBe(true);
     }
     expect(globalConfig.writeGlobalConfig).toHaveBeenCalled();
+  });
+
+  it('retries refresh when first attempt fails transiently then succeeds', async () => {
+    vi.useFakeTimers();
+    const oldToken = makeJwt({
+      userId: 'u1',
+      exp: Math.floor(Date.now() / 1000) - 3600,
+    });
+    const newToken = makeJwt({
+      userId: 'u1',
+      email: 'a@b.com',
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    });
+    vi.mocked(globalConfig.readGlobalConfig).mockResolvedValue({
+      user: {
+        uid: 'u1',
+        idToken: oldToken,
+        refreshToken: 'refresh-123',
+      },
+    });
+
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('fetch failed'))
+      .mockResolvedValueOnce(
+        mockRefreshFetchResponse({
+          ok: true,
+          body: {
+            id_token: newToken,
+            refresh_token: 'refresh-456',
+            expires_in: '3600',
+          },
+        })
+      );
+    globalThis.fetch = fetchMock;
+
+    const resultPromise = getValidAuthSession();
+    await vi.advanceTimersByTimeAsync(200);
+    const result = await resultPromise;
+
+    globalThis.fetch = originalFetch;
+
+    expect(result.ok).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(globalConfig.writeGlobalConfig).toHaveBeenCalled();
+  });
+
+  it('retries refresh on 503 then succeeds', async () => {
+    vi.useFakeTimers();
+    const oldToken = makeJwt({
+      userId: 'u1',
+      exp: Math.floor(Date.now() / 1000) - 3600,
+    });
+    const newToken = makeJwt({
+      userId: 'u1',
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    });
+    vi.mocked(globalConfig.readGlobalConfig).mockResolvedValue({
+      user: {
+        uid: 'u1',
+        idToken: oldToken,
+        refreshToken: 'refresh-123',
+      },
+    });
+
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        mockRefreshFetchResponse({
+          ok: false,
+          status: 503,
+          body: { error: { message: 'UNAVAILABLE' } },
+        })
+      )
+      .mockResolvedValueOnce(
+        mockRefreshFetchResponse({
+          ok: true,
+          body: { id_token: newToken, refresh_token: 'refresh-456' },
+        })
+      );
+    globalThis.fetch = fetchMock;
+
+    const resultPromise = getValidAuthSession();
+    await vi.advanceTimersByTimeAsync(200);
+    const result = await resultPromise;
+
+    globalThis.fetch = originalFetch;
+
+    expect(result.ok).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('falls back to stored token when refresh fails within proactive buffer', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2025-01-01T12:59:30Z'));
+    const bufferToken = makeJwt({ userId: 'u1', email: 'a@b.com', exp: 1735736400 });
+    vi.mocked(globalConfig.readGlobalConfig).mockResolvedValue({
+      user: {
+        uid: 'u1',
+        email: 'a@b.com',
+        idToken: bufferToken,
+        refreshToken: 'refresh-123',
+      },
+    });
+
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi.fn().mockRejectedValue(new Error('fetch failed'));
+    globalThis.fetch = fetchMock;
+
+    const resultPromise = getValidAuthSession();
+    await vi.advanceTimersByTimeAsync(500);
+    const result = await resultPromise;
+
+    globalThis.fetch = originalFetch;
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.idToken).toBe(bufferToken);
+      expect(result.refreshed).toBe(false);
+    }
+    expect(globalConfig.writeGlobalConfig).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('returns expired with underlying reason when token is past exp and refresh fails', async () => {
+    vi.useFakeTimers();
+    const expiredToken = makeJwt({
+      userId: 'u1',
+      exp: Math.floor(Date.now() / 1000) - 3600,
+    });
+    vi.mocked(globalConfig.readGlobalConfig).mockResolvedValue({
+      user: {
+        uid: 'u1',
+        idToken: expiredToken,
+        refreshToken: 'refresh-token',
+      },
+    });
+
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi.fn().mockRejectedValue(new Error('fetch failed'));
+    globalThis.fetch = fetchMock;
+
+    const resultPromise = getValidAuthSession();
+    await vi.advanceTimersByTimeAsync(500);
+    const result = await resultPromise;
+
+    globalThis.fetch = originalFetch;
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.message).toContain('fetch failed');
+      expect(result.message).toContain('Run `ensemble login` again.');
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('falls back to stored token when jwt has no exp and refresh fails', async () => {
+    vi.useFakeTimers();
+    const tokenWithoutExp = makeJwt({ userId: 'u1', email: 'a@b.com' });
+    vi.mocked(globalConfig.readGlobalConfig).mockResolvedValue({
+      user: {
+        uid: 'u1',
+        email: 'a@b.com',
+        idToken: tokenWithoutExp,
+        refreshToken: 'refresh-123',
+      },
+    });
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn().mockRejectedValue(new Error('fetch failed'));
+
+    const resultPromise = getValidAuthSession();
+    await vi.advanceTimersByTimeAsync(500);
+    const result = await resultPromise;
+
+    globalThis.fetch = originalFetch;
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.idToken).toBe(tokenWithoutExp);
+      expect(result.refreshed).toBe(false);
+    }
+    expect(globalConfig.writeGlobalConfig).not.toHaveBeenCalled();
+  });
+
+  it('retries on empty response body then succeeds', async () => {
+    vi.useFakeTimers();
+    const oldToken = makeJwt({
+      userId: 'u1',
+      exp: Math.floor(Date.now() / 1000) - 3600,
+    });
+    const newToken = makeJwt({
+      userId: 'u1',
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    });
+    vi.mocked(globalConfig.readGlobalConfig).mockResolvedValue({
+      user: {
+        uid: 'u1',
+        idToken: oldToken,
+        refreshToken: 'refresh-123',
+      },
+    });
+
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(mockRefreshFetchResponse({ ok: true, text: '' }))
+      .mockResolvedValueOnce(
+        mockRefreshFetchResponse({
+          ok: true,
+          body: { id_token: newToken, refresh_token: 'refresh-456' },
+        })
+      );
+    globalThis.fetch = fetchMock;
+
+    const resultPromise = getValidAuthSession();
+    await vi.advanceTimersByTimeAsync(200);
+    const result = await resultPromise;
+
+    globalThis.fetch = originalFetch;
+
+    expect(result.ok).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

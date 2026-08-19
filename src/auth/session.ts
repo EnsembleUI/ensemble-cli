@@ -3,10 +3,12 @@ import {
   writeGlobalConfig,
   type EnsembleUserConfig,
 } from '../config/globalConfig.js';
-import { decodeIdTokenClaims, isTokenExpired } from './token.js';
+import { decodeIdTokenClaims, isTokenExpired, isTokenPastExpiry } from './token.js';
 import { getEnsembleFirebaseApiKey } from '../config/env.js';
 
 const DEFAULT_REFRESH_API_BASE = 'https://securetoken.googleapis.com/v1/token';
+const REFRESH_MAX_ATTEMPTS = 3;
+const REFRESH_RETRY_DELAY_MS = 200;
 
 interface RefreshTokenResponse {
   id_token?: string;
@@ -16,6 +18,16 @@ interface RefreshTokenResponse {
   error?: {
     message?: string;
   };
+}
+
+class TokenRefreshError extends Error {
+  readonly retryable: boolean;
+
+  constructor(message: string, retryable: boolean) {
+    super(message);
+    this.name = 'TokenRefreshError';
+    this.retryable = retryable;
+  }
 }
 
 export type AuthSessionResult =
@@ -33,6 +45,68 @@ export type AuthSessionResult =
       message: string;
     };
 
+function isRetryableRefreshStatus(status: number): boolean {
+  return status === 429 || status >= 500;
+}
+
+function parseRefreshResponseBody(text: string): RefreshTokenResponse {
+  if (!text.trim()) {
+    throw new TokenRefreshError('Token refresh failed: empty response body', true);
+  }
+
+  try {
+    return JSON.parse(text) as RefreshTokenResponse;
+  } catch {
+    throw new TokenRefreshError('Token refresh failed: invalid JSON response', true);
+  }
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function refreshIdTokenOnce(
+  refreshToken: string,
+  apiKey: string
+): Promise<{
+  idToken: string;
+  refreshToken: string;
+  userId?: string;
+}> {
+  const refreshUrl = `${DEFAULT_REFRESH_API_BASE}?key=${encodeURIComponent(apiKey)}`;
+  const body = new URLSearchParams({
+    grant_type: 'refresh_token',
+    refresh_token: refreshToken,
+  });
+
+  let res: Response;
+  try {
+    res = await fetch(refreshUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'network error';
+    throw new TokenRefreshError(`Token refresh failed: ${message}`, true);
+  }
+
+  const text = await res.text();
+  const data = parseRefreshResponseBody(text);
+
+  if (!res.ok || !data.id_token) {
+    const reason = data?.error?.message ?? `HTTP ${res.status}`;
+    const retryable = isRetryableRefreshStatus(res.status);
+    throw new TokenRefreshError(`Token refresh failed: ${reason}`, retryable);
+  }
+
+  return {
+    idToken: data.id_token,
+    refreshToken: data.refresh_token ?? refreshToken,
+    userId: data.user_id,
+  };
+}
+
 async function refreshIdToken(refreshToken: string): Promise<{
   idToken: string;
   refreshToken: string;
@@ -43,29 +117,22 @@ async function refreshIdToken(refreshToken: string): Promise<{
     throw new Error('Missing Firebase API key for token refresh. Set ENSEMBLE_FIREBASE_API_KEY.');
   }
 
-  const refreshUrl = `${DEFAULT_REFRESH_API_BASE}?key=${encodeURIComponent(apiKey)}`;
-  const body = new URLSearchParams({
-    grant_type: 'refresh_token',
-    refresh_token: refreshToken,
-  });
+  let lastError: Error = new Error('Token refresh failed.');
 
-  const res = await fetch(refreshUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body,
-  });
-
-  const data = (await res.json()) as RefreshTokenResponse;
-  if (!res.ok || !data.id_token) {
-    const reason = data?.error?.message ?? `HTTP ${res.status}`;
-    throw new Error(`Token refresh failed: ${reason}`);
+  for (let attempt = 1; attempt <= REFRESH_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      return await refreshIdTokenOnce(refreshToken, apiKey);
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error('Token refresh failed.');
+      const retryable = err instanceof TokenRefreshError && err.retryable;
+      if (!retryable || attempt === REFRESH_MAX_ATTEMPTS) {
+        break;
+      }
+      await sleep(REFRESH_RETRY_DELAY_MS);
+    }
   }
 
-  return {
-    idToken: data.id_token,
-    refreshToken: data.refresh_token ?? refreshToken,
-    userId: data.user_id,
-  };
+  throw lastError;
 }
 
 const ENSEMBLE_TOKEN_ENV = 'ENSEMBLE_TOKEN';
@@ -99,6 +166,17 @@ async function sessionFromEnvToken(): Promise<AuthSessionResult> {
   }
 }
 
+function sessionFromStoredUser(user: NonNullable<EnsembleUserConfig['user']>): AuthSessionResult {
+  return {
+    ok: true,
+    idToken: user.idToken,
+    userId: user.uid,
+    name: user.name,
+    email: user.email,
+    refreshed: false,
+  };
+}
+
 export async function getValidAuthSession(): Promise<AuthSessionResult> {
   const fromEnv = await sessionFromEnvToken();
   if (fromEnv.ok) return fromEnv;
@@ -117,14 +195,7 @@ export async function getValidAuthSession(): Promise<AuthSessionResult> {
   }
 
   if (!isTokenExpired(user.idToken)) {
-    return {
-      ok: true,
-      idToken: user.idToken,
-      userId: user.uid,
-      name: user.name,
-      email: user.email,
-      refreshed: false,
-    };
+    return sessionFromStoredUser(user);
   }
 
   if (!user.refreshToken) {
@@ -159,11 +230,16 @@ export async function getValidAuthSession(): Promise<AuthSessionResult> {
       email: updatedUser.email,
       refreshed: true,
     };
-  } catch {
+  } catch (err) {
+    if (!isTokenPastExpiry(user.idToken)) {
+      return sessionFromStoredUser(user);
+    }
+
+    const reason = err instanceof Error ? err.message : 'Token refresh failed.';
     return {
       ok: false,
       reason: 'expired',
-      message: `Session expired and automatic refresh failed. Run \`ensemble login\` again.`,
+      message: `Session expired and automatic refresh failed: ${reason}. Run \`ensemble login\` again.`,
     };
   }
 }
