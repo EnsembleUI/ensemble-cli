@@ -330,8 +330,7 @@ function buildYamlPushItems(
   diff: { changed: ArtifactWithContent[]; new: ArtifactWithContent[] },
   cloudItems: ArtifactWithContent[] | undefined,
   bundleItems:
-    | (ArtifactWithContent & { type?: string; updatedAt?: string; updatedBy?: object })[]
-    | undefined,
+    (ArtifactWithContent & { type?: string; updatedAt?: string; updatedBy?: object })[] | undefined,
   cloudById: Map<
     string,
     ArtifactWithContent & { type?: string; updatedAt?: string; updatedBy?: object }

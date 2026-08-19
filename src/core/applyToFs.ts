@@ -26,8 +26,7 @@ export interface ApplyCloudStateToFsOptions {
 }
 
 type WriteTask =
-  | { op: 'write'; filePath: string; content: string }
-  | { op: 'delete'; filePath: string };
+  { op: 'write'; filePath: string; content: string } | { op: 'delete'; filePath: string };
 
 /**
  * Write local artifact files to match the given cloud/snapshot state.
@@ -66,8 +65,7 @@ export async function applyCloudStateToFs(
     await ensureDir(baseDir);
 
     const cloudItems = (cloudApp as Record<string, unknown>)[prop] as
-      | { name: string; content?: string; isArchived?: boolean }[]
-      | undefined;
+      { name: string; content?: string; isArchived?: boolean }[] | undefined;
 
     const expected: Record<string, string> = {};
     for (const item of cloudItems ?? []) {
@@ -76,8 +74,7 @@ export async function applyCloudStateToFs(
     }
 
     const actual = (localFiles as unknown as Record<string, unknown>)[prop] as
-      | Record<string, string>
-      | undefined;
+      Record<string, string> | undefined;
     const actualMap = actual ?? {};
 
     const expectedKeys = new Set(Object.keys(expected));
