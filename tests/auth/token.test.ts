@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { decodeIdTokenClaims, getIdTokenExpiryMs, isTokenExpired, isTokenPastExpiry } from '../../src/auth/token.js';
+import {
+  decodeIdTokenClaims,
+  getIdTokenExpiryMs,
+  isTokenExpired,
+  isTokenPastExpiry,
+} from '../../src/auth/token.js';
 
 function base64urlEncode(str: string): string {
   return Buffer.from(str, 'utf8')
