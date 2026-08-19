@@ -86,7 +86,16 @@ const cloudModuleMock = vi.hoisted(() => {
   };
 });
 
-vi.mock('../../src/cloud/firestoreClient.js', () => cloudModuleMock);
+vi.mock('../../src/cloud/firestoreClient.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/cloud/firestoreClient.js')>();
+  return {
+    ...actual,
+    checkAppAccess: cloudModuleMock.checkAppAccess,
+    fetchCloudApp: cloudModuleMock.fetchCloudApp,
+    submitCliPush: cloudModuleMock.submitCliPush,
+    submitEnvDocumentsPush: cloudModuleMock.submitEnvDocumentsPush,
+  };
+});
 
 const assetClientMock = vi.hoisted(() => ({
   uploadAssetToStudio: vi.fn(async (_appId: string, fileName: string) => ({
@@ -101,6 +110,18 @@ const assetClientMock = vi.hoisted(() => ({
 }));
 
 vi.mock('../../src/cloud/assetClient.js', () => assetClientMock);
+
+const cdnClientMock = vi.hoisted(() => ({
+  createAppManifest: vi.fn(async () => {}),
+}));
+
+vi.mock('../../src/cloud/cdnClient.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/cloud/cdnClient.js')>();
+  return {
+    ...actual,
+    createAppManifest: cdnClientMock.createAppManifest,
+  };
+});
 
 const promptsModuleMock = vi.hoisted(() => ({
   default: vi.fn(async () => ({ proceed: true })),
@@ -165,6 +186,8 @@ describe('push/pull integration (commands)', () => {
     expect(submitCliPush).toHaveBeenCalledTimes(1);
     const [appId, , payload] = submitCliPush.mock.calls[0] as [string, string, unknown];
     expect(appId).toBe('app1');
+    expect(cdnClientMock.createAppManifest).toHaveBeenCalledTimes(1);
+    expect(cdnClientMock.createAppManifest).toHaveBeenCalledWith('app1', 'token');
     const p = payload as {
       translations?: {
         operation: string;
@@ -276,6 +299,7 @@ describe('push/pull integration (commands)', () => {
       submitCliPush: ReturnType<typeof vi.fn>;
     };
     expect(submitCliPush).not.toHaveBeenCalled();
+    expect(cdnClientMock.createAppManifest).not.toHaveBeenCalled();
 
     // Dry run output should clearly indicate non-destructive behavior and how to apply.
     const lines = logSpy.mock.calls.map(([msg]) => String(msg));
@@ -544,6 +568,7 @@ describe('push/pull integration (commands)', () => {
     await pushCommand({ verbose: false, yes: true });
 
     expect(submitCliPush).not.toHaveBeenCalled();
+    expect(cdnClientMock.createAppManifest).not.toHaveBeenCalled();
     const messages = logSpy.mock.calls.map((args) => args[0]);
     expect(
       messages.some(
@@ -593,6 +618,7 @@ describe('push/pull integration (commands)', () => {
     await pushCommand({ verbose: false, yes: true });
 
     expect(submitCliPush).not.toHaveBeenCalled();
+    expect(cdnClientMock.createAppManifest).not.toHaveBeenCalled();
     const messages = logSpy.mock.calls.map((args) => args[0]);
     expect(
       messages.some(
@@ -602,7 +628,6 @@ describe('push/pull integration (commands)', () => {
 
     logSpy.mockRestore();
   });
-
   it('pull respects app options and does not overwrite disabled artifact kinds', async () => {
     // Disable screens in app options
     appOptionsRef.value = { screens: false };
@@ -1039,6 +1064,49 @@ describe('push/pull integration (commands)', () => {
     )[2];
     expect(payload.config?.envVariables?.API_URL).toBe('https://local.example.com');
     expect(payload.secrets?.secrets?.S1).toBe('local-secret');
+    expect(cdnClientMock.createAppManifest).toHaveBeenCalledTimes(1);
+    expect(cdnClientMock.createAppManifest).toHaveBeenCalledWith('app1', 'token');
+  });
+
+  it('push fails when CDN sync fails after cloud push', async () => {
+    await fs.writeFile(path.join(projectRoot, 'screens', 'Home.yaml'), 'home: content', 'utf8');
+    await fs.writeFile(path.join(projectRoot, 'translations', 'en.yaml'), 'en: content', 'utf8');
+
+    (cloudModuleMock.fetchCloudApp as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: 'app1',
+      name: 'App',
+      screens: [],
+      widgets: [],
+      scripts: [],
+      translations: [],
+      theme: undefined,
+    });
+
+    const { CdnClientError } = await import('../../src/cloud/cdnClient.js');
+    cdnClientMock.createAppManifest.mockRejectedValueOnce(
+      new CdnClientError({ message: 'CDN sync failed (500).' })
+    );
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const originalExitCode = process.exitCode;
+
+    await pushCommand({ yes: true });
+
+    expect(cloudModuleMock.submitCliPush).toHaveBeenCalledTimes(1);
+    expect(cdnClientMock.createAppManifest).toHaveBeenCalledTimes(1);
+    expect(process.exitCode).toBe(1);
+    const errors = errorSpy.mock.calls.map(([msg]) => String(msg)).join('\n');
+    expect(errors).toContain('Cloud push succeeded, but CDN sync failed.');
+    expect(
+      logSpy.mock.calls.some(
+        ([msg]) => typeof msg === 'string' && msg.includes('Pushed app "App" to environment "dev"')
+      )
+    ).toBe(false);
+
+    process.exitCode = originalExitCode;
+    errorSpy.mockRestore();
+    logSpy.mockRestore();
   });
 
   it('push clears cloud secrets when .env.secrets is empty', async () => {

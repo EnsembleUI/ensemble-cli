@@ -32,7 +32,7 @@ ensemble update
 | `ensemble logout`  | Log out and clear local auth session                                          |
 | `ensemble token`   | Print token for CI (set as `ENSEMBLE_TOKEN`); run `ensemble login` first      |
 | `ensemble init`    | Initialize or update `ensemble.config.json` in the project                    |
-| `ensemble push`    | Scan the app directory and push changes to the cloud                          |
+| `ensemble push`    | Scan the app directory and push changes to the cloud (also syncs the app manifest to CDN) |
 | `ensemble pull`    | Pull artifacts from the cloud and overwrite local files                       |
 | `ensemble release` | Manage releases (snapshots) of your app (interactive menu or subcommands)     |
 | `ensemble add`     | Add a new screen, widget, script, action, translation, or asset               |
@@ -154,7 +154,7 @@ Run YAML tests in a Flutter starter project (starter root or `ensemble/apps/<app
 
 1. Log in: `ensemble login`
 2. From your project root, run `ensemble init` and link an existing app
-3. Run `ensemble push` to sync your local app (screens, widgets, scripts, etc.) with the cloud
+3. Run `ensemble push` to sync your local app (screens, widgets, scripts, etc.) with the cloud and publish the CDN manifest (for apps using `definitions.from: cdn` in `ensemble-config.yaml`)
 4. Optionally run `ensemble pull` to refresh local artifacts from the cloud when other collaborators change them
 
 ### Environment files
