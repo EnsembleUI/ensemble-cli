@@ -166,9 +166,7 @@ async function sessionFromEnvToken(): Promise<AuthSessionResult> {
   }
 }
 
-function sessionFromStoredUser(
-  user: NonNullable<EnsembleUserConfig['user']>
-): AuthSessionResult {
+function sessionFromStoredUser(user: NonNullable<EnsembleUserConfig['user']>): AuthSessionResult {
   return {
     ok: true,
     idToken: user.idToken,
