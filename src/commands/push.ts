@@ -2,6 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import prompts from 'prompts';
 
+import { createAppManifest, CdnClientError } from '../cloud/cdnClient.js';
 import {
   checkAppAccess,
   fetchCloudApp,
@@ -510,6 +511,8 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
         await writeEnvFile(root, envLocal.configWriteFile, pendingLocalEnvConfigWrite);
       }
 
+      let cloudWritten = false;
+
       if (yamlChangeTotal > 0 || assetsToUpload.length > 0 || assetsToArchive.length > 0) {
         const { assetsUploaded } = await withSpinner('Pushing changes to cloud...', () =>
           submitCliPush(appId, idToken, pushPayload, firestoreOptions, {
@@ -517,6 +520,7 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
             ...(assetsToUpload.length > 0 && { assetFileNames: assetsToUpload }),
           })
         );
+        cloudWritten = true;
         if (assetsUploaded > 0) {
           ui.success(`Uploaded ${assetsUploaded} asset(s) and updated .env.config.`);
         }
@@ -534,6 +538,11 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
             firestoreOptions
           )
         );
+        cloudWritten = true;
+      }
+
+      if (cloudWritten) {
+        await withSpinner('Syncing to CDN...', () => createAppManifest(appId, idToken));
       }
 
       if (manifestNeedsRefresh && bundle) {
@@ -563,6 +572,12 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
         } else if (err.code === 'NETWORK_UNAVAILABLE') {
           console.error('Network error. Check your internet connection or proxy settings.');
         }
+      } else if (err instanceof CdnClientError) {
+        console.error(err.message);
+        if (err.hint) {
+          console.error(err.hint);
+        }
+        console.error('Cloud push succeeded, but CDN sync failed.');
       } else {
         const message = err instanceof Error ? err.message : String(err);
         console.error(message);
