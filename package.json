@@ -1,6 +1,6 @@
 {
   "name": "@ensembleui/cli",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Ensemble CLI for logging in, initializing, and pushing/pulling app definitions to the cloud.",
   "bin": {
     "ensemble": "dist/index.js"
@@ -37,7 +37,9 @@
   "type": "commonjs",
   "dependencies": {
     "commander": "^12.1.0",
+    "dotenv": "^8.2.0",
     "jiti": "^2.4.2",
+    "node-fetch": "^3.3.2",
     "picocolors": "^1.1.0",
     "prompts": "^2.4.2",
     "tar": "^7.5.22"
