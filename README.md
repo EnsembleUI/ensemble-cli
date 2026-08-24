@@ -26,19 +26,19 @@ ensemble update
 
 ## Commands
 
-| Command            | Description                                                                               |
-| ------------------ | ----------------------------------------------------------------------------------------- |
-| `ensemble login`   | Log in to Ensemble (opens browser)                                                        |
-| `ensemble logout`  | Log out and clear local auth session                                                      |
-| `ensemble token`   | Print token for CI (set as `ENSEMBLE_TOKEN`); run `ensemble login` first                  |
-| `ensemble init`    | Initialize or update `ensemble.config.json` in the project                                |
+| Command            | Description                                                                                     |
+| ------------------ | ----------------------------------------------------------------------------------------------- |
+| `ensemble login`   | Log in to Ensemble (opens browser)                                                              |
+| `ensemble logout`  | Log out and clear local auth session                                                            |
+| `ensemble token`   | Print token for CI (set as `ENSEMBLE_TOKEN`); run `ensemble login` first                        |
+| `ensemble init`    | Initialize or update `ensemble.config.json` in the project                                      |
 | `ensemble push`    | Scan the app directory and push changes to the cloud (optionally syncs the app manifest to CDN) |
-| `ensemble pull`    | Pull artifacts from the cloud and overwrite local files                                   |
-| `ensemble release` | Manage releases (snapshots) of your app (interactive menu or subcommands)                 |
-| `ensemble add`     | Add a new screen, widget, script, action, translation, or asset                           |
-| `ensemble enable`  | Enable starter modules (camera, location, google_maps, etc.) in a Flutter app             |
-| `ensemble test`    | Run declarative YAML tests in a Flutter starter project                                   |
-| `ensemble update`  | Update the CLI to the latest version                                                      |
+| `ensemble pull`    | Pull artifacts from the cloud and overwrite local files                                         |
+| `ensemble release` | Manage releases (snapshots) of your app (interactive menu or subcommands)                       |
+| `ensemble add`     | Add a new screen, widget, script, action, translation, or asset                                 |
+| `ensemble enable`  | Enable starter modules (camera, location, google_maps, etc.) in a Flutter app                   |
+| `ensemble test`    | Run declarative YAML tests in a Flutter starter project                                         |
+| `ensemble update`  | Update the CLI to the latest version                                                            |
 
 ### Options
 

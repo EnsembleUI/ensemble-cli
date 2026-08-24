@@ -1150,9 +1150,7 @@ describe('push/pull integration (commands)', () => {
       )
     ).toBe(true);
     expect(
-      logSpy.mock.calls.some(
-        ([msg]) => typeof msg === 'string' && msg.includes('Skipped CDN sync')
-      )
+      logSpy.mock.calls.some(([msg]) => typeof msg === 'string' && msg.includes('Skipped CDN sync'))
     ).toBe(true);
 
     logSpy.mockRestore();
