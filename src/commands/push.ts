@@ -542,7 +542,28 @@ export async function pushCommand(options: PushOptions = {}): Promise<void> {
       }
 
       if (cloudWritten) {
-        await withSpinner('Syncing to CDN...', () => createAppManifest(appId, idToken));
+        let syncToCdn = options.yes === true;
+        if (!syncToCdn) {
+          if (isInteractive) {
+            const { syncCdn } = await prompts({
+              type: 'confirm',
+              name: 'syncCdn',
+              message: 'Sync app to CDN?',
+              initial: false,
+            });
+            syncToCdn = syncCdn === true;
+          } else {
+            // Non-interactive without --yes never reaches here (refused earlier).
+            // If it does, skip CDN rather than syncing without confirmation.
+            syncToCdn = false;
+          }
+        }
+
+        if (syncToCdn) {
+          await withSpinner('Syncing to CDN...', () => createAppManifest(appId, idToken));
+        } else {
+          ui.note('Skipped CDN sync. Cloud push succeeded.');
+        }
       }
 
       if (manifestNeedsRefresh && bundle) {

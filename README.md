@@ -32,7 +32,7 @@ ensemble update
 | `ensemble logout`  | Log out and clear local auth session                                                      |
 | `ensemble token`   | Print token for CI (set as `ENSEMBLE_TOKEN`); run `ensemble login` first                  |
 | `ensemble init`    | Initialize or update `ensemble.config.json` in the project                                |
-| `ensemble push`    | Scan the app directory and push changes to the cloud (also syncs the app manifest to CDN) |
+| `ensemble push`    | Scan the app directory and push changes to the cloud (optionally syncs the app manifest to CDN) |
 | `ensemble pull`    | Pull artifacts from the cloud and overwrite local files                                   |
 | `ensemble release` | Manage releases (snapshots) of your app (interactive menu or subcommands)                 |
 | `ensemble add`     | Add a new screen, widget, script, action, translation, or asset                           |
@@ -47,7 +47,7 @@ ensemble update
 - **push** — `--app <alias>` — App alias / environment key from `ensemble.config.json` (default: `default`)
 - **push** — `--verbose` — Write collected data, diff, bundle, and payload JSON files for debugging
 - **push** — `--dry-run` — Show what would be pushed without sending anything to the cloud
-- **push** — `-y, --yes` — Skip confirmation prompt (useful for CI)
+- **push** — `-y, --yes` — Skip confirmation prompts and sync to CDN after a successful cloud push (useful for CI)
 - **pull** — `--app <alias>` — App alias / environment key from `ensemble.config.json` (default: `default`)
 - **pull** — `--verbose` — Write fetched cloud JSON to disk
 - **pull** — `--dry-run` — Show what would change without modifying local files
@@ -154,7 +154,7 @@ Run YAML tests in a Flutter starter project (starter root or `ensemble/apps/<app
 
 1. Log in: `ensemble login`
 2. From your project root, run `ensemble init` and link an existing app
-3. Run `ensemble push` to sync your local app (screens, widgets, scripts, etc.) with the cloud and publish the CDN manifest (for apps using `definitions.from: cdn` in `ensemble-config.yaml`)
+3. Run `ensemble push` to sync your local app (screens, widgets, scripts, etc.) with the cloud. Interactively you will be asked whether to sync the CDN manifest (for apps using `definitions.from: cdn`); with `-y` CDN sync runs automatically after a successful cloud push.
 4. Optionally run `ensemble pull` to refresh local artifacts from the cloud when other collaborators change them
 
 ### Environment files
@@ -197,7 +197,7 @@ If `ENSEMBLE_TOKEN` is not set, the CLI uses the global config from `ensemble lo
 
 **Non-interactive:** Use `-y` so push and pull do not prompt:
 
-- `ensemble push -y` — Push without confirmation.
+- `ensemble push -y` — Push without confirmation and sync to CDN after cloud upload.
 - `ensemble pull -y` — Pull without confirmation.
 
 Without `-y`, both commands refuse to run when not attached to a TTY and exit with code 1. Use `--dry-run` in a validation job to inspect changes without applying them. The project must already have `ensemble.config.json`.

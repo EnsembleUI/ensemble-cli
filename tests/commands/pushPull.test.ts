@@ -152,6 +152,8 @@ describe('push/pull integration (commands)', () => {
     process.chdir(originalCwd);
     await fs.rm(projectRoot, { recursive: true, force: true });
     vi.clearAllMocks();
+    promptsModuleMock.default.mockReset();
+    promptsModuleMock.default.mockImplementation(async () => ({ proceed: true }));
   });
 
   it('push uses defaultLanguage from .manifest and sends correct translation payload', async () => {
@@ -1107,6 +1109,96 @@ describe('push/pull integration (commands)', () => {
     process.exitCode = originalExitCode;
     errorSpy.mockRestore();
     logSpy.mockRestore();
+  });
+
+  it('interactive push asks before CDN sync and skips when declined', async () => {
+    await fs.writeFile(path.join(projectRoot, 'screens', 'Home.yaml'), 'home: content', 'utf8');
+    await fs.writeFile(path.join(projectRoot, 'translations', 'en.yaml'), 'en: content', 'utf8');
+
+    (cloudModuleMock.fetchCloudApp as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: 'app1',
+      name: 'App',
+      screens: [],
+      widgets: [],
+      scripts: [],
+      translations: [],
+      theme: undefined,
+    });
+
+    const stdoutDescriptor = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
+    const stdinDescriptor = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+    Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: true });
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: true });
+
+    promptsModuleMock.default
+      .mockResolvedValueOnce({ proceed: true })
+      .mockResolvedValueOnce({ syncCdn: false });
+
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await pushCommand({ yes: false });
+
+    expect(cloudModuleMock.submitCliPush).toHaveBeenCalledTimes(1);
+    expect(cdnClientMock.createAppManifest).not.toHaveBeenCalled();
+    expect(
+      promptsModuleMock.default.mock.calls.some(
+        ([args]) =>
+          args &&
+          typeof args === 'object' &&
+          'message' in args &&
+          String((args as { message?: unknown }).message).includes('Sync app to CDN')
+      )
+    ).toBe(true);
+    expect(
+      logSpy.mock.calls.some(
+        ([msg]) => typeof msg === 'string' && msg.includes('Skipped CDN sync')
+      )
+    ).toBe(true);
+
+    logSpy.mockRestore();
+    if (stdoutDescriptor) {
+      Object.defineProperty(process.stdout, 'isTTY', stdoutDescriptor);
+    }
+    if (stdinDescriptor) {
+      Object.defineProperty(process.stdin, 'isTTY', stdinDescriptor);
+    }
+  });
+
+  it('interactive push syncs to CDN when confirmed', async () => {
+    await fs.writeFile(path.join(projectRoot, 'screens', 'Home.yaml'), 'home: content', 'utf8');
+    await fs.writeFile(path.join(projectRoot, 'translations', 'en.yaml'), 'en: content', 'utf8');
+
+    (cloudModuleMock.fetchCloudApp as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: 'app1',
+      name: 'App',
+      screens: [],
+      widgets: [],
+      scripts: [],
+      translations: [],
+      theme: undefined,
+    });
+
+    const stdoutDescriptor = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
+    const stdinDescriptor = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+    Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: true });
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: true });
+
+    promptsModuleMock.default
+      .mockResolvedValueOnce({ proceed: true })
+      .mockResolvedValueOnce({ syncCdn: true });
+
+    await pushCommand({ yes: false });
+
+    expect(cloudModuleMock.submitCliPush).toHaveBeenCalledTimes(1);
+    expect(cdnClientMock.createAppManifest).toHaveBeenCalledTimes(1);
+    expect(cdnClientMock.createAppManifest).toHaveBeenCalledWith('app1', 'token');
+
+    if (stdoutDescriptor) {
+      Object.defineProperty(process.stdout, 'isTTY', stdoutDescriptor);
+    }
+    if (stdinDescriptor) {
+      Object.defineProperty(process.stdin, 'isTTY', stdinDescriptor);
+    }
   });
 
   it('push clears cloud secrets when .env.secrets is empty', async () => {
