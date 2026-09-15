@@ -2,13 +2,11 @@ import fs from 'fs/promises';
 import path from 'path';
 import prompts from 'prompts';
 
-import { loadProjectConfig, resolveAppContext } from '../config/projectConfig.js';
-import { getValidAuthSession } from '../auth/session.js';
-import { uploadAssetToStudio } from '../cloud/assetClient.js';
-import { upsertEnvConfig } from '../core/envConfig.js';
+import { loadProjectConfig } from '../config/projectConfig.js';
+import { buildLocalAssetEnvEntries, buildLocalAssetUsageKey } from '../core/assetEnv.js';
+import { readEnvFile, upsertEnvConfig } from '../core/envConfig.js';
 import { upsertManifestEntry } from '../core/manifest.js';
 import { ui } from '../core/ui.js';
-import { withSpinner } from '../lib/spinner.js';
 
 export type AddKind = 'screen' | 'widget' | 'script' | 'action' | 'translation' | 'asset';
 
@@ -109,7 +107,7 @@ async function addAsset(
         message: `Asset already exists at ${path.relative(projectRoot, targetPath)}. What do you want to do?`,
         choices: [
           { title: 'Cancel', value: 'cancel' },
-          { title: 'Overwrite (reupload)', value: 'overwrite' },
+          { title: 'Overwrite', value: 'overwrite' },
         ],
         initial: 0,
       });
@@ -128,27 +126,23 @@ async function addAsset(
 
   await fs.copyFile(resolvedInputPath, targetPath);
 
-  const fileBuffer = await fs.readFile(targetPath);
-  const fileDataBase64 = fileBuffer.toString('base64');
-
-  const { appId } = await resolveAppContext();
-  const session = await getValidAuthSession();
-  if (!session.ok) {
-    throw new Error(`${session.message}\nRun \`ensemble login\` and try again.`);
+  let existingAssetsBaseUrl: string | undefined;
+  try {
+    const existingConfig = await readEnvFile(projectRoot, '.env.config');
+    const assetsEntry = existingConfig.find((entry) => entry.key === 'assets');
+    if (assetsEntry?.value) {
+      existingAssetsBaseUrl = assetsEntry.value;
+    }
+  } catch {
+    existingAssetsBaseUrl = undefined;
   }
-  const uploadResult = await withSpinner('Uploading asset to cloud...', async () => {
-    const result = await uploadAssetToStudio(appId, fileName, fileDataBase64, session.idToken);
-    await upsertEnvConfig(projectRoot, [
-      { key: 'assets', value: result.assetBaseUrl, overwrite: false },
-      { key: result.envVariable.key, value: result.envVariable.value },
-    ]);
-    return result;
-  });
+
+  await upsertEnvConfig(projectRoot, buildLocalAssetEnvEntries(fileName, existingAssetsBaseUrl));
 
   return {
     fileName,
     createdPath: path.relative(projectRoot, targetPath),
-    usageKey: uploadResult.usageKey,
+    usageKey: buildLocalAssetUsageKey(fileName),
   };
 }
 
@@ -278,8 +272,9 @@ export async function addCommand(
     }
     ui.success(`Created asset "${fileName}" at ${createdPath} and updated .env.config.`);
     if (usageKey) {
-      ui.note(`Usage Example: ${usageKey}`);
+      ui.note(`Usage: ${usageKey}`);
     }
+    ui.note('Asset saved locally. Run `ensemble push` to upload to cloud.');
     return;
   }
 
