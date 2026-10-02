@@ -7,4 +7,9 @@ yarn-error.log*
 .DS_Store
 .idea/
 .eslintcache
-config.bat
+
+.env
+
+.env.local
+
+.vscode/
